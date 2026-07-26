@@ -1,0 +1,21 @@
+Heurekaskills — Public Scientific Workflow Skills for Arc
+
+This repository is dual-licensed:
+
+  - Source code (the site generator, validation and deploy scripts, build
+    tooling) is licensed under the Apache License, Version 2.0. See
+    LICENSE-APACHE-2.0 for the full text, or visit
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  - Skills and documentation content (SKILL.md files, reference files, and
+    README files) are additionally available under the Creative Commons
+    Attribution 4.0 International License (CC-BY-4.0). See LICENSE-CC-BY-4.0
+    for the full text, or visit https://creativecommons.org/licenses/by/4.0/
+
+SPDX-License-Identifier: Apache-2.0 OR CC-BY-4.0
+
+Copyright (c) 2026 Heureka Labs, Inc. All rights reserved.
+
+Portions of the seed skills are adapted from the NVIDIA BioNeMo Agent Toolkit
+(Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES) and used under CC-BY-4.0.
+See NOTICE for the required attribution.

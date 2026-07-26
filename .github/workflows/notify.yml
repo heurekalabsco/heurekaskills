@@ -1,0 +1,30 @@
+name: Notify site to rebuild
+
+# Skill changes on main trigger a rebuild of the site that serves this registry.
+# The target and the token are repo configuration, not source, so nothing about
+# the deployment appears here. Pull requests never receive secrets, so only a
+# merged change can trigger it.
+on:
+  push:
+    branches: [main]
+    paths: ['skills/**']
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger rebuild
+        env:
+          TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+          TARGET: ${{ vars.SITE_REPO }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$TARGET" ]; then
+            echo "Dispatch not configured — skipping. The site also rebuilds on its own schedule."
+            exit 0
+          fi
+          curl -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$TARGET/dispatches" \
+            -d '{"event_type":"skills-updated"}'

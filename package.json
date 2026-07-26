@@ -1,0 +1,17 @@
+{
+  "name": "heurekaskills",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public registry of scientific workflow skills",
+  "license": "Apache-2.0 OR CC-BY-4.0",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "validate": "node scripts/validate.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

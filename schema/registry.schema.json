@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://heurekaskills.com/schema/registry.schema.json",
+  "title": "Heurekaskills registry index (registry.json)",
+  "type": "object",
+  "required": ["schemaVersion", "skills"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string" },
+    "site": { "type": "string" },
+    "source": {
+      "type": "object",
+      "properties": {
+        "repo": { "type": "string" },
+        "ref": { "type": "string" },
+        "commit": { "type": "string" }
+      }
+    },
+    "count": { "type": "integer" },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slug", "name", "description", "category", "checksum", "manifest"],
+        "additionalProperties": true,
+        "properties": {
+          "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "enum": ["fetch", "analysis", "utility"] },
+          "version": { "type": "string" },
+          "author": { "type": "string" },
+          "license": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "updatedAt": { "type": "string" },
+          "fileCount": { "type": "integer" },
+          "checksum": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "url": { "type": "string" },
+          "manifest": { "type": "string" }
+        }
+      }
+    }
+  }
+}
