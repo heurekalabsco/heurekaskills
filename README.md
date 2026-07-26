@@ -44,7 +44,7 @@ Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.
 
 ## Installing a skill
 
-In **Heureka Bench**: Settings → Extensions → Skills → *Browse registry*, then install
+In **Heureka Bench**: Settings → ARC → Skills → *Browse registry*, then install
 any skill from the list.
 
 You can also just ask ARC — it can search this registry and install a skill
