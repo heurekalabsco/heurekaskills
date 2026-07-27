@@ -12,8 +12,12 @@ SPDX-License-Identifier: Apache-2.0 OR CC-BY-4.0
 THIRD-PARTY ATTRIBUTION (CC-BY-4.0)
 =======================================================================
 
-The following seed skills are adapted from the NVIDIA BioNeMo Agent Toolkit
-and are redistributed under CC-BY-4.0. Their SKILL.md frontmatter has been
+-----------------------------------------------------------------------
+NVIDIA BioNeMo Agent Toolkit
+-----------------------------------------------------------------------
+
+The following skills are adapted from the NVIDIA BioNeMo Agent Toolkit and
+are redistributed under CC-BY-4.0. Their SKILL.md frontmatter has been
 reformatted for compatibility with the Arc skill loader; their instructional
 content is substantially the original work:
 
@@ -24,3 +28,27 @@ content is substantially the original work:
   Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
   Licensed under CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)
   Source: https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit
+
+-----------------------------------------------------------------------
+scientific-agent-skills (K-Dense AI)
+-----------------------------------------------------------------------
+
+The following skills are adapted from the scientific-agent-skills project.
+Frontmatter has been rewritten for this registry, bundled helper scripts
+have been removed (this registry publishes documentation only) and their
+functionality inlined, and references to that project's other skills have
+been removed. The remaining instructional content is substantially the
+original work:
+
+  skills/anndata                        skills/polars-bio
+  skills/biopython                      skills/pydeseq2
+  skills/cellxgene-census               skills/scientific-critical-thinking
+  skills/datamol                        skills/scikit-bio
+  skills/esm                            skills/scvi-tools
+  skills/experimental-design            skills/statistical-power
+  skills/pathway-enrichment
+
+  scientific-agent-skills
+  Copyright (c) 2025 K-Dense Inc.
+  Licensed under the MIT License
+  Source: https://github.com/K-Dense-AI/scientific-agent-skills
