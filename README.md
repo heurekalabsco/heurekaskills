@@ -44,15 +44,11 @@ Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.
 
 ## Installing a skill
 
-**CLI**
+In **Heureka Bench**: Settings → ARC → Skills → *Browse registry*, then install
+any skill from the list.
 
-```
-arc skill install <slug>          # e.g. arc skill install boltz2-nim
-arc skill list --remote
-```
-
-**Heureka Bench** — Settings → Extensions → Skills → *Install from URL*, then paste
-`https://heurekaskills.com/<slug>`.
+You can also just ask ARC — it can search this registry and install a skill
+mid-conversation, then use it in the same turn.
 
 ## Machine interface
 
