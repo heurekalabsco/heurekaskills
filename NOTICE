@@ -1,15 +1,20 @@
 Heurekaskills
 Copyright (c) 2026 Heureka Labs, Inc.
 
-This project is dual-licensed: source code under the Apache License, Version
-2.0, and skills/documentation content under the Creative Commons Attribution
-4.0 International License (CC-BY-4.0). See LICENSE, LICENSE-APACHE-2.0, and
-LICENSE-CC-BY-4.0.
+Source code in this repository is licensed under the Apache License, Version
+2.0. Skill content authored here is licensed under the Creative Commons
+Attribution 4.0 International License (CC-BY-4.0). See LICENSE,
+LICENSE-APACHE-2.0, and LICENSE-CC-BY-4.0.
 
 SPDX-License-Identifier: Apache-2.0 OR CC-BY-4.0
 
+Skills adapted from third-party sources are NOT covered by the above. Each
+is redistributed under the licence that governs it, named in that skill's
+`license` frontmatter field, with its source in `attribution`. Those skills
+and their licences are listed below.
+
 =======================================================================
-THIRD-PARTY ATTRIBUTION (CC-BY-4.0)
+THIRD-PARTY ATTRIBUTION
 =======================================================================
 
 -----------------------------------------------------------------------
