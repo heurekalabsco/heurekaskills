@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const CATEGORIES = ['fetch', 'analysis', 'utility'];
+export const CATEGORIES = ['data', 'models', 'analysis', 'utility'];
 
 export const SLUG_RE = /^[a-z0-9-]+$/;
 

@@ -14,19 +14,25 @@ goes live.
    ---
    name: <slug>
    description: One single-line sentence — when should the agent use this skill?
-   category: fetch | analysis | utility
+   category: data | models | analysis | utility
    license: CC-BY-4.0
    author: <your name or org>
    version: 1.0.0
    tags: [a, b]
    ---
    ```
+
+   When a skill is adapted from a third party, keep their licence in `license`,
+   credit them in `author`, and point `attribution` at the original source. The
+   body is Heureka Labs' rewrite — it documents the third-party *tools*, but it
+   should not carry another vendor's authorship or house style.
 3. Put supporting material in `skills/<slug>/references/`. Relative paths only — no `..`,
    absolute paths, or symlinks.
 
 ## What belongs here
 
-Skills that **fetch** data or **analyze** it, written so any agent can follow them.
+Skills that get **data**, run **models**, or **analyze** results, written so any agent
+can follow them.
 
 Skills are documentation the agent reads, not code it runs, so only these file types may
 be published: `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`, `.tsv`, `.bib`.
@@ -37,7 +43,7 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 
 - `SKILL.md` present; `name` / `description` parse as non-empty single-line values.
 - `name` equals the directory name and matches `^[a-z0-9-]+$`.
-- `category` is one of `fetch`, `analysis`, `utility`.
+- `category` is one of `data`, `models`, `analysis`, `utility`.
 - Reference paths are relative and safe; no symlinks.
 - Allowed file types only.
 - Per-file (1 MB) and per-skill (5 MB) size caps; at most 50 files per skill.

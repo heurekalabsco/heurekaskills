@@ -20,11 +20,12 @@ skills/<slug>/
 ---
 name: my-skill            # must equal the directory name; [a-z0-9-]+
 description: One single-line sentence describing when to use this skill.
-category: analysis        # fetch | analysis | utility
+category: analysis        # data | models | analysis | utility
 license: CC-BY-4.0
 author: Your Name
 version: 1.0.0
 tags: [example, demo]
+attribution: https://example.com/source   # only when adapted from a third party
 ---
 ```
 
@@ -38,9 +39,10 @@ Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.
 
 | category | for |
 |---|---|
-| `fetch` | retrieving data from an external source |
-| `analysis` | processing, computing over, or evaluating data |
-| `utility` | general-purpose helpers |
+| `data` | getting information out of an external source — databases, atlases, APIs |
+| `models` | running a trained model — protein language models, structure prediction, docking |
+| `analysis` | processing, computing over, or evaluating data you already have |
+| `utility` | file formats, methodology, general-purpose helpers |
 
 ## Installing a skill
 
@@ -68,6 +70,6 @@ reviews and merges. Merged changes appear on the site shortly afterwards.
 ## License
 
 Dual-licensed: code under **Apache-2.0**, skills and documentation under **CC-BY-4.0**.
-See [LICENSE](LICENSE) and [NOTICE](NOTICE). Seed skills are adapted from the
-[NVIDIA BioNeMo Agent Toolkit](https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit)
-under CC-BY-4.0.
+See [LICENSE](LICENSE). Some skills are adapted from third-party sources under their
+original licenses — each one names its source in the `attribution` field, and the full
+attribution list is in [NOTICE](NOTICE).

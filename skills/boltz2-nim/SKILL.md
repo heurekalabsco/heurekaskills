@@ -1,7 +1,7 @@
 ---
 name: boltz2-nim
 description: Use Boltz2 NIM for biomolecular structure prediction and binding affinity. Invoke for Boltz2, protein structures, protein-ligand/DNA/RNA complexes, SMILES or CCD ligands, pIC50/IC50 affinity scoring, mmCIF output, hosted NVIDIA API calls, or local Docker deployment.
-category: analysis
+category: models
 license: CC-BY-4.0 AND Apache-2.0
 author: NVIDIA BioNeMo Agent Toolkit (adapted by Heureka Labs)
 attribution: https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit
