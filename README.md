@@ -20,11 +20,12 @@ skills/<slug>/
 ---
 name: my-skill            # must equal the directory name; [a-z0-9-]+
 description: One single-line sentence describing when to use this skill.
-category: analysis        # fetch | analysis | utility
+category: analysis        # data | models | analysis | utility
 license: CC-BY-4.0
 author: Your Name
 version: 1.0.0
 tags: [example, demo]
+attribution: https://example.com/source   # only when adapted from a third party
 ---
 ```
 
@@ -38,9 +39,10 @@ Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.
 
 | category | for |
 |---|---|
-| `fetch` | retrieving data from an external source |
-| `analysis` | processing, computing over, or evaluating data |
-| `utility` | general-purpose helpers |
+| `data` | getting information out of an external source — databases, atlases, APIs |
+| `models` | running a trained model — protein language models, structure prediction, docking |
+| `analysis` | processing, computing over, or evaluating data you already have |
+| `utility` | file formats, methodology, general-purpose helpers |
 
 ## Installing a skill
 
@@ -67,7 +69,15 @@ reviews and merges. Merged changes appear on the site shortly afterwards.
 
 ## License
 
-Dual-licensed: code under **Apache-2.0**, skills and documentation under **CC-BY-4.0**.
-See [LICENSE](LICENSE) and [NOTICE](NOTICE). Seed skills are adapted from the
-[NVIDIA BioNeMo Agent Toolkit](https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit)
-under CC-BY-4.0.
+Repository code is licensed under **Apache-2.0**. Skill content authored here is
+licensed under **CC-BY-4.0**. See [LICENSE](LICENSE).
+
+**Skills adapted from third-party sources keep their original licence.** That licence
+is named in each skill's `license` frontmatter field and shown on its page; the source
+is in `attribution`; the full list is in [NOTICE](NOTICE). Do not assume a skill is
+CC-BY-4.0 — check the skill.
+
+Skills are documentation describing how to use third-party tools and data sources.
+They are provided **as is, without warranty of any kind**, and naming a tool here is
+not an endorsement of it or a claim of affiliation with it. Verify results before
+relying on them.

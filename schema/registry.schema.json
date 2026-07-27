@@ -28,7 +28,7 @@
           "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
           "name": { "type": "string" },
           "description": { "type": "string" },
-          "category": { "enum": ["fetch", "analysis", "utility"] },
+          "category": { "enum": ["data", "models", "analysis", "utility"] },
           "version": { "type": "string" },
           "author": { "type": "string" },
           "license": { "type": "string" },
