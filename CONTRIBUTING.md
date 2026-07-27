@@ -50,6 +50,18 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 
 ## License
 
-By contributing you agree your skill content is released under **CC-BY-4.0** and any code
-under **Apache-2.0**. If you adapt third-party CC-BY content, preserve attribution in the
+By contributing **original** skill content you agree it is released under **CC-BY-4.0**,
+and any code under **Apache-2.0**.
+
+**Adapted content keeps its original licence — do not relicense it.** Set `license` to
+the licence that actually governs the text you are redistributing, credit the original
+author in `author`, and point `attribution` at the source. Only permissively licensed
+sources are accepted (MIT, BSD, Apache-2.0, CC-BY). Content whose licence you cannot
+positively identify will not be merged, and neither will anything under a share-alike
+or non-commercial licence.
+
+Write the body in your own words. Do not paste documentation from the tool you are
+documenting — a skill is instructions for an agent, not a copy of an upstream manual.
+
+If you adapt third-party CC-BY content, preserve attribution in the
 skill and in `NOTICE`.

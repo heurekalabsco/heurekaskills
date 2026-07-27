@@ -69,7 +69,15 @@ reviews and merges. Merged changes appear on the site shortly afterwards.
 
 ## License
 
-Dual-licensed: code under **Apache-2.0**, skills and documentation under **CC-BY-4.0**.
-See [LICENSE](LICENSE). Some skills are adapted from third-party sources under their
-original licenses — each one names its source in the `attribution` field, and the full
-attribution list is in [NOTICE](NOTICE).
+Repository code is licensed under **Apache-2.0**. Skill content authored here is
+licensed under **CC-BY-4.0**. See [LICENSE](LICENSE).
+
+**Skills adapted from third-party sources keep their original licence.** That licence
+is named in each skill's `license` frontmatter field and shown on its page; the source
+is in `attribution`; the full list is in [NOTICE](NOTICE). Do not assume a skill is
+CC-BY-4.0 — check the skill.
+
+Skills are documentation describing how to use third-party tools and data sources.
+They are provided **as is, without warranty of any kind**, and naming a tool here is
+not an endorsement of it or a claim of affiliation with it. Verify results before
+relying on them.
