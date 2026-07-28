@@ -1,6 +1,6 @@
 ---
 name: gaudi
-description: Unsupervised multi-omics integration with GAUDI — two-stage UMAP, HDBSCAN clustering, and SHAP metagenes. Use when two or more omics layers share samples and you need sample clusters plus the features driving them.
+description: Unsupervised multi-omics integration with GAUDI — two-stage UMAP, HDBSCAN clustering, and SHAP metagenes, in R or Python. Use when two or more omics layers share samples and you need sample clusters plus the features driving them.
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
@@ -30,6 +30,15 @@ R 4.3.2.** The failure modes in *Sharp edges* are real and reproducible — read
 that section before running anything on real data. Several of them fail
 **silently**, and one of them silently deletes samples.
 
+**No R available, or Python-only?** GAUDI is a composition of UMAP, HDBSCAN and
+SHAP — the R package is one implementation of the method, not the method
+itself. `references/python-implementation.md` states the algorithm
+language-agnostically and gives a tested Python version that reproduces the R
+package's clusters exactly on separable data. Do not install R just to run
+this. Everything in this document other than the R call syntax — the input
+contract, the parameter choices, the sharp edges, the reporting standards —
+applies to either route.
+
 ## Why two stages of UMAP
 
 The first UMAP normalises each layer's contribution: a 25,000-feature
@@ -48,7 +57,8 @@ label (cluster `0`) that you must handle deliberately.
 
 ## Install and load
 
-`gaudi` is not on CRAN or Bioconductor.
+`gaudi` is not on CRAN or Bioconductor. If R is unavailable, skip this section
+entirely and use `references/python-implementation.md`.
 
 ```r
 # install.packages("devtools")
@@ -431,6 +441,12 @@ them.
   argument you cannot find above, or to confirm a slot's shape before indexing.
 - `references/analysis-template.md` — a complete guarded analysis script.
   Copy the fenced block to `gaudi_analysis.R` and edit the CONFIG section.
+- `references/python-implementation.md` — the method stated
+  language-agnostically, plus a tested Python implementation for when R is
+  unavailable. Includes the porting traps that make a naive translation
+  silently wrong (`min_dist` defaults differ 10×; the noise label differs) and
+  a verified account of what reproduces across implementations and what does
+  not.
 
 ## Sources
 
