@@ -1,0 +1,53 @@
+name: Skill request
+description: Request a scientific workflow skill for the registry
+title: "[skill-request] "
+labels: ["skill-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Request a skill for the registry. A maintainer reviews every skill before it is published,
+        and the source must be permissively licensed (MIT / BSD / Apache-2.0 / CC-BY) to be publishable.
+
+        Requests are answered on the issue itself, so watch this thread for updates.
+
+        Writing one yourself instead? Skills contributed from Heureka Bench are published under
+        [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and credited to you by name, so
+        only share work that is yours to license. Adapted third-party material keeps its original
+        licence and belongs in a hand-authored pull request.
+  - type: input
+    id: what
+    attributes:
+      label: What should the skill do?
+      description: One sentence describing the capability you want.
+      placeholder: Fetch and analyze single-cell RNA-seq from CELLxGENE Census
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which kind of skill is this?
+      options:
+        - data — get information from an external source (databases, atlases, APIs)
+        - models — run a trained model (protein LMs, structure prediction, docking)
+        - analysis — compute over data you already have
+        - utility — file formats, methodology, general-purpose helpers
+        - communication — figures, graphical abstracts, posters, talks, plain-language summaries
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Data sources, methods, expected inputs/outputs, and an example of how you'd use it.
+  - type: input
+    id: source
+    attributes:
+      label: Example source or paper (URL / DOI)
+      placeholder: https://doi.org/...
+  - type: input
+    id: license
+    attributes:
+      label: Known license of the source (if any)
+      description: Permissive licenses only (MIT / BSD / Apache-2.0 / CC-BY). Leave blank if unsure.
