@@ -20,7 +20,7 @@ skills/<slug>/
 ---
 name: my-skill            # must equal the directory name; [a-z0-9-]+
 description: One single-line sentence describing when to use this skill.
-category: analysis        # data | models | analysis | utility
+category: analysis        # data | models | analysis | utility | communication
 license: CC-BY-4.0
 author: Your Name
 version: 1.0.0
@@ -43,6 +43,10 @@ Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.
 | `models` | running a trained model — protein language models, structure prediction, docking |
 | `analysis` | processing, computing over, or evaluating data you already have |
 | `utility` | file formats, methodology, general-purpose helpers |
+| `communication` | conveying science to a person — figures, graphical abstracts, posters, talks, plain-language summaries |
+
+`communication` vs `utility`: a communication skill's output is read or viewed by a
+person; a utility skill's output feeds another tool or workflow step.
 
 ## Installing a skill
 

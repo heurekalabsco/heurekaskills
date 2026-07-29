@@ -26,6 +26,7 @@ body:
         - models — run a trained model (protein LMs, structure prediction, docking)
         - analysis — compute over data you already have
         - utility — file formats, methodology, general-purpose helpers
+        - communication — figures, graphical abstracts, posters, talks, plain-language summaries
     validations:
       required: true
   - type: textarea
