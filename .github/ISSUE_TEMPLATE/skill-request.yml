@@ -8,6 +8,13 @@ body:
       value: |
         Request a skill for the registry. A maintainer reviews every skill before it is published,
         and the source must be permissively licensed (MIT / BSD / Apache-2.0 / CC-BY) to be publishable.
+
+        Requests are answered on the issue itself, so watch this thread for updates.
+
+        Writing one yourself instead? Skills contributed from Heureka Bench are published under
+        [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and credited to you by name, so
+        only share work that is yours to license. Adapted third-party material keeps its original
+        licence and belongs in a hand-authored pull request.
   - type: input
     id: what
     attributes:
