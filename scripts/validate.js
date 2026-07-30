@@ -16,6 +16,8 @@ const SKILLS = path.join(ROOT, 'skills');
 const MAX_FILE_BYTES = 1024 * 1024;       // 1 MB per file
 const MAX_TOTAL_BYTES = 5 * 1024 * 1024;  // 5 MB per skill
 const MAX_FILES = 50;
+const MAX_TAGS = 5;
+const TAG_RE = /^[a-z0-9-]+$/;
 
 const errors = [];
 const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
@@ -57,6 +59,24 @@ for (const slug of listSkillDirs(SKILLS)) {
   // 4. Body non-empty.
   const body = raw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
   if (!body.trim()) err(slug, 'SKILL.md body is empty');
+
+  // 4b. Tags. Optional, but the site reads them with Array.isArray — so a plain
+  //     string parses fine here and then silently renders nothing. Fail loudly
+  //     instead, and keep the vocabulary lowercase-hyphenated so the registry
+  //     filter doesn't accumulate three spellings of the same tag.
+  if (fm.tags !== undefined) {
+    if (!Array.isArray(fm.tags)) {
+      err(slug, `tags must be a list (e.g. [a, b]) — "${String(fm.tags).slice(0, 40)}" would be ignored entirely`);
+    } else {
+      if (fm.tags.length > MAX_TAGS) err(slug, `${fm.tags.length} tags exceeds cap of ${MAX_TAGS}`);
+      if (new Set(fm.tags).size !== fm.tags.length) err(slug, 'tags contains duplicates');
+      for (const t of fm.tags) {
+        if (typeof t !== 'string' || !TAG_RE.test(t)) {
+          err(slug, `tag "${t}" must be lowercase letters, digits and hyphens`);
+        }
+      }
+    }
+  }
 
   // 5. Path safety + file types.
   const files = listSkillFiles(dir);
