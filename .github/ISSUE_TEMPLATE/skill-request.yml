@@ -6,8 +6,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Request a skill for the registry. A maintainer reviews every skill before it is published,
-        and the source must be permissively licensed (MIT / BSD / Apache-2.0 / CC-BY) to be publishable.
+        Request a skill for the registry. A maintainer reviews every skill before it is published.
+        The bar is that anyone can run it: the tool needs a public install path and terms that do not
+        rule out commercial use. Needing an API key, an account, or a GPU is fine — non-commercial
+        licensing and approval-only access are not.
 
         Requests are answered on the issue itself, so watch this thread for updates.
 
@@ -50,4 +52,4 @@ body:
     id: license
     attributes:
       label: Known license of the source (if any)
-      description: Permissive licenses only (MIT / BSD / Apache-2.0 / CC-BY). Leave blank if unsure.
+      description: Helps us check the tool is one anyone can use — non-commercial terms are a blocker. Leave blank if unsure.

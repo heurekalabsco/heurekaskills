@@ -70,6 +70,16 @@ sources are accepted (MIT, BSD, Apache-2.0, CC-BY). Content whose licence you ca
 positively identify will not be merged, and neither will anything under a share-alike
 or non-commercial licence.
 
+**Documenting a tool is not adapting it.** A skill you write in your own words is yours
+to license, whatever the licence of the program or database it is about — that is the
+usual case, not the exception.
+
+The tool's own licence matters for a different reason: **a reader has to be able to run
+it.** Needing an API key, an account, or a GPU is fine — say so before the first code
+block. What does not ship is a tool nobody can lawfully use: non-commercial terms (they
+restrict use, and a skill exists to cause use), access handed out case by case, or no
+public install path at all.
+
 Write the body in your own words. Do not paste documentation from the tool you are
 documenting — a skill is instructions for an agent, not a copy of an upstream manual.
 

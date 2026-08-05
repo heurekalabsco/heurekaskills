@@ -142,10 +142,21 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
 
 ## Licensing
 
-A skill ships only when its licence is **positively identified** and **permissive**
-(MIT, BSD, Apache-2.0, CC-BY-4.0, or equivalent).
+Two separate questions. Conflating them has already produced wrong answers on the issue
+tracker — twice — so ask them in order.
 
-Rejected, without exception:
+### 1. Whose text is this? — what goes in `license`
+
+`license` describes **the text in the file**, not the tool the text is about.
+
+A skill written here in our own words is `CC-BY-4.0` / `author: Heureka Labs`, even when
+its entire subject is somebody else's database or program. `alphafold` documents an
+EMBL-EBI database and `autodock-vina` documents a program we did not write; both are
+original skills. **Adapted** means you reused the upstream's own prose. That, and only
+that, makes the source's licence the one that governs.
+
+Where text *is* adapted, its licence must be **positively identified** and **permissive**
+(MIT, BSD, Apache-2.0, CC-BY-4.0, or equivalent). Rejected, without exception:
 
 - Unknown, missing, or ambiguous licence. If the original author did not know, we don't either.
 - Share-alike (CC-BY-SA, GPL) — it would force its terms onto the registry. A dual
@@ -161,6 +172,40 @@ the text being redistributed. Do not relabel it CC-BY-4.0 just because that is t
 repo's default for original content — claiming a licence we do not hold creates exactly
 the problem the gate exists to prevent. Every adapted skill also needs an entry in
 `NOTICE`.
+
+These four rejections are about text we would republish. None of them is a reason to
+refuse to *document* a tool — that question is the next one.
+
+### 2. Can the reader run it? — the access test
+
+A skill nobody can run is not a skill, and a registry of them is worse than a smaller one
+that works. This gate is about the tool, and it decides whether documenting it is worth
+doing at all.
+
+**Ship it, and state what is needed before the first code block.** A free or paid API key,
+an account, a click-through licence, a GPU — all fine, because any reader can get one.
+`boltz2-nim` needs an NGC key and `esm`'s hosted path needs an API key. Put the
+requirement up front; a reader should not discover it halfway down the page.
+
+**Do not ship it** when every route to running it is closed to a large share of readers:
+
+- **Non-commercial terms on the tool.** Share-alike restricts redistribution, and we
+  redistribute no code — documenting a GPL tool is fine, which is why `autodock-vina`
+  routes to two GPL-2.0 engines. Non-commercial restricts *use*, and getting an agent to
+  use the tool is the whole function of a skill. Much of this registry's audience works
+  commercially, so publishing one would route them into terms they cannot meet.
+- **Access granted case by case** — committee approval, an institutional agreement, "email
+  us for the weights". We cannot promise a reader a door somebody else opens.
+- **No public install path, or a dependency that is not released yet.** Not a permanent
+  no. Park it and re-check.
+
+Judge the *paths*, not the tool. A restricted option alongside usable ones is a
+disclosure; a restriction on the only path is a reject. Where a gated tool has an open
+equivalent, document the equivalent.
+
+Record the finding on the issue either way, with the link that proves it: settled cases
+get `blocked` and close, re-checkable ones get `needs-info` and stay open. A rejection
+nobody wrote down gets investigated again next pass.
 
 ## Pull requests
 
