@@ -146,11 +146,18 @@ the problem the gate exists to prevent. Every adapted skill also needs an entry 
 - **Commit messages are as public as the files** and are permanent. Keep them factual and
   about the content.
 - **Everything you write here is world-readable — PR titles and bodies, issue comments,
-  and review threads, not just files.** Heureka Labs' other repositories are private. Do
-  not name them, cite their PR or issue numbers, or quote their file paths, line numbers,
-  or internal identifiers in anything published here. Refer to "the Bench client", "the
-  registry site", or "the submission service" instead. Editing a body later does not undo
-  it — GitHub keeps the edit history visible.
+  and review threads, not just files.** Heureka Labs' other repositories are private. In
+  anything published here, do not name them, link to them, or quote what is inside them:
+  PR and issue numbers, file paths, line numbers, branch names, commit SHAs, hostnames,
+  or pasted logs and screenshots containing any of those. Say "the Bench client", "the
+  registry site", or "the submission service" instead.
+
+  This covers the private *repositories*, not the products. The public names — **Heureka
+  Bench**, **ARC**, **heurekaskills.com** — are used deliberately in `README.md` and in
+  the issue templates, and telling a user where to install a skill is the whole point.
+  Keep writing them.
+
+  Editing a body afterwards does not undo it — GitHub keeps the edit history visible.
 - Do not add AI co-authorship trailers to commits. This repo's history has none; keep it
   that way.
 - Group changes into logical commits — the history is a public artifact.
