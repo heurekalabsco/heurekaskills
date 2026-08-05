@@ -57,3 +57,21 @@ original work:
   Copyright (c) 2025 K-Dense Inc.
   Licensed under the MIT License
   Source: https://github.com/K-Dense-AI/scientific-agent-skills
+
+-----------------------------------------------------------------------
+paperpush (Pachter Lab)
+-----------------------------------------------------------------------
+
+The following skill documents the paperpush command-line tool and is
+redistributed under that project's licence. The instructional content was
+written for this registry against the released tool rather than ported from
+the project's own documentation, and its description of the command surface,
+the submission-file format, and the autofill roles is derived from that
+project:
+
+  skills/paperpush
+
+  paperpush
+  Copyright (c) 2024, Pachter Lab
+  Licensed under the BSD 2-Clause License
+  Source: https://github.com/pachterlab/paperpush
