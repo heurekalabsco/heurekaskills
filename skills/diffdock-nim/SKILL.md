@@ -1,6 +1,6 @@
 ---
 name: diffdock-nim
-description: Predict small-molecule binding poses against a protein target with DiffDock via NVIDIA NIM — blind or pocket-directed docking of SMILES or SDF ligands, returning ranked poses with confidence scores, hosted or local Docker.
+description: Run DiffDock molecular docking via NVIDIA NIM to predict small-molecule binding poses against protein targets — blind ligand docking of SMILES or SDF inputs, returning ranked poses with confidence scores, hosted NVIDIA API or local Docker.
 category: models
 license: CC-BY-4.0 AND Apache-2.0
 author: NVIDIA BioNeMo Agent Toolkit (adapted by Heureka Labs)
