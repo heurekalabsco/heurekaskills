@@ -20,8 +20,9 @@ const MAX_TAGS = 5;
 const TAG_RE = /^[a-z0-9-]+$/;
 const MAX_DESCRIPTION = 250;
 
-// A skill ships only under a licence we can positively identify as permissive. An
-// unrecognised value is rejected rather than assumed benign — see AGENTS.md.
+// Every skill's frontmatter licence must be one we can positively identify as permissive,
+// original or adapted. An unrecognised value is rejected rather than assumed benign. This
+// checks the licence on the text; the access test on the tool is judgement — see AGENTS.md.
 const LICENCES = [
   'MIT', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', 'CC-BY-4.0', 'CC0-1.0', 'ISC', 'Unlicense',
 ];

@@ -142,10 +142,34 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
 
 ## Licensing
 
-A skill ships only when its licence is **positively identified** and **permissive**
-(MIT, BSD, Apache-2.0, CC-BY-4.0, or equivalent).
+Two separate questions. Conflating them has already produced wrong answers on the issue
+tracker — twice — so ask them in order.
 
-Rejected, without exception:
+### 1. Whose text is this? — what goes in `license`
+
+`license` describes **the text in the file**, not the tool the text is about.
+
+A skill written here from scratch is `CC-BY-4.0`, credited to whoever wrote it —
+`author: Heureka Labs`, or a contributor by name, as `pathway-cca-coessentiality` is.
+That holds even when its entire subject is somebody else's database or program:
+`alphafold` documents an EMBL-EBI database and `autodock-vina` documents a program we did
+not write, and both are original skills.
+
+**Adapted** means you reused the upstream's **expression** — not only its sentences, but
+its structure, its worked examples, its selection and ordering of what matters. Rewording
+an upstream manual is still adapting it; `paperpush` was written here against the released
+tool and is *still* adapted, because what it documents came from that project. Two
+tests, in this order:
+
+- **Facts and interfaces are not expression.** Endpoint names, parameters, return shapes,
+  version numbers, what a flag does — reading those off a tool and writing them up is
+  original work. That is the usual case.
+- **If you cannot tell which you produced, it is adapted.** Set the source's licence and
+  add the `NOTICE` entry. Where the call is genuinely close and the answer changes what
+  ships, leave it to a human.
+
+Where text *is* adapted, its licence must be **positively identified** and **permissive**
+(MIT, BSD, Apache-2.0, CC-BY-4.0, or equivalent). Rejected, without exception:
 
 - Unknown, missing, or ambiguous licence. If the original author did not know, we don't either.
 - Share-alike (CC-BY-SA, GPL) — it would force its terms onto the registry. A dual
@@ -161,6 +185,57 @@ the text being redistributed. Do not relabel it CC-BY-4.0 just because that is t
 repo's default for original content — claiming a licence we do not hold creates exactly
 the problem the gate exists to prevent. Every adapted skill also needs an entry in
 `NOTICE`.
+
+These four rejections are about text we would republish. None of them is a reason to
+refuse to *document* a tool — that question is the next one.
+
+Two things hold whichever way the skill was written. The frontmatter `license` must always
+be one CI permits, original or adapted — `scripts/validate.js` checks every skill, not
+only adapted ones. And **never paste upstream code into a body.** Inlined blocks are how
+this registry ships code (see *Documentation only*), so a copied script carries its
+source's licence into a file stamped with ours. Write the snippet yourself.
+
+### 2. Can the reader run it? — the access test
+
+A skill nobody can run is not a skill, and a registry of them is worse than a smaller one
+that works. This gate is about the tool, and it decides whether documenting it is worth
+doing at all.
+
+**Ship it, and state what the reader must obtain before the first code block that runs the
+tool.** A free or paid API key, an account, a click-through licence, a GPU — all fine,
+because any reader can get one. `boltz2-nim` states its NGC key requirement before the
+first call. Install commands do not count as that block; the rule is about not letting
+someone reach the point of running something before they learn they cannot.
+
+Plenty of skills need nothing at all — `alphafold` reads an open endpoint,
+`graphical-abstract` documents a method. Nothing to obtain is the easiest pass, not a gap.
+
+**Do not ship it** when no reader has a lawful route to running it:
+
+- **Non-commercial terms on the tool.** Share-alike restricts redistribution, and the code
+  in these bodies is ours — documenting a GPL tool is fine, which is why `autodock-vina`
+  routes to two GPL-2.0 engines. Non-commercial restricts *use*, and getting an agent to
+  use the tool is the whole function of a skill. Much of this registry's audience works
+  commercially, so publishing one would route them into terms they cannot meet. Settled.
+- **No licence at all** — no `LICENSE`, no terms page, nothing stated. Silence grants
+  nothing, which is stricter than the non-commercial case, not looser. Upstream can fix
+  this, so it parks rather than closes.
+- **Access granted case by case** — committee approval, an institutional agreement, "email
+  us for the weights". We cannot promise a reader a door somebody else opens. Settled
+  unless the gate is advertised as open to anyone who asks.
+- **No public install path, or a dependency that is not released yet.** Parks.
+
+Judge the *paths*, not the tool, and ask whether **one** reader can lawfully take one.
+A restricted option alongside usable ones is a disclosure; a restriction on the only path
+is a reject. Free-for-academics with commercial terms by negotiation is the common hard
+case: it ships, because the academic route is real and open — say plainly who each route
+is for. Where a gated tool has an open equivalent, document the equivalent.
+
+Record the finding on the issue either way, with the link that proves it. Settled cases
+get `blocked`; re-checkable ones get `needs-info`, stay open, and **name what would
+unblock them** — "when a LICENSE lands", "when the package ships" — so a later pass tests
+that instead of repeating the search. A rejection nobody wrote down gets investigated
+again next pass.
 
 ## Pull requests
 

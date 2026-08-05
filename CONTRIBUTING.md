@@ -65,10 +65,25 @@ and any code under **Apache-2.0**.
 
 **Adapted content keeps its original licence — do not relicense it.** Set `license` to
 the licence that actually governs the text you are redistributing, credit the original
-author in `author`, and point `attribution` at the source. Only permissively licensed
-sources are accepted (MIT, BSD, Apache-2.0, CC-BY). Content whose licence you cannot
-positively identify will not be merged, and neither will anything under a share-alike
-or non-commercial licence.
+author in `author`, and point `attribution` at the source. **Text you adapt** must come
+from a permissively licensed source (MIT, BSD, Apache-2.0, CC-BY). Adapted text whose
+licence you cannot positively identify will not be merged, and neither will adapted text
+under a share-alike or non-commercial licence.
+
+**Documenting a tool is not adapting it.** A skill you write from scratch is yours to
+license, whatever the licence of the program or database it is about — that is the usual
+case, not the exception. Adapting means reusing the upstream's expression: its prose, its
+structure, its worked examples. Facts and interfaces are not expression, so reading a
+tool's parameters and writing them up yourself is original work. If you cannot tell which
+you produced, it is adapted. Never paste upstream code into a body — write the snippet
+yourself, since the body is where this registry ships code.
+
+The tool's own licence matters for a different reason: **a reader has to be able to run
+it.** Needing an API key, an account, or a GPU is fine — say so before the first code
+block that runs the tool. What does not ship is a tool nobody can lawfully use:
+non-commercial terms (they restrict use, and a skill exists to cause use), no stated
+licence at all (silence grants nothing), access handed out case by case, or no
+public install path at all.
 
 Write the body in your own words. Do not paste documentation from the tool you are
 documenting — a skill is instructions for an agent, not a copy of an upstream manual.
