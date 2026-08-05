@@ -49,6 +49,11 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 - Per-file (1 MB) and per-skill (5 MB) size caps; at most 50 files per skill.
 - Every skill with an `attribution` field is credited in `NOTICE`, and every skill
   `NOTICE` credits exists and carries that field.
+- `license` is present and on the permitted list (MIT, BSD-2-Clause, BSD-3-Clause,
+  Apache-2.0, CC-BY-4.0, CC0-1.0, ISC, Unlicense). Compound `A AND B` values are split
+  and every part must be permitted.
+- `description` is at most 250 characters.
+- The body references no skill outside this registry, and no `scripts/` path.
 
 ## License
 

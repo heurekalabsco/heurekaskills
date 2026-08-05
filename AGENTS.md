@@ -67,6 +67,12 @@ Traps that will fail CI or, worse, fail silently in a client:
   Upstream descriptions routinely run past 1,000 characters — rewrite them, don't paste.
 - Upstream frontmatter often carries junk: authoring metadata, platform-specific blocks,
   stale compatibility strings. Rebuild the frontmatter rather than patching theirs.
+- **Reuse an existing tag before inventing one.** Tags are filter chips on the site, so a
+  tag only your skill uses is a filter that returns exactly one result. Run
+  `npm run validate` — it prints how many tags are used by a single skill — and check the
+  live vocabulary before adding a synonym of one that already exists (`rna-seq` vs
+  `rnaseq`, `structure-prediction` vs `protein-structure`). New vocabulary is fine when
+  the subject is genuinely new; a fifth spelling of an existing idea is not.
 
 ### Categories
 
@@ -80,6 +86,19 @@ Traps that will fail CI or, worse, fail silently in a client:
 
 `communication` vs `utility`: a communication skill's output is read by a person; a
 utility skill's output feeds another tool or workflow step.
+
+When both readings fit, ask **what the skill hands back at the end**:
+
+| Skill | Hands back | Category |
+|---|---|---|
+| Graphical abstract for a paper | An SVG a reader looks at | `communication` |
+| Plain-language summary of a result | Prose a non-specialist reads | `communication` |
+| Filling a journal submission portal | A form field file the tool consumes | `utility` |
+| Converting between file formats | A file the next step opens | `utility` |
+
+The subject matter being publication-adjacent does not make it `communication`.
+Submission, formatting and packaging are plumbing; the manuscript is the artefact a
+person reads, and a skill that does not produce that artefact is `utility`.
 
 ## Documentation only — do not add scripts
 

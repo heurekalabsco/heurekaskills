@@ -18,12 +18,21 @@ const MAX_TOTAL_BYTES = 5 * 1024 * 1024;  // 5 MB per skill
 const MAX_FILES = 50;
 const MAX_TAGS = 5;
 const TAG_RE = /^[a-z0-9-]+$/;
+const MAX_DESCRIPTION = 250;
+
+// A skill ships only under a licence we can positively identify as permissive. An
+// unrecognised value is rejected rather than assumed benign — see AGENTS.md. Compound
+// expressions are split on AND/OR and every part must be on the list.
+const LICENCES = [
+  'MIT', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', 'CC-BY-4.0', 'CC0-1.0', 'ISC', 'Unlicense',
+];
 
 const errors = [];
 const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
 
 const slugs = listSkillDirs(SKILLS);
 const attributed = new Set();
+const tagUses = new Map();
 // Skills whose frontmatter could not be read at all. They already reported a real
 // error; the NOTICE pairing below cannot say anything true about them, so it stays
 // quiet rather than adding a second, misleading one.
@@ -74,9 +83,37 @@ for (const slug of slugs) {
     }
   }
 
+  // 3b. Licence. Permissive and positively identified, or it does not ship.
+  const licence = String(fm.license ?? '').trim();
+  if (!licence) {
+    err(slug, 'license is required');
+  } else {
+    const parts = licence.split(/\s+(?:AND|OR)\s+/).map((s) => s.trim()).filter(Boolean);
+    const bad = parts.filter((p) => !LICENCES.includes(p));
+    if (bad.length) {
+      err(slug, `license "${licence}" is not on the permitted list (${LICENCES.join(', ')}) — unrecognised: ${bad.join(', ')}`);
+    }
+  }
+
+  // 3c. Description budget. Every installed skill's description is loaded into every
+  //     session whether or not the skill is used, so length is a shared cost.
+  const desc = String(fm.description ?? '');
+  if (desc.length > MAX_DESCRIPTION) {
+    err(slug, `description is ${desc.length} characters, over the ${MAX_DESCRIPTION} budget`);
+  }
+
   // 4. Body non-empty.
   const body = raw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
   if (!body.trim()) err(slug, 'SKILL.md body is empty');
+
+  // 4a. Body traps. Both send an agent somewhere that does not exist: a cross-reference
+  //     to a skill outside this registry, or a scripts/ directory this repo never ships.
+  for (const m of body.matchAll(/\bsee the [`"']?([a-z0-9-]+)[`"']? skill\b/gi)) {
+    if (!slugs.includes(m[1])) err(slug, `body references the "${m[1]}" skill, which is not in this registry`);
+  }
+  if (/(^|[\s`'"(])scripts\//m.test(body)) {
+    err(slug, 'body references a scripts/ path — skills ship documentation only; inline the code in a fenced block');
+  }
 
   // 4b. Tags. Optional, but the site reads them with Array.isArray — so a plain
   //     string parses fine here and then silently renders nothing. Fail loudly
@@ -91,6 +128,8 @@ for (const slug of slugs) {
       for (const t of fm.tags) {
         if (typeof t !== 'string' || !TAG_RE.test(t)) {
           err(slug, `tag "${t}" must be lowercase letters, digits and hyphens`);
+        } else {
+          tagUses.set(t, (tagUses.get(t) ?? 0) + 1);
         }
       }
     }
@@ -157,3 +196,10 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(`✓ ${slugs.length} skill(s) valid (${attributed.size} adapted, all credited in NOTICE)`);
+
+// Not a failure. A tag only one skill uses renders as a filter chip that returns that
+// one skill, so vocabulary growth is worth seeing at review time rather than a year on.
+const singletons = [...tagUses.entries()].filter(([, n]) => n === 1).map(([t]) => t);
+if (singletons.length) {
+  console.log(`  ${tagUses.size} unique tags; ${singletons.length} used by a single skill — prefer an existing tag over a new synonym`);
+}
