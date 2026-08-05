@@ -22,19 +22,26 @@ const TAG_RE = /^[a-z0-9-]+$/;
 const errors = [];
 const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
 
-for (const slug of listSkillDirs(SKILLS)) {
+const slugs = listSkillDirs(SKILLS);
+const attributed = new Set();
+// Skills whose frontmatter could not be read at all. They already reported a real
+// error; the NOTICE pairing below cannot say anything true about them, so it stays
+// quiet rather than adding a second, misleading one.
+const unreadable = new Set();
+
+for (const slug of slugs) {
   const dir = path.join(SKILLS, slug);
   const skillMd = path.join(dir, 'SKILL.md');
 
   if (!SLUG_RE.test(slug)) err(slug, `directory name must match ${SLUG_RE}`);
-  if (!fs.existsSync(skillMd)) { err(slug, 'missing SKILL.md'); continue; }
+  if (!fs.existsSync(skillMd)) { err(slug, 'missing SKILL.md'); unreadable.add(slug); continue; }
 
   const raw = fs.readFileSync(skillMd, 'utf8');
 
   // Full YAML parse (what the site consumes).
   let fm;
   try { fm = yaml.load(raw.match(/^---\s*\n([\s\S]*?)\n---/)?.[1] ?? '') ?? {}; }
-  catch (e) { err(slug, `frontmatter is not valid YAML: ${e.message}`); continue; }
+  catch (e) { err(slug, `frontmatter is not valid YAML: ${e.message}`); unreadable.add(slug); continue; }
 
   // 1. Loader compatibility: the client's naive line parser must read the SAME
   //    name + description as real YAML. Block scalars (`>`/`|`), quoting, or
@@ -54,6 +61,17 @@ for (const slug of listSkillDirs(SKILLS)) {
   // 3. Category.
   if (!CATEGORIES.includes(fm.category)) {
     err(slug, `category must be one of ${CATEGORIES.join(', ')} (got "${fm.category ?? 'none'}")`);
+  }
+
+  // Adapted-skill detection gates a licence obligation, so a malformed value must
+  // fail loudly rather than read as "not adapted". `attribution: []` stringifies to
+  // '' and would otherwise silently suppress the NOTICE requirement below.
+  if (fm.attribution !== undefined) {
+    if (typeof fm.attribution !== 'string' || !fm.attribution.trim()) {
+      err(slug, 'attribution must be a non-empty string (the source URL) when present');
+    } else {
+      attributed.add(slug);
+    }
   }
 
   // 4. Body non-empty.
@@ -100,9 +118,42 @@ for (const slug of listSkillDirs(SKILLS)) {
   if (total > MAX_TOTAL_BYTES) err(slug, `total size ${total} exceeds ${MAX_TOTAL_BYTES} bytes`);
 }
 
+// 7. Attribution ⇄ NOTICE. An adapted skill redistributes someone else's work, so
+//    its NOTICE stanza is a licence obligation rather than bookkeeping. Checked
+//    both ways: a missing stanza publishes uncredited, and a stale one credits a
+//    skill that no longer exists or was never adapted. The routine that opens
+//    skill PRs cannot write NOTICE — it is outside skills/<slug>/ — so without
+//    this check an adapted skill merges green with its attribution missing.
+const noticePath = path.join(ROOT, 'NOTICE');
+if (!fs.existsSync(noticePath)) {
+  err('NOTICE', 'missing — every adapted skill is credited there');
+} else {
+  const notice = fs.readFileSync(noticePath, 'utf8');
+
+  // Read only the indented `  skills/<slug>` list lines of a stanza. Scanning the
+  // whole file would treat any matching substring as a credit, so a URL such as
+  // github.com/org/skills/tree/main/foo would invent the slug "tree" and fail the
+  // build. Stanza lines carry two columns, hence matchAll per line.
+  const listed = new Set(
+    notice.split('\n')
+      .filter((line) => /^\s{2,}(?:skills\/[a-z0-9-]+\s*)+$/.test(line))
+      .flatMap((line) => [...line.matchAll(/skills\/([a-z0-9-]+)/g)].map((m) => m[1])),
+  );
+
+  for (const slug of attributed) {
+    if (!listed.has(slug)) {
+      err(slug, 'has an attribution: field but no NOTICE entry — adapted skills must be credited in NOTICE');
+    }
+  }
+  for (const slug of listed) {
+    if (!slugs.includes(slug)) err('NOTICE', `credits skills/${slug}, which does not exist`);
+    else if (!attributed.has(slug) && !unreadable.has(slug)) err('NOTICE', `credits skills/${slug}, which has no attribution: field`);
+  }
+}
+
 if (errors.length) {
   console.error(`✗ validation failed (${errors.length}):`);
   for (const e of errors) console.error('  - ' + e);
   process.exit(1);
 }
-console.log(`✓ ${listSkillDirs(SKILLS).length} skill(s) valid`);
+console.log(`✓ ${slugs.length} skill(s) valid (${attributed.size} adapted, all credited in NOTICE)`);

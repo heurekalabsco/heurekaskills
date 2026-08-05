@@ -47,6 +47,8 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 - Reference paths are relative and safe; no symlinks.
 - Allowed file types only.
 - Per-file (1 MB) and per-skill (5 MB) size caps; at most 50 files per skill.
+- Every skill with an `attribution` field is credited in `NOTICE`, and every skill
+  `NOTICE` credits exists and carries that field.
 
 ## License
 
