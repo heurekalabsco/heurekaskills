@@ -59,7 +59,16 @@ for (const slug of slugs) {
     err(slug, `category must be one of ${CATEGORIES.join(', ')} (got "${fm.category ?? 'none'}")`);
   }
 
-  if (String(fm.attribution ?? '').trim()) attributed.add(slug);
+  // Adapted-skill detection gates a licence obligation, so a malformed value must
+  // fail loudly rather than read as "not adapted". `attribution: []` stringifies to
+  // '' and would otherwise silently suppress the NOTICE requirement below.
+  if (fm.attribution !== undefined) {
+    if (typeof fm.attribution !== 'string' || !fm.attribution.trim()) {
+      err(slug, 'attribution must be a non-empty string (the source URL) when present');
+    } else {
+      attributed.add(slug);
+    }
+  }
 
   // 4. Body non-empty.
   const body = raw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
@@ -116,7 +125,16 @@ if (!fs.existsSync(noticePath)) {
   err('NOTICE', 'missing — every adapted skill is credited there');
 } else {
   const notice = fs.readFileSync(noticePath, 'utf8');
-  const listed = new Set([...notice.matchAll(/skills\/([a-z0-9-]+)/g)].map((m) => m[1]));
+
+  // Read only the indented `  skills/<slug>` list lines of a stanza. Scanning the
+  // whole file would treat any matching substring as a credit, so a URL such as
+  // github.com/org/skills/tree/main/foo would invent the slug "tree" and fail the
+  // build. Stanza lines carry two columns, hence matchAll per line.
+  const listed = new Set(
+    notice.split('\n')
+      .filter((line) => /^\s{2,}skills\//.test(line))
+      .flatMap((line) => [...line.matchAll(/skills\/([a-z0-9-]+)/g)].map((m) => m[1])),
+  );
 
   for (const slug of attributed) {
     if (!listed.has(slug)) {
