@@ -158,6 +158,7 @@ the problem the gate exists to prevent. Every adapted skill also needs an entry 
   Keep writing them.
 
   Editing a body afterwards does not undo it — GitHub keeps the edit history visible.
-- Do not add AI co-authorship trailers to commits. This repo's history has none; keep it
-  that way.
+- Do not add AI co-authorship trailers to commits. One commit on `main`, `49762ff`,
+  carries one and a session URL; it predates this rule and cannot be edited out without
+  rewriting history. It is the exception, not the pattern to copy.
 - Group changes into logical commits — the history is a public artifact.
