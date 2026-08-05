@@ -15,6 +15,8 @@ allowed-tools: Read, Write, Edit, Bash
 
 ESM provides protein language models for understanding, generating, and designing proteins. Use this skill for current EvolutionaryScale/Biohub workflows: ESM3 for generative design, ESMC for representation learning and embeddings, hosted Biohub inference, and ESMFold2 all-atom structure prediction.
 
+**What you need before running anything here.** Open weights (`esm3-open`, `esmc_300m`, `esmc_600m`) download from Hugging Face with no account and no licence to accept — `esm3-sm-open-v1` is MIT, hosted under `biohub`. Loading them locally as written wants a CUDA GPU; drop `.to("cuda")` for CPU and expect it to be slow. The larger models are hosted only and need an `ESM_API_KEY` from the Biohub developer console — see *Authentication*.
+
 ## Core Capabilities
 
 ### 1. Protein Sequence Generation with ESM3
@@ -33,7 +35,7 @@ Generate novel protein sequences with desired properties using multimodal genera
 from esm.models.esm3 import ESM3
 from esm.sdk.api import ESM3InferenceClient, ESMProtein, GenerationConfig
 
-# Load local open weights after accepting the license on Hugging Face.
+# Open weights, MIT-licensed — no account, no licence acceptance. Drop .to("cuda") for CPU.
 model: ESM3InferenceClient = ESM3.from_pretrained("esm3-open").to("cuda")
 
 # Create protein prompt
@@ -222,7 +224,7 @@ See `references/forge-api.md` for hosted-API documentation, authentication, rate
 ## Model Selection Guide
 
 **ESM3 Models (Generative):**
-- `esm3-open` (1.4B) - Open weights, local usage after accepting the Hugging Face license
+- `esm3-open` (1.4B) - Open weights (MIT), local usage, no account needed
 - `esm3-medium-2024-08` (7B) - Best balance of quality and speed (hosted only)
 - `esm3-large-2024-03` (98B) - Highest quality, slower (hosted only)
 
