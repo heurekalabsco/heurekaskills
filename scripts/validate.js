@@ -18,12 +18,34 @@ const MAX_TOTAL_BYTES = 5 * 1024 * 1024;  // 5 MB per skill
 const MAX_FILES = 50;
 const MAX_TAGS = 5;
 const TAG_RE = /^[a-z0-9-]+$/;
+const MAX_DESCRIPTION = 250;
+
+// A skill ships only under a licence we can positively identify as permissive. An
+// unrecognised value is rejected rather than assumed benign — see AGENTS.md.
+const LICENCES = [
+  'MIT', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', 'CC-BY-4.0', 'CC0-1.0', 'ISC', 'Unlicense',
+];
+
+// SPDX semantics, not a token scan. `AND` binds tighter than `OR`, so an expression is
+// acceptable when ANY or-branch is fully permitted: `MIT OR GPL-3.0` is redistributable
+// under MIT and must not be rejected, while `MIT AND GPL-3.0` imposes both and must be.
+// SPDX identifiers are case-insensitive, so `mit` is the same licence as `MIT` — a
+// contributor should not be blocked over capitalisation.
+const licencePermitted = (lic) => {
+  const id = lic.replace(/\s+WITH\s+.*$/i, '').replace(/\+$/, '').trim().toLowerCase();
+  return LICENCES.some((l) => l.toLowerCase() === id);
+};
+
+const licenceAcceptable = (expr) =>
+  expr.replace(/[()]/g, ' ').split(/\s+OR\s+/i)
+    .some((branch) => branch.split(/\s+AND\s+/i).map((s) => s.trim()).filter(Boolean).every(licencePermitted));
 
 const errors = [];
 const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
 
 const slugs = listSkillDirs(SKILLS);
 const attributed = new Set();
+const tagUses = new Map();
 // Skills whose frontmatter could not be read at all. They already reported a real
 // error; the NOTICE pairing below cannot say anything true about them, so it stays
 // quiet rather than adding a second, misleading one.
@@ -74,9 +96,65 @@ for (const slug of slugs) {
     }
   }
 
+  // 3b. Licence. Permissive and positively identified, or it does not ship.
+  const licence = String(fm.license ?? '').trim();
+  if (!licence) {
+    err(slug, 'license is required');
+  } else if (!licenceAcceptable(licence)) {
+    err(slug, `license "${licence}" is not permitted — no branch of it is fully covered by ${LICENCES.join(', ')}`);
+  }
+
+  // 3c. Description budget. Every installed skill's description is loaded into every
+  //     session whether or not the skill is used, so length is a shared cost.
+  const desc = String(fm.description ?? '');
+  if (desc.length > MAX_DESCRIPTION) {
+    err(slug, `description is ${desc.length} characters, over the ${MAX_DESCRIPTION} budget`);
+  }
+
   // 4. Body non-empty.
   const body = raw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
   if (!body.trim()) err(slug, 'SKILL.md body is empty');
+
+  // Most of the corpus is references/, and SKILL.md tells the agent to load them, so a
+  // dead cross-reference hides there just as well as in the body. Scan both.
+  const refBodies = listSkillFiles(dir)
+    .filter((rel) => rel.startsWith('references/') && rel.endsWith('.md') && !rel.includes('..'))
+    .map((rel) => path.join(dir, rel))
+    .filter((abs) => fs.existsSync(abs) && fs.lstatSync(abs).isFile())
+    .map((abs) => fs.readFileSync(abs, 'utf8'));
+
+  // 4a. Body traps. Both send an agent somewhere that does not exist: a cross-reference
+  //     to a skill outside this registry, or a scripts/ directory this repo never ships.
+  //     Slugs are lowercase, so compare lowercased — prose capitalises names.
+  const deadRef = (name, where) => {
+    if (!slugs.includes(name.toLowerCase())) {
+      err(slug, `${where} references "${name}", which is not a skill in this registry`);
+    }
+  };
+
+  // Prose capitalises names, and slugs are lowercase — compare lowercased. A bare word
+  // is only treated as a skill name if it is hyphenated or already a slug: "see the same
+  // skill triggered twice" is ordinary English, not a reference. A delimited name is
+  // always a reference, whatever it looks like.
+  const looksLikeSkill = (n) => n.includes('-') || slugs.includes(n.toLowerCase());
+  for (const text of [body, ...refBodies]) {
+    for (const m of text.matchAll(/\b(?:see|use|refer to) the (?:`([A-Za-z0-9-]+)`|([A-Za-z0-9-]+)) skill\b/gi)) {
+      const name = m[1] ?? m[2];
+      if (m[1] || looksLikeSkill(name)) deadRef(name, 'body');
+    }
+
+    // AGENTS.md names "any related skills section" as the other place this hides. Every
+    // name bulleted under that heading reads as a registry skill, so a library listed
+    // there is a dead reference too.
+    const heading = text.match(/^#{2,4}[ \t]*Related skills[ \t]*\r?\n([\s\S]*)/mi);
+    if (heading) {
+      for (const line of heading[1].split(/^#{1,4}[ \t]/m)[0].split('\n').filter((l) => /^\s*[-*]\s/.test(l))) {
+        for (const m of line.matchAll(/(?:\*\*([A-Za-z0-9-]{2,})\*\*|`([A-Za-z0-9-]{2,})`)/g)) {
+          deadRef(m[1] ?? m[2], 'the Related skills section');
+        }
+      }
+    }
+  }
 
   // 4b. Tags. Optional, but the site reads them with Array.isArray — so a plain
   //     string parses fine here and then silently renders nothing. Fail loudly
@@ -91,6 +169,8 @@ for (const slug of slugs) {
       for (const t of fm.tags) {
         if (typeof t !== 'string' || !TAG_RE.test(t)) {
           err(slug, `tag "${t}" must be lowercase letters, digits and hyphens`);
+        } else {
+          tagUses.set(t, (tagUses.get(t) ?? 0) + 1);
         }
       }
     }
@@ -157,3 +237,10 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(`✓ ${slugs.length} skill(s) valid (${attributed.size} adapted, all credited in NOTICE)`);
+
+// Not a failure. A tag only one skill uses renders as a filter chip that returns that
+// one skill, so vocabulary growth is worth seeing at review time rather than a year on.
+const singletons = [...tagUses.entries()].filter(([, n]) => n === 1).map(([t]) => t);
+if (singletons.length) {
+  console.log(`  ${tagUses.size} unique tags; ${singletons.length} used by a single skill — prefer an existing tag over a new synonym`);
+}

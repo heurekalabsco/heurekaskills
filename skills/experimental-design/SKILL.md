@@ -242,8 +242,9 @@ These are structural — they can't be fixed in analysis, only in design.
 
 ### Related skills
 - **statistical-power** — required sample size / power for the design you've chosen.
-- **statistical-analysis** — running and reporting the analysis after collection.
-- **statsmodels** / **pymc** — fitting the models the design implies.
+
+Fitting the models a design implies is done with statsmodels or PyMC; analysis and
+reporting after collection are outside this skill.
 
 ### Key references
 - Fisher, R. A. (1935). *The Design of Experiments*.

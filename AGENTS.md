@@ -62,11 +62,17 @@ Traps that will fail CI or, worse, fail silently in a client:
   return the same value. Quoting makes them diverge, so the check fails by design.
 - **No `: ` inside an unquoted description.** YAML reads it as a nested mapping and the
   file stops parsing. Use an em dash instead.
-- **Keep descriptions under ~250 characters.** Not CI-enforced, but a description is
+- **Keep descriptions at or under 250 characters — CI enforces this.** A description is
   loaded for every installed skill in every session whether or not the skill is used.
   Upstream descriptions routinely run past 1,000 characters — rewrite them, don't paste.
 - Upstream frontmatter often carries junk: authoring metadata, platform-specific blocks,
   stale compatibility strings. Rebuild the frontmatter rather than patching theirs.
+- **Reuse an existing tag before inventing one.** Tags are filter chips on the site, so a
+  tag only your skill uses is a filter that returns exactly one result. Run
+  `npm run validate` — it prints how many tags are used by a single skill — and check the
+  live vocabulary before adding a synonym of one that already exists (`rna-seq` vs
+  `rnaseq`, `structure-prediction` vs `protein-structure`). New vocabulary is fine when
+  the subject is genuinely new; a fifth spelling of an existing idea is not.
 
 ### Categories
 
@@ -80,6 +86,19 @@ Traps that will fail CI or, worse, fail silently in a client:
 
 `communication` vs `utility`: a communication skill's output is read by a person; a
 utility skill's output feeds another tool or workflow step.
+
+When both readings fit, ask **what the skill hands back at the end**:
+
+| Skill | Hands back | Category |
+|---|---|---|
+| Graphical abstract for a paper | An SVG a reader looks at | `communication` |
+| Plain-language summary of a result | Prose a non-specialist reads | `communication` |
+| Filling a journal submission portal | A form field file the tool consumes | `utility` |
+| Converting between file formats | A file the next step opens | `utility` |
+
+The subject matter being publication-adjacent does not make it `communication`.
+Submission, formatting and packaging are plumbing; the manuscript is the artefact a
+person reads, and a skill that does not produce that artefact is `utility`.
 
 ## Documentation only — do not add scripts
 
@@ -107,8 +126,13 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
 2. **Write in your own words.** Do not reproduce an upstream manual. Permissive
    licensing allows reuse, but a copied manual is bad content regardless.
 3. **Do not reference skills that are not in this registry.** "See the `foo` skill" is a
-   dead end that sends an agent hunting for something that does not exist. Grep for
-   "see the … skill" and for any "related skills" section.
+   dead end that sends an agent hunting for something that does not exist. CI checks both
+   forms — "see/use/refer to the … skill", and every name bulleted under a "Related
+   skills" heading — across `SKILL.md` and `references/*.md`. A **library** is not a
+   skill: naming statsmodels under that heading reads as a registry skill that does not
+   exist, so mention tools in prose instead. **Write skill names in backticks.** A bare
+   word is left alone, because "the router will see the same skill twice" is English, not
+   a reference — so `` `foo` `` is what CI can actually check.
 4. **Strip the origin's branding, keep the subject matter.** An adapted skill credits its
    source in `author`, `attribution`, and `NOTICE` — not in the prose. Naming the tools
    being documented is correct and expected; carrying another vendor's authorship or
@@ -124,7 +148,9 @@ A skill ships only when its licence is **positively identified** and **permissiv
 Rejected, without exception:
 
 - Unknown, missing, or ambiguous licence. If the original author did not know, we don't either.
-- Share-alike (CC-BY-SA, GPL) — it would force its terms onto the registry.
+- Share-alike (CC-BY-SA, GPL) — it would force its terms onto the registry. A dual
+  expression is fine when a permissive branch exists: `MIT OR GPL-3.0` is accepted and
+  taken under MIT, because nothing here inherits the GPL terms. `MIT AND GPL-3.0` is not.
 - Non-commercial (CC-BY-NC).
 - Content credited to an individual contributor rather than the publishing project,
   unless that project demonstrably holds an assignment or CLA. A repository LICENSE file
