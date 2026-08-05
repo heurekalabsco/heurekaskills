@@ -7,9 +7,10 @@ body:
     attributes:
       value: |
         Request a skill for the registry. A maintainer reviews every skill before it is published.
-        The bar is that anyone can run it: the tool needs a public install path and terms that do not
-        rule out commercial use. Needing an API key, an account, or a GPU is fine — non-commercial
-        licensing and approval-only access are not.
+        The bar is that a reader can actually run the tool: terms that do not rule out commercial use,
+        and a way to get it. Needing an API key, an account, or a GPU is fine — non-commercial
+        licensing and approval-only access are not. If the tool is public but not packaged yet,
+        file anyway and we will park it until it is.
 
         Requests are answered on the issue itself, so watch this thread for updates.
 
@@ -51,5 +52,5 @@ body:
   - type: input
     id: license
     attributes:
-      label: Known license of the source (if any)
-      description: Helps us check the tool is one anyone can use — non-commercial terms are a blocker. Leave blank if unsure.
+      label: Known license of the tool (if any)
+      description: We check that the tool is one anyone can lawfully use — non-commercial terms, or none stated, are blockers. Leave blank if unsure.
