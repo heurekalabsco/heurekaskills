@@ -22,7 +22,10 @@ const TAG_RE = /^[a-z0-9-]+$/;
 const errors = [];
 const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
 
-for (const slug of listSkillDirs(SKILLS)) {
+const slugs = listSkillDirs(SKILLS);
+const attributed = new Set();
+
+for (const slug of slugs) {
   const dir = path.join(SKILLS, slug);
   const skillMd = path.join(dir, 'SKILL.md');
 
@@ -55,6 +58,8 @@ for (const slug of listSkillDirs(SKILLS)) {
   if (!CATEGORIES.includes(fm.category)) {
     err(slug, `category must be one of ${CATEGORIES.join(', ')} (got "${fm.category ?? 'none'}")`);
   }
+
+  if (String(fm.attribution ?? '').trim()) attributed.add(slug);
 
   // 4. Body non-empty.
   const body = raw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
@@ -100,9 +105,33 @@ for (const slug of listSkillDirs(SKILLS)) {
   if (total > MAX_TOTAL_BYTES) err(slug, `total size ${total} exceeds ${MAX_TOTAL_BYTES} bytes`);
 }
 
+// 7. Attribution ⇄ NOTICE. An adapted skill redistributes someone else's work, so
+//    its NOTICE stanza is a licence obligation rather than bookkeeping. Checked
+//    both ways: a missing stanza publishes uncredited, and a stale one credits a
+//    skill that no longer exists or was never adapted. The routine that opens
+//    skill PRs cannot write NOTICE — it is outside skills/<slug>/ — so without
+//    this check an adapted skill merges green with its attribution missing.
+const noticePath = path.join(ROOT, 'NOTICE');
+if (!fs.existsSync(noticePath)) {
+  err('NOTICE', 'missing — every adapted skill is credited there');
+} else {
+  const notice = fs.readFileSync(noticePath, 'utf8');
+  const listed = new Set([...notice.matchAll(/skills\/([a-z0-9-]+)/g)].map((m) => m[1]));
+
+  for (const slug of attributed) {
+    if (!listed.has(slug)) {
+      err(slug, 'has an attribution: field but no NOTICE entry — adapted skills must be credited in NOTICE');
+    }
+  }
+  for (const slug of listed) {
+    if (!slugs.includes(slug)) err('NOTICE', `credits skills/${slug}, which does not exist`);
+    else if (!attributed.has(slug)) err('NOTICE', `credits skills/${slug}, which has no attribution: field`);
+  }
+}
+
 if (errors.length) {
   console.error(`✗ validation failed (${errors.length}):`);
   for (const e of errors) console.error('  - ' + e);
   process.exit(1);
 }
-console.log(`✓ ${listSkillDirs(SKILLS).length} skill(s) valid`);
+console.log(`✓ ${slugs.length} skill(s) valid (${attributed.size} adapted, all credited in NOTICE)`);
