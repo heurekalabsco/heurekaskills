@@ -24,20 +24,24 @@ const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
 
 const slugs = listSkillDirs(SKILLS);
 const attributed = new Set();
+// Skills whose frontmatter could not be read at all. They already reported a real
+// error; the NOTICE pairing below cannot say anything true about them, so it stays
+// quiet rather than adding a second, misleading one.
+const unreadable = new Set();
 
 for (const slug of slugs) {
   const dir = path.join(SKILLS, slug);
   const skillMd = path.join(dir, 'SKILL.md');
 
   if (!SLUG_RE.test(slug)) err(slug, `directory name must match ${SLUG_RE}`);
-  if (!fs.existsSync(skillMd)) { err(slug, 'missing SKILL.md'); continue; }
+  if (!fs.existsSync(skillMd)) { err(slug, 'missing SKILL.md'); unreadable.add(slug); continue; }
 
   const raw = fs.readFileSync(skillMd, 'utf8');
 
   // Full YAML parse (what the site consumes).
   let fm;
   try { fm = yaml.load(raw.match(/^---\s*\n([\s\S]*?)\n---/)?.[1] ?? '') ?? {}; }
-  catch (e) { err(slug, `frontmatter is not valid YAML: ${e.message}`); continue; }
+  catch (e) { err(slug, `frontmatter is not valid YAML: ${e.message}`); unreadable.add(slug); continue; }
 
   // 1. Loader compatibility: the client's naive line parser must read the SAME
   //    name + description as real YAML. Block scalars (`>`/`|`), quoting, or
@@ -132,7 +136,7 @@ if (!fs.existsSync(noticePath)) {
   // build. Stanza lines carry two columns, hence matchAll per line.
   const listed = new Set(
     notice.split('\n')
-      .filter((line) => /^\s{2,}skills\//.test(line))
+      .filter((line) => /^\s{2,}(?:skills\/[a-z0-9-]+\s*)+$/.test(line))
       .flatMap((line) => [...line.matchAll(/skills\/([a-z0-9-]+)/g)].map((m) => m[1])),
   );
 
@@ -143,7 +147,7 @@ if (!fs.existsSync(noticePath)) {
   }
   for (const slug of listed) {
     if (!slugs.includes(slug)) err('NOTICE', `credits skills/${slug}, which does not exist`);
-    else if (!attributed.has(slug)) err('NOTICE', `credits skills/${slug}, which has no attribution: field`);
+    else if (!attributed.has(slug) && !unreadable.has(slug)) err('NOTICE', `credits skills/${slug}, which has no attribution: field`);
   }
 }
 
