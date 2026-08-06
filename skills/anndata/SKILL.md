@@ -28,24 +28,37 @@ Use this skill when:
 
 ## Installation
 
-Requires Python 3.11+. Current stable release: 0.12.16 (released 2026-05-18).
+Requires Python 3.12+ — 0.13 dropped 3.11. Current stable release: 0.13.2 (released 2026-07-13).
 
 ```bash
-uv pip install "anndata==0.12.16"
+uv pip install "anndata==0.13.2"
 
 # Lazy I/O and dask-backed operations
-uv pip install "anndata[dask,lazy]==0.12.16"
-
-# Development / docs (contributors)
-uv pip install "anndata[dev,test,doc]==0.12.16"
+uv pip install "anndata[dask,lazy]==0.13.2"
 ```
 
 Use unpinned installs only when intentionally tracking the latest compatible release.
 
+The extras 0.13 publishes are `dask`, `lazy`, `gpu`, `cu11`, `cu12` and `cu13` — the
+`cu*` ones pull CUDA wheels, so ask for them only on a GPU box. The contributor extras
+0.12 carried (`dev`, `test`, `doc`) were dropped, and asking for them now warns and
+installs nothing extra rather than failing, which is easy to miss.
+
 Current API notes:
 - Use `anndata.io` for non-native `read_*` and `write_*` helpers. Top-level `anndata.read_h5ad` and `anndata.read_zarr` remain supported.
-- Avoid deprecated APIs: `ad.read`, `AnnData.concatenate()`, `AnnData.*_keys()`, and `anndata.__version__`. Prefer `ad.read_h5ad`, `ad.concat`, mapping `.keys()`, and `importlib.metadata.version("anndata")`.
+- **Removed in 0.13**, not merely deprecated — `ad.read` and `AnnData.concatenate()` now raise `AttributeError`. Use `ad.read_h5ad` and `ad.concat`.
+- Still deprecated and still working: `AnnData.*_keys()` (use the mapping's own `.keys()`) and `anndata.__version__` (use `importlib.metadata.version("anndata")`).
 - Treat `anndata.experimental` APIs as useful but unstable. Prefer them for large-data workflows only when their current caveats are acceptable.
+
+### Behaviour changes in 0.13 to know before writing code
+
+These bite silently — the old form either raises or quietly does something different.
+
+- **No `dtype=` on the constructor.** `ad.AnnData(X, dtype='float32')` raises `TypeError`. Cast first: `ad.AnnData(X.astype('float32'))`.
+- **Writing to a subset's `.X` no longer reaches the parent.** `.X` now behaves the way `.layers` and the other slots already did, so `my_subset.X = 0` leaves the object the subset came from untouched. Assign into the original, or take an explicit `.copy()` and keep the result.
+- **`adata['key'] = ...` is gone.** `AnnData.__setitem__` and `__delitem__` were removed; write to `.obs`, `.var`, `.layers`, `.obsm` or `.uns` explicitly.
+- **`.X` now surfaces as a layer under the `None` key.** The text repr shows `layers: None (.X)`, and `list(adata.layers.keys())` returns `[None]` for an object whose `.layers` you never touched. Code that treated a non-empty `.layers` as proof that someone added one needs updating.
+- **Zarr needs the v3 package line** (`zarr>=3.1`), and new stores are written in zarr format 3 with sharding on by default. Both remain settings you can change — see *Troubleshooting*.
 
 ## Quick Start
 
@@ -298,6 +311,10 @@ mdata = mu.MuData({'rna': adata_rna, 'protein': adata_protein})
 ```
 
 ### PyTorch integration
+
+`AnnLoader` still works in 0.13 but warns on construction that it is deprecated and
+points at `annbatch.Loader` as its replacement. Prefer `annbatch` for new code.
+
 ```python
 from anndata.experimental import AnnLoader
 
@@ -404,11 +421,12 @@ Use compression and appropriate formats:
 adata.strings_to_categoricals()
 adata.write_h5ad('file.h5ad', compression='gzip')
 
-# Use Zarr for cloud storage; v3 writes are opt-in in anndata 0.12
+# Use Zarr for cloud storage. In 0.13 both of these are already the defaults —
+# set them explicitly only to pin the behaviour, or to opt back out.
 import anndata as ad
 
-ad.settings.zarr_write_format = 3
-ad.settings.auto_shard_zarr_v3 = True  # experimental; independent of zarr_write_format
+ad.settings.zarr_write_format = 3      # default 3 since 0.13; set 2 to write v2 stores
+ad.settings.auto_shard_zarr_v3 = True  # default True since 0.13
 adata.write_zarr('file.zarr', chunks=(1000, 1000))
 ```
 

@@ -81,18 +81,19 @@ adata.write_zarr('data.zarr', chunks=(100, 100))
 adata = ad.read_zarr('data.zarr')
 ```
 
-#### Zarr v3 (anndata 0.12+)
+#### Zarr v3 (default since anndata 0.13)
 ```python
 import anndata
 
-# Default writes Zarr v2; opt into v3 and optional auto-sharding
-anndata.settings.zarr_write_format = 3
-anndata.settings.auto_shard_zarr_v3 = True  # experimental; independent of zarr_write_format
+# 0.13 writes Zarr v3 with auto-sharding by default; set these only to
+# pin the behaviour, or to opt back out to v2
+anndata.settings.zarr_write_format = 3      # set 2 to write v2 stores
+anndata.settings.auto_shard_zarr_v3 = True
 
 adata.write_zarr('data.zarr', chunks=(1000, 1000))
 ```
 
-Zarr v3 writing is available in anndata 0.12, with structured-array exceptions and evolving performance guidance. Consolidated metadata is recommended for remote Zarr stores.
+anndata 0.13 requires the v3 zarr package line (`zarr>=3.1`) and writes format-3 stores by default; 0.12 defaulted to v2 and treated v3 as opt-in. Writing v2 stores is still possible through `zarr_write_format`. Structured-array exceptions and evolving performance guidance still apply. Consolidated metadata is recommended for remote Zarr stores, and `write_zarr` takes a `consolidate_metadata` argument if you want to opt out.
 
 #### Remote Zarr access
 Only open remote stores from trusted, expected locations. Prefer allowlisted HTTPS/S3/GCS paths or signed URLs, and avoid asking an agent to fetch arbitrary user-supplied URLs.
