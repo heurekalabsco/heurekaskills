@@ -109,13 +109,13 @@ adata.write_h5ad('data.h5ad', compression='gzip')
 ```python
 import anndata
 
-# Default is Zarr v2; opt into v3 for cloud workflows (anndata 0.12+)
-anndata.settings.zarr_write_format = 3
-anndata.settings.auto_shard_zarr_v3 = True  # experimental; independent of zarr_write_format
+# Since 0.13 these are the defaults; set them to pin, or to opt back out to v2
+anndata.settings.zarr_write_format = 3      # set 2 to write v2 stores
+anndata.settings.auto_shard_zarr_v3 = True
 adata.write_zarr('data.zarr', chunks=(100, 100))
 ```
 - Excellent for cloud storage (S3, GCS)
-- Supports parallel I/O and opt-in Zarr v3 sharding (0.12+)
+- Supports parallel I/O, with Zarr v3 sharding on by default (0.13+)
 - Good compression
 - Best for: Large datasets, cloud workflows, parallel processing
 
