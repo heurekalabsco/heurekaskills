@@ -10,15 +10,17 @@ polars-bio provides `read_*`, `scan_*`, `write_*`, and `sink_*` functions for co
 |--------|------|------|-----------------|-------|------|
 | BED | `read_bed` | `scan_bed` | `register_bed` | — | — |
 | VCF | `read_vcf` | `scan_vcf` | `register_vcf` | `write_vcf` | `sink_vcf` |
-| VCF Zarr | `read_vcf_zarr` | `scan_vcf_zarr` | — | — | — |
+| VCF Zarr | `read_vcf_zarr` | `scan_vcf_zarr` | `register_vcf_zarr` | — | — |
 | BAM | `read_bam` | `scan_bam` | `register_bam` | `write_bam` | `sink_bam` |
 | CRAM | `read_cram` | `scan_cram` | `register_cram` | `write_cram` | `sink_cram` |
 | GFF | `read_gff` | `scan_gff` | `register_gff` | — | — |
 | GTF | `read_gtf` | `scan_gtf` | `register_gtf` | — | — |
-| FASTA | `read_fasta` | `scan_fasta` | — | `write_fasta` | `sink_fasta` |
+| FASTA | `read_fasta` | `scan_fasta` | `register_fasta` | `write_fasta` | `sink_fasta` |
 | FASTQ | `read_fastq` | `scan_fastq` | `register_fastq` | `write_fastq` | `sink_fastq` |
 | SAM | `read_sam` | `scan_sam` | `register_sam` | `write_sam` | `sink_sam` |
 | Hi-C pairs | `read_pairs` | `scan_pairs` | `register_pairs` | — | — |
+| BigWig | `read_bigwig` | `scan_bigwig` | `register_bigwig` | — | — |
+| BigBed | `read_bigbed` | `scan_bigbed` | `register_bigbed` | — | — |
 | Generic table | `read_table` | `scan_table` | — | — | — |
 
 ## Common Cloud/IO Parameters
@@ -149,13 +151,33 @@ lf = pb.scan_vcf_zarr("/path/to/vcf.zarr", info_fields=[], format_fields=[])
 
 Same as VCF where applicable: `info_fields`, `format_fields`, `samples`, `projection_pushdown`, `predicate_pushdown`, `use_zero_based`, `genotype_encoding_raw`.
 
-**Note:** VCF Zarr is currently local-path only (no cloud URI support). There is no `register_vcf_zarr` SQL helper yet — use `scan_vcf_zarr` + `from_polars` if needed.
+### register_vcf_zarr / describe_vcf_zarr
+
+```python
+import polars_bio as pb
+
+# Register a store as a SQL table (same projection parameters as scan_vcf_zarr)
+pb.register_vcf_zarr("/path/to/vcf.zarr", name="zarr_variants", info_fields=["AF"])
+
+# Introspect the store's logical VCF schema
+schema = pb.describe_vcf_zarr("/path/to/vcf.zarr")
+```
+
+**Note:** VCF Zarr is currently local-path only (no cloud URI support).
+
+**Spec version:** the readers accept `vcf_zarr_version` **0.4** and reject anything else up
+front — a 0.5 store fails with `unsupported vcf_zarr_version '0.5' at <path>/.zattrs; expected
+0.4` before any data is read. Recent `bio2zarr` releases write 0.5 by default, so a store that
+was just converted may need a writer pinned to a 0.4-emitting version. Check `.zattrs` in the
+store directory first when a Zarr path fails immediately.
 
 ## BAM Format
 
 ### read_bam / scan_bam
 
-Read aligned sequencing reads from BAM files. Requires a `.bai` index file.
+Read aligned sequencing reads from BAM files. A whole-file read works with or without a
+`.bai`; the index is what enables region queries, so create one with `samtools index` when
+querying a locus.
 
 ```python
 import polars_bio as pb
@@ -211,7 +233,8 @@ pb.sink_bam(lf, "output.bam", sort_on_write=True)
 
 ### read_cram / scan_cram
 
-CRAM files have **separate functions** from BAM. Require a reference FASTA and `.crai` index.
+CRAM files have **separate functions** from BAM. A reference FASTA is required; the `.crai`
+index is optional for a whole-file read and required for region queries.
 
 ```python
 import polars_bio as pb
@@ -235,6 +258,14 @@ Same additional parameters and column schema as BAM, plus:
 rows_written = pb.write_cram(df, "output.cram", reference_path="reference.fasta")
 pb.sink_cram(lf, "output.cram", reference_path="reference.fasta")
 ```
+
+### Unmapped reads in CRAM
+
+A whole-file `read_cram` / `scan_cram` returns the unplaced, unmapped reads that sit at the end
+of the file, and returns them whether or not a `.crai` is present. Before 0.33.1 the indexed path
+dropped them without warning, so the presence of an index changed the row count of an otherwise
+identical read — if a CRAM appeared to lose reads once it was indexed, that was why. Region
+queries never included unmapped reads and are unchanged, and BAM was never affected.
 
 ## GFF/GTF Format
 
@@ -389,6 +420,60 @@ lf = pb.scan_pairs("contacts.pairs")
 | `pos2` | Int32 | Position of second contact |
 | `strand1` | String | Strand of first contact |
 | `strand2` | String | Strand of second contact |
+
+## BigWig
+
+### read_bigwig / scan_bigwig
+
+Read continuous signal tracks (coverage, conservation, ChIP enrichment). Rows are exposed as
+`chrom`, `start`, `end`, `value`.
+
+```python
+import polars_bio as pb
+
+# Eager read
+df = pb.read_bigwig("coverage.bw")
+
+# Lazy scan (streaming, for genome-wide tracks)
+lf = pb.scan_bigwig("coverage.bw")
+```
+
+### Column Schema
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `chrom` | String | Chromosome/contig name |
+| `start` | UInt32 | Interval start |
+| `end` | UInt32 | Interval end |
+| `value` | Float32 | Signal value over the interval |
+
+**Coordinates:** BigWig is natively 0-based half-open on disk, but the reader follows the
+library-wide default and emits **1-based closed** coordinates. Pass `use_zero_based=True` to get
+the file's own 0-based half-open coordinates back — an interval stored as `[0, 100)` reads as
+`1–100` by default and as `0–100` with `use_zero_based=True`.
+
+## BigBed
+
+### read_bigbed / scan_bigbed
+
+Read indexed interval tracks (peaks, annotation tracks).
+
+```python
+import polars_bio as pb
+
+df = pb.read_bigbed("peaks.bb")
+lf = pb.scan_bigbed("peaks.bb")
+```
+
+Beyond the shared cloud/IO parameters, BigBed takes a `schema` parameter:
+
+- `schema="auto"` (default) maps supported autoSQL fields to typed columns — a BED6-style track
+  reads as `chrom`, `start`, `end`, `name`, `score`.
+- `schema="rest"` keeps `chrom`, `start`, `end` and leaves every trailing field in a single raw
+  tab-separated `rest` string column.
+
+Use `"rest"` when a track carries a custom autoSQL definition the reader does not recognise, and
+parse the column yourself with `str.split("\t")`.
 
 ## Generic Table Reader
 

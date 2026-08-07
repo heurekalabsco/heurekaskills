@@ -1,11 +1,11 @@
 ---
 name: polars-bio
-description: Genomic interval operations and bioinformatics file I/O on Polars DataFrames — overlap, nearest, merge, coverage, complement, and subtract over BED/VCF/BAM/GFF, with streaming and cloud-native paths.
+description: Genomic interval operations and bioinformatics file I/O on Polars DataFrames — overlap, nearest, merge, coverage, complement, and subtract over BED/VCF/BAM/GFF/BigWig, plus streaming FastQC, with cloud-native paths.
 category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
+version: 1.1.0
 tags: [genomic-intervals, bed, vcf, polars, file-io]
 allowed-tools: Read, Write, Edit, Bash
 ---
@@ -40,14 +40,16 @@ Use this skill when:
 Requires Python 3.11–3.14 (see [PyPI](https://pypi.org/project/polars-bio/)).
 
 ```bash
-uv pip install "polars-bio==0.31.0"
+uv pip install "polars-bio==0.33.1"
 ```
 
 For pandas compatibility (pandas ≥3.0):
 
 ```bash
-uv pip install "polars-bio[pandas]==0.31.0"
+uv pip install "polars-bio[pandas]==0.33.1"
 ```
+
+Nothing else is needed — the wheel bundles the Rust engine and its Polars runtime.
 
 ### Basic Overlap Example
 
@@ -137,7 +139,7 @@ Read and write common bioinformatics formats with `read_*`, `scan_*`, `write_*`,
 **Supported formats:**
 - **BED** - Genomic intervals (`read_bed`, `scan_bed`, `write_*` via generic)
 - **VCF** - Genetic variants (`read_vcf`, `scan_vcf`, `write_vcf`, `sink_vcf`)
-- **VCF Zarr** - Analysis-ready Zarr stores (`read_vcf_zarr`, `scan_vcf_zarr`; local directory paths)
+- **VCF Zarr** - Analysis-ready Zarr stores (`read_vcf_zarr`, `scan_vcf_zarr`, `register_vcf_zarr`, `describe_vcf_zarr`; local directory paths)
 - **BAM** - Aligned reads (`read_bam`, `scan_bam`, `write_bam`, `sink_bam`)
 - **CRAM** - Compressed alignments (`read_cram`, `scan_cram`, `write_cram`, `sink_cram`)
 - **GFF** - Gene annotations (`read_gff`, `scan_gff`)
@@ -146,6 +148,8 @@ Read and write common bioinformatics formats with `read_*`, `scan_*`, `write_*`,
 - **FASTQ** - Sequencing reads (`read_fastq`, `scan_fastq`, `write_fastq`, `sink_fastq`)
 - **SAM** - Text alignments (`read_sam`, `scan_sam`, `write_sam`, `sink_sam`)
 - **Hi-C pairs** - Chromatin contacts (`read_pairs`, `scan_pairs`)
+- **BigWig** - Continuous signal tracks (`read_bigwig`, `scan_bigwig`, `register_bigwig`)
+- **BigBed** - Indexed interval tracks (`read_bigbed`, `scan_bigbed`, `register_bigbed`)
 
 **Example:**
 ```python
@@ -159,6 +163,9 @@ alignments = pb.scan_bam("aligned.bam")
 
 # Read GFF annotations
 genes = pb.read_gff("annotations.gff3")
+
+# Read a BigWig signal track (chrom, start, end, value)
+signal = pb.read_bigwig("coverage.bw")
 
 # Cloud storage (individual params, not a dict)
 df = pb.read_bed("s3://bucket/regions.bed",
@@ -180,7 +187,8 @@ pb.register_vcf("samples.vcf.gz", name="variants")
 pb.register_bed("target_regions.bed", name="regions")
 
 # Query with SQL (returns LazyFrame)
-result = pb.sql("SELECT chrom, start, end, ref, alt FROM variants WHERE qual > 30")
+# NOTE: `end` is a reserved word — double-quote it in a select list
+result = pb.sql('SELECT chrom, start, "end", ref, alt FROM variants WHERE qual > 30')
 result_df = result.collect()
 
 # Register a Polars DataFrame as a SQL table
@@ -206,6 +214,31 @@ depth_lf = pb.depth("aligned.bam", min_mapping_quality=20)
 ```
 
 **Reference:** See `references/pileup_operations.md` for parameters and integration patterns.
+
+### 5. FASTQ Quality Control
+
+`pb.fastqc()` runs FastQC's 12 core modules over a FASTQ file (plain, `.gz`, or BGZF) in a
+single streaming pass, returning tables rather than an HTML report. Output is bit-exact
+against FastQC 0.12.1 run with `--nogroup`.
+
+```python
+import polars_bio as pb
+
+qc = pb.fastqc("reads.fastq.gz")
+
+# Per-module PASS / WARN / FAIL verdicts
+qc.summary().collect()
+
+# Individual modules are LazyFrames — collect the ones you need
+qc.basic_stats.collect()        # n_seq, total_bases, min_len, max_len, gc_pct
+qc.per_base_quality.collect()   # position, mean, median, q1, q3, p10, p90
+
+# Compute only what is needed — cheaper on large files
+qc = pb.fastqc("reads.fastq.gz", modules=["basic_stats", "adapter_content"])
+```
+
+**Reference:** See `references/fastqc.md` for the module list, output schemas, the long-form
+`tidy` table, and the SQL entry point.
 
 ## Key Concepts
 
@@ -327,7 +360,7 @@ DataFusion streaming is enabled by default for interval operations, processing d
 
 6. **INT32 position limit:** Genomic positions are stored as 32-bit integers, limiting coordinates to ~2.1 billion. This is sufficient for all known genomes but may be an issue with custom coordinate spaces.
 
-7. **BAM index requirements:** `read_bam` and `scan_bam` require a `.bai` index file alongside the BAM. Create one with `samtools index` if missing.
+7. **BAM index requirements:** a whole-file `read_bam` / `scan_bam` does **not** need a `.bai` — the file is read sequentially. The index is what makes region queries possible, so create one with `samtools index` when querying a locus rather than a whole file.
 
 8. **Parallel execution disabled by default:** DataFusion parallelism defaults to 1 partition. Enable for large datasets:
    ```python
@@ -335,6 +368,8 @@ DataFusion streaming is enabled by default for interval operations, processing d
    ```
 
 9. **CRAM has separate functions:** Use `read_cram`/`scan_cram`/`register_cram` for CRAM files (not `read_bam`). CRAM functions require a `reference_path` parameter.
+
+10. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
 
 ## Best Practices
 
@@ -373,6 +408,8 @@ Detailed documentation for each major capability:
 - **sql_processing.md** - Register functions, DataFusion SQL syntax, combining SQL with interval operations, and example queries.
 
 - **pileup_operations.md** - Per-base read depth computation from BAM/CRAM files, parameters, and integration with interval operations.
+
+- **fastqc.md** - Streaming FASTQ quality control — the 12 modules, per-module output schemas, the long-form `tidy` table, the PASS/WARN/FAIL summary, and the SQL entry point.
 
 - **configuration.md** - Global settings (parallelism, coordinate systems, streaming modes), logging, and metadata management.
 

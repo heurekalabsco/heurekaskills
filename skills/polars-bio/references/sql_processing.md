@@ -21,6 +21,10 @@ pb.register_gtf("genes.gtf", name="gtf_annotations")
 pb.register_fastq("sample.fastq.gz", name="reads")
 pb.register_sam("alignments.sam", name="sam_alignments")
 pb.register_pairs("contacts.pairs", name="hic_contacts")
+pb.register_fasta("reference.fasta", name="reference")
+pb.register_bigwig("coverage.bw", name="signal")
+pb.register_bigbed("peaks.bb", name="peaks")
+pb.register_vcf_zarr("/path/to/vcf.zarr", name="zarr_variants")
 ```
 
 ### Parameters
@@ -41,7 +45,11 @@ All `register_*` functions share these parameters:
 
 Some register functions have additional format-specific parameters (e.g., `info_fields` on `register_vcf`).
 
-**Note:** `register_fasta` does not exist. Use `scan_fasta` + `from_polars` as a workaround.
+`register_fasta`, `register_bigwig`, `register_bigbed` and `register_vcf_zarr` complete the
+eager/lazy/register triad for those formats — no `scan_*` + `from_polars` workaround is needed.
+`register_vcf_zarr` takes a local store directory and the same `info_fields` / `format_fields` /
+`samples` projection parameters as `scan_vcf_zarr`; `pb.describe_vcf_zarr(path)` returns the
+store's logical INFO/FORMAT schema as a DataFrame.
 
 ## from_polars
 
@@ -95,7 +103,7 @@ Execute SQL queries using DataFusion SQL syntax. **Returns a LazyFrame** — cal
 import polars_bio as pb
 
 # Simple query
-result = pb.sql("SELECT chrom, start, end FROM regions WHERE chrom = 'chr1'").collect()
+result = pb.sql('SELECT chrom, start, "end" FROM regions WHERE chrom = \'chr1\'').collect()
 
 # Aggregation
 result = pb.sql("""
@@ -114,6 +122,39 @@ result = pb.sql("""
         AND v.end <= r.end
 """).collect()
 ```
+
+### `end` is a reserved word
+
+DataFusion's parser treats `end` as a keyword (it terminates a `CASE` expression), so a
+bare `end` in a **select list** is a syntax error:
+
+```python
+# Fails: ParserError("Expected: end of statement, found: end")
+pb.sql("SELECT chrom, start, end FROM regions")
+
+# Works — double-quote the identifier
+pb.sql('SELECT chrom, start, "end" FROM regions')
+```
+
+Quoting is only required in that position. `end` parses unquoted when it is table-qualified
+(`SELECT v.end FROM variants v`), wrapped in a function (`MAX(end)`, `LAG(end)`), or used in a
+`WHERE` clause. Because the readers name the column `end` on every interval-bearing format,
+this is the most common SQL failure in practice — quote it by habit.
+
+## FastQC as a SQL table
+
+`fastqc` is also exposed as a table function, which lets a FASTQ be quality-checked without
+registering it first:
+
+```python
+import polars_bio as pb
+
+qc = pb.sql("SELECT * FROM fastqc('reads.fastq.gz')").collect()
+```
+
+The table has the long-form `tidy` schema — `module`, `label`, `position`, `metric`, `value`,
+`value_str`. Note that column projection is **not** pushed into this table function — a
+`SELECT module, metric` still returns all six columns, so project afterwards in Polars.
 
 ## DataFusion SQL Syntax
 
@@ -137,7 +178,7 @@ HAVING COUNT(*) > 100
 ### Window Functions
 
 ```sql
-SELECT chrom, start, end,
+SELECT chrom, start, "end",
     ROW_NUMBER() OVER (PARTITION BY chrom ORDER BY start) as row_num,
     LAG(end) OVER (PARTITION BY chrom ORDER BY start) as prev_end
 FROM regions
@@ -176,8 +217,8 @@ pb.register_vcf("samples.vcf.gz", name="variants")
 pb.register_bed("target_regions.bed", name="targets")
 
 # SQL to filter (returns LazyFrame)
-high_qual = pb.sql("SELECT chrom, start, end FROM variants WHERE qual > 30").collect()
-targets = pb.sql("SELECT chrom, start, end FROM targets WHERE chrom = 'chr1'").collect()
+high_qual = pb.sql('SELECT chrom, start, "end" FROM variants WHERE qual > 30').collect()
+targets = pb.sql('SELECT chrom, start, "end" FROM targets WHERE chrom = \'chr1\'').collect()
 
 # Interval operation on SQL results
 overlapping = pb.overlap(high_qual, targets).collect()
@@ -214,7 +255,7 @@ pb.register_gff("gencode.gff3", name="genes")
 
 # Find all protein-coding genes on chromosome 1
 coding_genes = pb.sql("""
-    SELECT chrom, start, end, attributes
+    SELECT chrom, start, "end", attributes
     FROM genes
     WHERE type = 'gene'
         AND chrom = 'chr1'

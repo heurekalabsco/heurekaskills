@@ -41,9 +41,22 @@ When `per_base=False` (default), adjacent positions with the same depth are grou
 | Column | Type | Description |
 |--------|------|-------------|
 | `contig` | String | Chromosome/contig name |
-| `pos_start` | Int64 | Block start position |
-| `pos_end` | Int64 | Block end position |
+| `pos_start` | Int32 | Block start position |
+| `pos_end` | Int32 | Block end position (see coordinates below) |
 | `coverage` | Int16 | Read depth |
+
+### Block coordinates
+
+Blocks follow the coordinate system in force, and the two are consistent with each other:
+
+- **1-based (default)** — blocks are **closed**, so a block's width is `pos_end - pos_start + 1`.
+- **0-based** (`use_zero_based=True`) — blocks are **half-open**, so the width is
+  `pos_end - pos_start`.
+
+Summing block widths therefore gives the same covered-base total either way. This was not true
+before 0.33.1, where 0-based blocks came back closed rather than half-open: applying the
+half-open formula to that output lost a base per block, and the error grew with the number of
+blocks. Any coverage total computed in 0-based mode on an older release is worth recomputing.
 
 ### Output Schema (Per-Base Mode)
 
@@ -52,8 +65,12 @@ When `per_base=True`, each position is reported individually:
 | Column | Type | Description |
 |--------|------|-------------|
 | `contig` | String | Chromosome/contig name |
-| `pos` | Int64 | Position |
+| `pos` | Int32 | Position |
 | `coverage` | Int16 | Read depth at position |
+
+Per-base output is dense — every position on the contig is emitted, including positions with
+`coverage = 0`. A mean taken straight off this table is a genome-wide mean, not a mean over
+covered bases; filter with `pl.col("coverage") > 0` if the latter is intended.
 
 ### filter_flag
 
