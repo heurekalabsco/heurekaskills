@@ -12,6 +12,11 @@ Bio.Phylo provides a unified toolkit for reading, writing, analyzing, and visual
 - **NeXML** - Modern XML format
 - **CDAO** - Comparative Data Analysis Ontology
 
+**Reading NEXUS requires Biopython 1.88+.** Earlier releases parsed the file's own
+`ntax` and `nchar` values with Python's built-in `eval`, so reading a crafted NEXUS
+file could execute arbitrary code. `Phylo.read(..., "nexus")` shares that parser with
+`AlignIO` and `Bio.Nexus`, so upgrade rather than changing entry point.
+
 ## Reading and Writing Trees
 
 ### Reading Trees
@@ -259,6 +264,13 @@ Phylo.draw_ascii(tree, column_width=80)
 
 ### Matplotlib Visualization
 
+`Phylo.draw` needs matplotlib, which Biopython does not install for you — only
+`draw_ascii` above works without it. Install it first:
+
+```bash
+uv pip install matplotlib
+```
+
 ```python
 import matplotlib.pyplot as plt
 from Bio import Phylo
@@ -307,13 +319,16 @@ def color_by_length(clade):
 from Bio.Phylo.TreeConstruction import DistanceTreeConstructor, DistanceMatrix
 
 # Create distance matrix
+# Lower triangle INCLUDING the zero diagonal — row i must have i+1 entries,
+# ending in 0.0. Omitting the diagonal raises
+# ValueError: 'matrix' should be in lower triangle format.
 dm = DistanceMatrix(
     names=["Alpha", "Beta", "Gamma", "Delta"],
     matrix=[
-        [],
-        [0.23],
-        [0.45, 0.34],
-        [0.67, 0.58, 0.29]
+        [0],
+        [0.23, 0],
+        [0.45, 0.34, 0],
+        [0.67, 0.58, 0.29, 0]
     ]
 )
 
@@ -400,7 +415,8 @@ clade.width = 2.0
 
 # Add taxonomy information
 from Bio.Phylo.PhyloXML import Taxonomy
-taxonomy = Taxonomy(scientific_name="Homo sapiens", common_name="Human")
+# common_names takes a list — the singular common_name is not a constructor argument
+taxonomy = Taxonomy(scientific_name="Homo sapiens", common_names=["Human"])
 clade.taxonomies.append(taxonomy)
 ```
 
