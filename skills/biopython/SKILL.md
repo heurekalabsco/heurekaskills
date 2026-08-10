@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
+version: 1.1.0
 tags: [sequences, fasta, genbank, entrez, blast]
 allowed-tools: Read, Write, Edit, Bash
 ---
@@ -13,7 +13,14 @@ allowed-tools: Read, Write, Edit, Bash
 
 ## Overview
 
-Biopython is a comprehensive set of freely available Python tools for biological computation. It provides functionality for sequence manipulation, file I/O, database access, structural bioinformatics, phylogenetics, and many other bioinformatics tasks. The current version is **Biopython 1.87** (released 30 March 2026). It supports **Python 3.10-3.14** and PyPy3.10, and requires NumPy. Biopython 1.87 also addresses **CVE-2025-68463** in `Bio.Entrez.Parser` when parsing untrusted files, so prefer 1.87+ for workflows that parse externally supplied Entrez XML.
+Biopython is a comprehensive set of freely available Python tools for biological computation. It provides functionality for sequence manipulation, file I/O, database access, structural bioinformatics, phylogenetics, and many other bioinformatics tasks. The current version is **Biopython 1.88** (released 6 August 2026). It supports **Python 3.10-3.14** plus the Python 3.15 release candidate, and PyPy3.10, and requires NumPy; upstream support for Python 3.10 is now deprecated as that version approaches end of life.
+
+Two recent releases were driven by security fixes, and both matter for the parsing workflows below:
+
+- **1.88** hardens the `Bio.Nexus` NEXUS parser. Up to 1.87 it read the `ntax` and `nchar` values out of the file and passed them to Python's built-in `eval`, so those fields were executable and a crafted file could run arbitrary code at parse time. Both call sites are gone in 1.88. `Bio.Phylo` and `Bio.AlignIO` share this parser, so the exposure is not limited to code that imports `Bio.Nexus` directly.
+- **1.87** addressed **CVE-2025-68463** in `Bio.Entrez.Parser` when parsing untrusted files.
+
+Prefer **1.88+** for any workflow that parses NEXUS or Entrez XML it did not produce itself.
 
 ## When to Use This Skill
 
@@ -49,7 +56,7 @@ Biopython is organized into modular sub-packages, each addressing specific bioin
 Install the current stable Biopython release with an explicit version pin for reproducibility:
 
 ```bash
-uv pip install "biopython==1.87"
+uv pip install "biopython==1.88"
 ```
 
 For NCBI database access, always set your email address (required by NCBI). For reusable software, set a stable `Entrez.tool` value and register the tool/email with NCBI. For higher rate limits (10 req/s instead of 3 req/s), read only `NCBI_API_KEY` from the environment — do not hardcode keys or load unrelated environment variables:
@@ -295,6 +302,7 @@ Follow these principles when writing Biopython code:
    ```python
    for record in SeqIO.parse("large_file.fasta", "fasta"):
        # Process one record at a time
+       print(record.id, len(record.seq))
    ```
 
 6. **Handle errors gracefully** - Network operations and file parsing can fail
@@ -395,7 +403,7 @@ Phylo.draw_ascii(tree)
 5. **Cache downloaded data** - Don't repeatedly download the same sequences
 6. **Respect NCBI rate limits** - Use API keys, registered tool/email values for reusable software, and Entrez history/batching for large jobs
 7. **Test with small datasets** before processing large files
-8. **Keep Biopython updated** to get latest features and bug fixes
+8. **Keep Biopython updated** to get the latest features, bug fixes, and security fixes — 1.87 and 1.88 were both driven by parser vulnerabilities
 9. **Use appropriate genetic code tables** for translation
 10. **Document analysis parameters** for reproducibility
 
@@ -421,6 +429,9 @@ Phylo.draw_ascii(tree)
 
 ### Issue: ImportError for Bio.HMM, Bio.MarkovModel, or Bio.Application
 **Solution:** These modules were removed in Biopython 1.86. Use [hmmlearn](https://pypi.org/project/hmmlearn/) for HMMs and the standard library `subprocess` module instead of `Bio.Application` CLI wrappers.
+
+### Issue: Reading a NEXUS file from a source you do not control
+**Solution:** Use Biopython 1.88 or later. Up to 1.87 the NEXUS parser passed the file's own `ntax` and `nchar` fields to Python's built-in `eval`, so reading a crafted file could run arbitrary code. Every NEXUS entry point shares that parser — `Phylo.read(path, "nexus")`, `AlignIO.read(path, "nexus")` and `Bio.Nexus.Nexus` alike — so upgrading, rather than switching entry point, is the fix.
 
 ### Issue: PairwiseAligner returns fewer alignments after upgrading to 1.86+
 **Solution:** The default gap score changed from 0 to -1 in 1.86, eliminating trivial tie alignments. Set `aligner.gap_score = 0` to restore the old behavior if needed (see `references/alignment.md`).

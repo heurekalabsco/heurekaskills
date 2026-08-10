@@ -110,21 +110,36 @@ for pop_idx, pop in enumerate(record.populations):
 
 ### Calculating Population Statistics
 
+`Bio.PopGen.GenePop.Controller` was removed in Biopython 1.86 along with the rest of
+the command-line wrappers, so `GenePopController` and its `calc_fst_all` /
+`test_hw_pop` helpers no longer exist. Biopython still *parses* GenePop files; compute
+from the parsed record, or drive the external GenePop executable with `subprocess`.
+
 ```python
-from Bio.PopGen.GenePop.Controller import GenePopController
+from collections import Counter
+from Bio.PopGen import GenePop
 
-# Create controller
-ctrl = GenePopController()
+record = GenePop.read(open("data.gen"))
 
-# Calculate basic statistics
-result = ctrl.calc_allele_genotype_freqs("data.gen")
+# Allele frequencies per population, per locus, from the parsed record
+for pop_index, pop in enumerate(record.populations, start=1):
+    for locus_index, locus in enumerate(record.loci_list):
+        alleles = Counter()
+        for _name, genotype in pop:
+            if genotype[locus_index] is not None:
+                alleles.update(a for a in genotype[locus_index] if a is not None)
+        total = sum(alleles.values())
+        freqs = ", ".join(f"{a}={c / total:.2f}" for a, c in sorted(alleles.items()))
+        print(f"pop{pop_index} {locus}: {freqs}")
+```
 
-# Calculate Fst
-fst_result = ctrl.calc_fst_all("data.gen")
-print(f"Fst: {fst_result}")
+For Fst and Hardy-Weinberg tests, run the GenePop program itself and parse its output,
+keeping the command name and flags fixed rather than built from user input:
 
-# Test Hardy-Weinberg equilibrium
-hw_result = ctrl.test_hw_pop("data.gen", "probability")
+```python
+import subprocess
+
+subprocess.run(["Genepop", "settingsFile=settings.txt"], check=True)
 ```
 
 ## Sequence Utilities with Bio.SeqUtils
@@ -176,11 +191,12 @@ tm_wallace = mt.Tm_Wallace(seq)
 ### GC Skew
 
 ```python
-from Bio.SeqUtils import gc_skew
+from Bio.Seq import Seq
+from Bio.SeqUtils import GC_skew
 
-# Calculate GC skew
+# Calculate GC skew — returns one (G-C)/(G+C) value per window
 seq = Seq("ATCGATCGGGCCCAAATTT")
-skew = gc_skew(seq, window=100)
+skew = GC_skew(seq, window=100)
 print(f"GC skew: {skew}")
 ```
 
@@ -198,8 +214,8 @@ print(f"MW: {analyzed_seq.molecular_weight():.2f} Da")
 # Isoelectric point
 print(f"pI: {analyzed_seq.isoelectric_point():.2f}")
 
-# Amino acid composition
-print(f"Composition: {analyzed_seq.get_amino_acids_percent()}")
+# Amino acid composition — an attribute (dict of percentages), not a method
+print(f"Composition: {analyzed_seq.amino_acids_percent}")
 
 # Instability index
 print(f"Instability: {analyzed_seq.instability_index():.2f}")
@@ -288,6 +304,13 @@ print(f"Error: {error}")
 
 ## Genome Diagrams with GenomeDiagram
 
+`Bio.Graphics` needs ReportLab, which Biopython does not install for you — without
+it the import raises `Bio.MissingPythonDependencyError`. Install it first:
+
+```bash
+uv pip install reportlab
+```
+
 ```python
 from Bio.Graphics import GenomeDiagram
 from Bio.SeqFeature import SeqFeature, FeatureLocation
@@ -339,7 +362,11 @@ aligner.gap_score = 0  # Optional: mimic the old globalxx scoring style
 
 alignments = aligner.align("ACCGT", "ACGT")
 
-for alignment in alignments[:3]:
+# PairwiseAlignments supports integer indexing and iteration, but not slicing —
+# use itertools.islice to take the first few.
+from itertools import islice
+
+for alignment in islice(alignments, 3):
     print(alignment)
     print(f"Score: {alignment.score}")
 ```
@@ -369,15 +396,16 @@ handle.close()
 ## Sequence Features with Bio.SeqFeature
 
 ```python
-from Bio.SeqFeature import SeqFeature, FeatureLocation
+from Bio.SeqFeature import SeqFeature, SimpleLocation
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-# Create a feature
+# Create a feature. Strand belongs to the location, not to SeqFeature —
+# SeqFeature(strand=...) raises TypeError. SimpleLocation is the current name;
+# FeatureLocation remains as an alias.
 feature = SeqFeature(
-    location=FeatureLocation(start=10, end=50),
+    location=SimpleLocation(start=10, end=50, strand=1),
     type="CDS",
-    strand=1,
     qualifiers={"gene": ["ABC1"], "product": ["ABC protein"]}
 )
 
@@ -398,8 +426,8 @@ from Bio.Data import IUPACData
 # DNA ambiguity codes
 print(IUPACData.ambiguous_dna_letters)
 
-# Protein ambiguity codes
-print(IUPACData.ambiguous_protein_letters)
+# Protein letters including the ambiguity codes B, X, Z, J, U, O
+print(IUPACData.extended_protein_letters)
 
 # Resolve ambiguous bases
 print(IUPACData.ambiguous_dna_values["N"])  # Any base
