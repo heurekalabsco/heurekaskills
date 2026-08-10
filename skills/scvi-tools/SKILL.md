@@ -5,7 +5,7 @@ category: models
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
+version: 1.1.0
 tags: [single-cell, batch-correction, generative-models, scvi, multimodal]
 allowed-tools: Read, Write, Edit, Bash
 ---
@@ -13,9 +13,9 @@ allowed-tools: Read, Write, Edit, Bash
 
 ## Overview
 
-scvi-tools is a comprehensive Python framework for probabilistic models in single-cell genomics. Built on PyTorch and PyTorch Lightning, it provides deep generative models using variational inference for analyzing diverse single-cell data modalities. Current stable release: **scvi-tools 1.4.3** (May 2026).
+scvi-tools is a comprehensive Python framework for probabilistic models in single-cell genomics. Built on PyTorch and PyTorch Lightning, it provides deep generative models using variational inference for analyzing diverse single-cell data modalities. Current stable release: **scvi-tools 1.5.0** (July 2026).
 
-**Model namespaces matter:** core models (scVI, scANVI, totalVI, MultiVI, PeakVI, AUTOZI, CondSCVI, DestVI, LinearSCVI, AmortizedLDA, JaxSCVI) live under `scvi.model`. Most other models (VeloVI, contrastiveVI, CellAssign, PoissonVI, scBasset, MrVI, MethylVI/MethylANVI, CytoVI, SysVI, Decipher, gimVI, scVIVA, ResolVI, Stereoscope, Solo, totalANVI, DIAGVI) live under `scvi.external`. The reference files specify the correct namespace per model.
+**Model namespaces matter:** core models (scVI, scANVI, totalVI, MultiVI, PeakVI, AUTOZI, CondSCVI, DestVI, LinearSCVI, AmortizedLDA) live under `scvi.model`. Most other models (VeloVI, contrastiveVI, CellAssign, PoissonVI, scBasset, MrVI, MethylVI/MethylANVI, CytoVI, SysVI, Decipher, gimVI, scVIVA, ResolVI, Stereoscope, Solo, totalANVI, DIAGVI, DRVI, JointEmbeddingSCVI) live under `scvi.external`. The reference files specify the correct namespace per model. Class attributes are mostly upper-case (`scvi.external.VELOVI`, `scvi.external.POISSONVI`, `scvi.external.RNAStereoscope`) — take the exact spelling from the reference file rather than from the prose name.
 
 ## When to Use This Skill
 
@@ -40,6 +40,10 @@ Core models for expression analysis, batch correction, and integration. See `ref
 - **AUTOZI**: Zero-inflation detection and modeling
 - **VeloVI**: RNA velocity analysis
 - **contrastiveVI**: Perturbation effect isolation
+- **DRVI**: Unsupervised *disentangled* representation learning — a decoder-side constraint
+  keeps latent dimensions from mixing, so they can be read one at a time
+- **JointEmbeddingSCVI**: scVI variant trained with a cross-correlation objective on a
+  binomially thinned view of the counts, for embeddings robust to dropout
 
 ### 2. Chromatin Accessibility (ATAC-seq)
 Models for analyzing single-cell chromatin data. See `references/models-atac-seq.md` for:
@@ -185,11 +189,17 @@ uv pip install scvi-tools
 uv pip install "scvi-tools[cuda]"
 ```
 
-For reproducible environments, pin a version: `uv pip install scvi-tools==1.4.3`.
+For reproducible environments, pin a version: `uv pip install scvi-tools==1.5.0.post1`.
 
-**Compute backends:** training defaults to PyTorch (CPU/GPU/TPU). A JAX backend
-(`scvi.model.JaxSCVI`) and an experimental MLX backend for Apple silicon
-(`scvi.model.mlxSCVI`) are available for select models.
+The scanpy steps in the workflow above need one extra: `sc.tl.leiden` raises
+`ModuleNotFoundError` on a stock install, so add `uv pip install "scanpy[leiden]"` (or
+`leidenalg`) before clustering.
+
+**Compute backends:** training runs on PyTorch (CPU/GPU/TPU). **JAX support was removed in
+1.5.0** — `scvi.model.JaxSCVI` no longer exists (`AttributeError`), and models that once
+defaulted to JAX now run on PyTorch, including `scvi.external.MRVI` and
+`scvi.external.Tangram`. An experimental MLX backend for Apple silicon
+(`scvi.model.mlxSCVI`) remains, and raises `ModuleNotFoundError` until `mlx` is installed.
 
 ## Best Practices
 
@@ -200,4 +210,5 @@ For reproducible environments, pin a version: `uv pip install scvi-tools==1.4.3`
 5. **Model saving**: Always save trained models to avoid retraining
 6. **GPU usage**: Enable GPU acceleration for large datasets (`accelerator="gpu"`)
 7. **Scanpy integration**: Store outputs in AnnData objects for downstream analysis
+8. **Out-of-core training**: For collections too large to hold in memory, `scvi.dataloaders.AnnbatchDataModule` (1.5.0+) wraps an `annbatch.Loader` over sharded Zarr and passes batch and covariate keys through to the model
 

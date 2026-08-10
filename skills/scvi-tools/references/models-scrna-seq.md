@@ -82,12 +82,19 @@ scvi.model.SCANVI.setup_anndata(
 model = scvi.model.SCANVI(adata)
 model.train()
 
-# Option 2: Initialize from pretrained scVI
+# Option 2: Initialize from pretrained scVI.
+# Re-register the object first — an AnnData set up for SCANVI cannot be handed to SCVI,
+# and constructing SCVI on it raises ValueError.
+scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key="batch")
 scvi_model = scvi.model.SCVI(adata)
 scvi_model.train()
+# labels_key is required here whenever the scVI model was registered without one,
+# otherwise: ValueError("A `labels_key` is necessary as the scVI model was
+# initialized without one.")
 scanvi_model = scvi.model.SCANVI.from_scvi_model(
     scvi_model,
-    unlabeled_category="Unknown"
+    unlabeled_category="Unknown",
+    labels_key="cell_type"
 )
 scanvi_model.train()
 
@@ -295,6 +302,60 @@ topic_proportions = model.get_latent_representation()
 topic_gene_loadings = model.get_feature_by_topic()
 ```
 
+## DRVI (Disentangled Representation Variational Inference)
+
+**Purpose**: Unsupervised representation learning where individual latent dimensions are
+interpretable. Added in scvi-tools 1.5.0; lives in `scvi.external`.
+
+**Key Features**:
+- The constraint sits on the decoder side rather than the encoder: latent dimensions are
+  partitioned into blocks that reconstruct expression on their own before their outputs are
+  combined, which discourages any one factor from smearing across the whole vector
+- `n_latent` defaults to 32, wider than scVI's 10, because dimensions are meant to be read
+  individually rather than only as a space
+- Same setup/train/extract API as the core models, plus interpretability helpers
+  (`get_interpretability_scores`, `get_effect_of_splits_within_distribution`)
+
+**When to Use**:
+- Looking for interpretable axes of variation rather than only a space to cluster in
+- Relating individual latent dimensions back to gene programs
+- An unsupervised alternative to scVI when the latent itself is the object of study
+
+**Basic Usage**:
+```python
+scvi.external.DRVI.setup_anndata(adata, layer="counts", batch_key="batch")
+model = scvi.external.DRVI(adata, n_latent=32)
+model.train()
+
+latent = model.get_latent_representation()
+```
+
+## JointEmbeddingSCVI (Self-Supervised scVI)
+
+**Purpose**: scVI trained with an additional cross-correlation objective so the embedding is
+robust to count dropout and sampling noise. Added in scvi-tools 1.5.0; lives in
+`scvi.external`.
+
+**Key Features**:
+- Binomial thinning produces a second view of each cell; the loss pushes the two embeddings
+  together (a cross-correlation objective, `joint_embedding_weight` defaults to 100.0)
+- Drop-in for scVI — same `setup_anndata`, same extraction methods
+- Setting `use_joint_embedding=False` drops the extra term, leaving a plain scVI fit — useful
+  as an ablation against the same data registration
+
+**When to Use**:
+- Shallow or noisy libraries where scVI embeddings move with sequencing depth
+- Wanting a robustness check on an existing scVI latent space
+
+**Basic Usage**:
+```python
+scvi.external.JointEmbeddingSCVI.setup_anndata(adata, layer="counts", batch_key="batch")
+model = scvi.external.JointEmbeddingSCVI(adata)
+model.train()
+
+latent = model.get_latent_representation()
+```
+
 ## Model Selection Guidelines
 
 **Choose scVI when**:
@@ -331,3 +392,11 @@ topic_gene_loadings = model.get_feature_by_topic()
 - Need doublet detection
 - Already using scVI for analysis
 - Want probabilistic doublet scores
+
+**Choose DRVI when**:
+- Individual latent dimensions need to be interpretable, not just the space as a whole
+- Mapping axes of variation onto gene programs
+
+**Choose JointEmbeddingSCVI when**:
+- Libraries are shallow or unevenly sequenced
+- Checking whether an scVI embedding is driven by depth rather than biology
