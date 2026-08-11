@@ -1,0 +1,28 @@
+name: Dataset liveness
+
+# Every skill's `## Try it` declares the data it runs against in `datasets:` frontmatter.
+# Those decay on their own schedule — URLs 404, accessions are withdrawn, hosts add a login
+# — independently of whether the tool the skill documents changed at all.
+#
+# Runs at 07:00 UTC, an hour ahead of the nightshift, so the routine starts from a fresh
+# result. The routine also runs this script itself; this schedule exists so a dead dataset
+# is still recorded on a night the routine fails to start.
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'skills/**/SKILL.md'
+      - 'scripts/check-datasets.js'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Probe every declared dataset
+        run: node scripts/check-datasets.js

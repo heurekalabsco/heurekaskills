@@ -143,8 +143,24 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
 ## `## Try it` — every skill must be testable
 
 A skill is a claim that a tool works a certain way. `## Try it` is what lets anyone — a
-reader, or a routine six months from now — check whether that claim still holds. It is
-required on every new skill and added to existing ones as they are next touched.
+reader, or the nightshift — check whether that claim still holds. Required on every new
+skill, and on any existing skill you touch.
+
+**It is maintained, not written once.** Datasets decay independently of the tool: URLs 404,
+accessions get withdrawn, hosts add a login. That is the same class of decay as an upstream
+API change and is treated the same way — `npm run check-datasets` probes every declared
+dataset in the registry, the nightshift runs it before choosing a target, and CI runs it
+nightly besides. A dead dataset is drift, and it becomes work.
+
+**Declare the dataset in frontmatter, not just in prose:**
+
+```yaml
+datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
+```
+
+The checker reads that key and never parses the body — which is what keeps the cost flat as
+the registry grows. Prose still needs to say what the dataset *is*, what licence it carries,
+and when it was last confirmed reachable; frontmatter is what a machine sweeps.
 
 `skills/alphafold/SKILL.md` is the worked example. Three parts, in this order:
 

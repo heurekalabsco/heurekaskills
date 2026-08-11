@@ -6,6 +6,7 @@ license: CC-BY-4.0
 author: Heureka Labs
 version: 1.1.0
 tags: [protein-structure, alphafold, uniprot, plddt, pae]
+datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
 allowed-tools: Read, Write, Edit, Bash
 ---
 # AlphaFold Protein Structure Database
@@ -212,9 +213,13 @@ prediction model, not this skill.
 
 A self-contained check that this skill still works. Public data, no account, no key.
 
-**Data** — UniProt accession `P04637` (human TP53). AlphaFold DB is CC-BY-4.0 and needs no
-licence acceptance; any accession works, this one is used because it is multi-isoform and
-spans the full confidence range.
+**Data** — UniProt accession `P04637` (human TP53), resolved by the prediction endpoint:
+
+    https://alphafold.ebi.ac.uk/api/prediction/P04637
+
+AlphaFold DB is CC-BY-4.0 and needs no account or licence acceptance. Any accession works;
+this one is used because it is multi-isoform and spans the full confidence range.
+Last confirmed reachable 2026-08-11.
 
 ```python
 import json, statistics, urllib.request
