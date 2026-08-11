@@ -9,7 +9,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "validate": "node scripts/validate.js"
+    "validate": "node scripts/validate.js",
+    "check-datasets": "node scripts/check-datasets.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

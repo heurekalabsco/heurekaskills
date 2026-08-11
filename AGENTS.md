@@ -140,6 +140,60 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
 5. **Do not route work through third-party AI services.** Prefer something local and
    editable — a Mermaid diagram stays readable as text; a generated image does not.
 
+## `## Try it` — every skill must be testable
+
+A skill is a claim that a tool works a certain way. `## Try it` is what lets anyone — a
+reader, or the nightshift — check whether that claim still holds. Required on every new
+skill, and on any existing skill you touch.
+
+**It is maintained, not written once.** Datasets decay independently of the tool: URLs 404,
+accessions get withdrawn, hosts add a login. That is the same class of decay as an upstream
+API change and is treated the same way — `npm run check-datasets` probes every declared
+dataset in the registry, the nightshift runs it before choosing a target, and CI runs it
+nightly besides. A dead dataset is drift, and it becomes work.
+
+**Declare the dataset in frontmatter, not just in prose:**
+
+```yaml
+datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
+```
+
+The checker reads that key and never parses the body — which is what keeps the cost flat as
+the registry grows. Prose still needs to say what the dataset *is*, what licence it carries,
+and when it was last confirmed reachable; frontmatter is what a machine sweeps.
+
+Entries must be `https://` URLs. If your `Try it` generates its data inline and there is
+nothing to fetch, say so explicitly with an empty list — `datasets: []` — rather than
+omitting the key. `npm run validate` enforces all of this on every PR, so a malformed entry
+fails there rather than going quiet until the nightly check.
+
+`skills/alphafold/SKILL.md` is the worked example. Three parts, in this order:
+
+**Data.** A named, citable, public dataset, with its licence and the fact that no account
+is needed. Prefer real data over synthetic: real data is what catches the schema change
+that breaks the skill. If no lawful public dataset exists — the §3b access test applies to
+data exactly as it does to tools — generate it inline instead, and say why you had to.
+Never `example.com`, never `path/to/your.bam`. A placeholder is not testable.
+
+**Run.** One self-contained block that goes from the data to a result, runnable by copy
+and paste with nothing else set up. Where the tool has a trap, route the example through
+it — the AlphaFold example indexes `rec[0]` precisely because the endpoint returns a list
+and treating it as a dict is the usual mistake.
+
+**Expect.** What makes this a test rather than a demo. Two kinds, and both matter:
+
+- **Invariants** — true regardless of version, so a failure means the skill is *wrong*.
+  One pLDDT per residue; the recomputed mean matching the API's own figure.
+- **Observed values, dated and version-stamped** — these move when upstream rebuilds, so a
+  mismatch means *drift to investigate*, not a bug.
+
+Keeping those apart is the whole point. Collapse them and every upstream release reads as
+a failure, and the section gets ignored within a month.
+
+**Run it before you ship it.** The block goes in the skill only after it has executed
+verbatim and produced the output written under Expect. This is `## 7` applied to the one
+block a reader is most likely to run first.
+
 ## Licensing
 
 Two separate questions. Conflating them has already produced wrong answers on the issue
