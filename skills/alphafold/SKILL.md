@@ -230,6 +230,9 @@ rec = json.loads(urllib.request.urlopen(
 
 # The endpoint returns a LIST — canonical entry plus one record per isoform.
 entry = rec[0]
+# ...and rec[0] is the canonical entry only by server ordering, which is not promised.
+# Assert it, or an isoform with a different length silently becomes your answer.
+assert entry["entryId"] == f"AF-{ACC}-F1", entry["entryId"]
 
 pdb = urllib.request.urlopen(entry["pdbUrl"], timeout=60).read().decode()
 plddt = [float(l[60:66]) for l in pdb.splitlines()
@@ -248,6 +251,9 @@ Invariants — these hold regardless of model version, and a failure means the s
 
 - `rec` is a **list**, not a dict. Indexing it as a dict is the single most common way to
   misuse this API.
+- `rec[0]` really is the canonical entry — the `entryId` assertion is what proves it. Order
+  is server behaviour, not a documented guarantee, and every other invariant below holds for
+  an isoform too, so nothing else here would notice a reorder.
 - One pLDDT value per residue: `len(plddt) == len(entry["uniprotSequence"])` (393 here).
 - The mean recomputed from the B-factor column matches `globalMetricValue` to within 0.1 —
   this is what confirms pLDDT really is carried in B-factor, rather than assumed.

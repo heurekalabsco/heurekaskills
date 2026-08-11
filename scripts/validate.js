@@ -18,6 +18,15 @@ const MAX_TOTAL_BYTES = 5 * 1024 * 1024;  // 5 MB per skill
 const MAX_FILES = 50;
 const MAX_TAGS = 5;
 const TAG_RE = /^[a-z0-9-]+$/;
+
+// Skills that predate the `## Try it` requirement (§7a). The nightshift backfills these one
+// at a time. Only ever remove entries — adding one re-opens the hole the rule closed.
+const TRY_IT_GRANDFATHERED = new Set([
+  'anndata', 'autodock-vina', 'biopython', 'boltz2-nim', 'cellxgene-census', 'datamol',
+  'diffdock-nim', 'esm', 'experimental-design', 'gaudi', 'graphical-abstract', 'paperpush',
+  'pathway-cca-coessentiality', 'pathway-enrichment', 'polars-bio', 'pydeseq2',
+  'scientific-critical-thinking', 'scikit-bio', 'scvi-tools', 'statistical-power',
+]);
 const MAX_DESCRIPTION = 250;
 
 // Every skill's frontmatter licence must be one we can positively identify as permissive,
@@ -175,6 +184,36 @@ for (const slug of slugs) {
         }
       }
     }
+  }
+
+  // 4c. Datasets. `## Try it` (§7a of adding-skills.md) declares the data a reader runs the
+  //     skill against, and scripts/check-datasets.js probes those URLs nightly. It reads
+  //     this key with real YAML, so anything that parses to a non-list — or to a list
+  //     holding something that is not an https URL — would never be probed. Gate the shape
+  //     here, on every PR, rather than discovering it at 07:00 UTC. Same reasoning as tags
+  //     above: silently ignored is the failure mode worth failing loudly on.
+  //     An explicit empty list is legal and meaningful: "generated inline, nothing to fetch".
+  const hasTryIt = /^##\s+Try it\s*$/m.test(raw);
+  if (fm.datasets !== undefined) {
+    if (!Array.isArray(fm.datasets)) {
+      err(slug, `datasets must be a list (e.g. [https://…]) — "${String(fm.datasets).slice(0, 40)}" would never be probed`);
+    } else {
+      for (const d of fm.datasets) {
+        if (typeof d !== 'string' || !/^https:\/\//.test(d.trim())) {
+          err(slug, `dataset "${String(d).slice(0, 60)}" must be an https:// URL — anything else is silently skipped by the liveness check`);
+        }
+      }
+    }
+    if (!hasTryIt) err(slug, 'declares datasets but has no "## Try it" section — nothing tells a reader what the data is for');
+  } else if (hasTryIt) {
+    err(slug, 'has "## Try it" but declares no datasets: — add `datasets: [https://…]`, or `datasets: []` if the data is generated inline');
+  }
+
+  // 4d. Every skill must be testable (§7a). Existing skills predate the rule and are
+  //     grandfathered; the nightshift backfills them. THIS LIST MAY ONLY SHRINK — a new
+  //     skill without a `## Try it` fails here, which is the point.
+  if (!hasTryIt && !TRY_IT_GRANDFATHERED.has(slug)) {
+    err(slug, 'missing a "## Try it" section — every new skill must be runnable and checkable (§7a)');
   }
 
   // 5. Path safety + file types.

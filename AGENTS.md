@@ -162,6 +162,11 @@ The checker reads that key and never parses the body — which is what keeps the
 the registry grows. Prose still needs to say what the dataset *is*, what licence it carries,
 and when it was last confirmed reachable; frontmatter is what a machine sweeps.
 
+Entries must be `https://` URLs. If your `Try it` generates its data inline and there is
+nothing to fetch, say so explicitly with an empty list — `datasets: []` — rather than
+omitting the key. `npm run validate` enforces all of this on every PR, so a malformed entry
+fails there rather than going quiet until the nightly check.
+
 `skills/alphafold/SKILL.md` is the worked example. Three parts, in this order:
 
 **Data.** A named, citable, public dataset, with its licence and the fact that no account
