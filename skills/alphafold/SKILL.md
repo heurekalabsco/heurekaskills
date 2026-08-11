@@ -4,7 +4,7 @@ description: Retrieve predicted protein structures from the AlphaFold database b
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [protein-structure, alphafold, uniprot, plddt, pae]
 allowed-tools: Read, Write, Edit, Bash
 ---
@@ -207,6 +207,52 @@ Predict instead of retrieve when you need a complex, a ligand-bound pose, a desi
 or mutated sequence, or a sequence with no UniProt entry. Structure prediction and
 protein-ligand complexes are a different job from database retrieval — reach for a
 prediction model, not this skill.
+
+## Try it
+
+A self-contained check that this skill still works. Public data, no account, no key.
+
+**Data** — UniProt accession `P04637` (human TP53). AlphaFold DB is CC-BY-4.0 and needs no
+licence acceptance; any accession works, this one is used because it is multi-isoform and
+spans the full confidence range.
+
+```python
+import json, statistics, urllib.request
+
+ACC = "P04637"
+rec = json.loads(urllib.request.urlopen(
+    f"https://alphafold.ebi.ac.uk/api/prediction/{ACC}", timeout=45).read())
+
+# The endpoint returns a LIST — canonical entry plus one record per isoform.
+entry = rec[0]
+
+pdb = urllib.request.urlopen(entry["pdbUrl"], timeout=60).read().decode()
+plddt = [float(l[60:66]) for l in pdb.splitlines()
+         if l.startswith("ATOM") and l[12:16].strip() == "CA"]
+
+print("entries        :", len(rec))
+print("residues       :", len(plddt), "| sequence:", len(entry["uniprotSequence"]))
+print("API global     :", entry["globalMetricValue"])
+print("recomputed mean: %.2f" % statistics.fmean(plddt))
+print("min / max      : %.2f / %.2f" % (min(plddt), max(plddt)))
+```
+
+**Expect**
+
+Invariants — these hold regardless of model version, and a failure means the skill is wrong:
+
+- `rec` is a **list**, not a dict. Indexing it as a dict is the single most common way to
+  misuse this API.
+- One pLDDT value per residue: `len(plddt) == len(entry["uniprotSequence"])` (393 here).
+- The mean recomputed from the B-factor column matches `globalMetricValue` to within 0.1 —
+  this is what confirms pLDDT really is carried in B-factor, rather than assumed.
+- Every value lies in 0–100.
+
+Observed 2026-08-11 against model **v6** (created 2025-08-01) — these move when AlphaFold
+rebuilds, so treat a mismatch as drift to investigate, not as a failure:
+
+- 9 entries · 393 residues · `globalMetricValue` 75.06 · recomputed 75.05 · range 32.78–98.69
+
 
 ## Sources
 

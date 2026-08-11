@@ -140,6 +140,39 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
 5. **Do not route work through third-party AI services.** Prefer something local and
    editable — a Mermaid diagram stays readable as text; a generated image does not.
 
+## `## Try it` — every skill must be testable
+
+A skill is a claim that a tool works a certain way. `## Try it` is what lets anyone — a
+reader, or a routine six months from now — check whether that claim still holds. It is
+required on every new skill and added to existing ones as they are next touched.
+
+`skills/alphafold/SKILL.md` is the worked example. Three parts, in this order:
+
+**Data.** A named, citable, public dataset, with its licence and the fact that no account
+is needed. Prefer real data over synthetic: real data is what catches the schema change
+that breaks the skill. If no lawful public dataset exists — the §3b access test applies to
+data exactly as it does to tools — generate it inline instead, and say why you had to.
+Never `example.com`, never `path/to/your.bam`. A placeholder is not testable.
+
+**Run.** One self-contained block that goes from the data to a result, runnable by copy
+and paste with nothing else set up. Where the tool has a trap, route the example through
+it — the AlphaFold example indexes `rec[0]` precisely because the endpoint returns a list
+and treating it as a dict is the usual mistake.
+
+**Expect.** What makes this a test rather than a demo. Two kinds, and both matter:
+
+- **Invariants** — true regardless of version, so a failure means the skill is *wrong*.
+  One pLDDT per residue; the recomputed mean matching the API's own figure.
+- **Observed values, dated and version-stamped** — these move when upstream rebuilds, so a
+  mismatch means *drift to investigate*, not a bug.
+
+Keeping those apart is the whole point. Collapse them and every upstream release reads as
+a failure, and the section gets ignored within a month.
+
+**Run it before you ship it.** The block goes in the skill only after it has executed
+verbatim and produced the output written under Expect. This is `## 7` applied to the one
+block a reader is most likely to run first.
+
 ## Licensing
 
 Two separate questions. Conflating them has already produced wrong answers on the issue
