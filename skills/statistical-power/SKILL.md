@@ -5,8 +5,9 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
+version: 1.1.0
 tags: [power-analysis, sample-size, effect-size, study-planning]
+datasets: []
 allowed-tools: Read, Write, Edit, Bash
 ---
 # Statistical Power & Sample Size
@@ -101,7 +102,12 @@ n = ((stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(target)) / z) ** 2 + 3
 A power curve for the grant figure:
 
 ```python
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")                     # writing to a file, no display needed
 import matplotlib.pyplot as plt
+from statsmodels.stats.power import TTestIndPower
+
 ns = np.arange(10, 120, 5)
 pw = TTestIndPower().power(effect_size=0.5, nobs1=ns, alpha=0.05, ratio=1.0)
 plt.plot(ns, pw); plt.axhline(0.8, ls="--", lw=0.8)
@@ -188,7 +194,7 @@ a [between-group difference of Cohen's d = 0.50], which we considered the smalle
 effect of clinical interest. With α = .05 (two-sided) and power = .80, a two-sample
 t-test requires n = 64 per group (128 total; computed with statsmodels 0.14).
 Allowing for 20% attrition, we will enrol 160 participants. A sensitivity analysis
-showed required n ranges from 45 to 105 per group across plausible effects
+showed required n ranges from 45 to 100 per group across plausible effects
 d = 0.40–0.60 (Figure X).
 ```
 
@@ -206,6 +212,84 @@ For simulation: also state the data-generating assumptions (baseline rate, resid
 6. **Confusing α with power**, or one-sided with two-sided.
 7. **Powering only the primary endpoint** while reporting secondary/interaction tests that need far larger n.
 8. **Using a t-test formula for a model you won't actually fit** (e.g. planning a logistic regression with a means-based calculation) — match the power method to the planned analysis.
+
+---
+
+## Try it
+
+A self-contained check that this skill still works. No key, no account, no GPU.
+
+**Data** — none to fetch, and that is not a shortcut. A power analysis runs *before* data
+exists: its inputs are design parameters (effect size, α, target power), so there is no
+dataset to obtain and `datasets:` is deliberately empty. The Monte Carlo cross-check
+generates its own samples from a fixed seed, which is what makes the number below
+reproducible rather than approximately right.
+
+```python
+import numpy as np
+from scipy import stats
+from statsmodels.stats.power import TTestIndPower, FTestAnovaPower
+from statsmodels.stats.proportion import proportion_confint
+
+D, ALPHA, TARGET = 0.5, 0.05, 0.80
+
+# Closed form. TTestIndPower is PER GROUP; FTestAnovaPower is TOTAL across all groups.
+n_per_group = TTestIndPower().solve_power(effect_size=D, alpha=ALPHA, power=TARGET, ratio=1.0)
+anova_total = FTestAnovaPower().solve_power(effect_size=D / 2, k_groups=2, alpha=ALPHA, power=TARGET)
+anova4_total = FTestAnovaPower().solve_power(effect_size=0.25, k_groups=4, alpha=ALPHA, power=TARGET)
+
+# Monte Carlo cross-check at the n the formula returns, rounded up to whole subjects.
+n = int(np.ceil(n_per_group))
+rng = np.random.default_rng(0)
+hits = sum(stats.ttest_ind(rng.normal(0.0, 1.0, n), rng.normal(D, 1.0, n)).pvalue < ALPHA
+           for _ in range(2000))
+mc, (lo, hi) = hits / 2000, proportion_confint(hits, 2000, method="wilson")
+closed_form_power = TTestIndPower().solve_power(effect_size=D, nobs1=n, alpha=ALPHA, ratio=1.0)
+
+print(f"t-test n per group : {n_per_group:.4f} -> enrol {n}")
+print(f"ANOVA k=2 TOTAL n  : {anova_total:.4f}  (= 2 x per group)")
+print(f"ANOVA k=4 TOTAL n  : {anova4_total:.4f}  -> {anova4_total / 4:.2f} per group")
+print(f"power at n={n}      : {closed_form_power:.4f} closed form")
+print(f"                     {mc:.3f} simulated (95% MC CI {lo:.3f}-{hi:.3f})")
+
+# The two solvers disagree on units, and this identity is what proves which is which:
+# a two-group ANOVA with f = d/2 is the same test as a two-sided t-test.
+assert abs(anova_total - 2 * n_per_group) < 1e-6, "FTestAnovaPower is not returning TOTAL n"
+assert closed_form_power >= TARGET, "rounding n up must not lose the target power"
+assert lo <= closed_form_power <= hi, "simulation and closed form disagree beyond MC error"
+print("invariants OK")
+```
+
+**Expect**
+
+Invariants — these follow from the mathematics, not from a release, and a failure means the
+skill is wrong:
+
+- **`FTestAnovaPower` returns TOTAL n; `TTestIndPower` returns n PER GROUP.** This is the
+  trap most likely to halve or double a study, so the check proves it rather than asserting
+  it: a two-group ANOVA at f = d/2 *is* a two-sided t-test, so its total must equal exactly
+  twice the t-test's per-group n. The assertion holds to 1e-6.
+- Rounding the required n **up** cannot drop you below the target power.
+- The simulated power at n = 64 contains the closed-form value inside its Monte Carlo CI.
+  Closed form and simulation are independent routes to the same quantity; if they disagree
+  by more than MC error, one of them is being called wrong.
+- n = 64 per group for d = 0.5 at α = .05, 80% power is the textbook value (Cohen 1988) — a
+  useful sanity anchor for any power tool.
+
+Observed 2026-08-12 on statsmodels 0.14.6 / scipy 1.17.1 / numpy 2.4.6, Python 3.11 — a
+mismatch here is drift to investigate, not a failure:
+
+```
+t-test n per group : 63.7656 -> enrol 64
+ANOVA k=2 TOTAL n  : 127.5312  (= 2 x per group)
+ANOVA k=4 TOTAL n  : 178.3971  -> 44.60 per group
+power at n=64      : 0.8015 closed form
+                     0.807 simulated (95% MC CI 0.790-0.824)
+invariants OK
+```
+
+The simulated 0.807 is reproducible only because the seed is fixed; re-seeding moves it
+within roughly ±0.018 at 2,000 replicates.
 
 ---
 

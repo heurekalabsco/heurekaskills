@@ -88,12 +88,20 @@ n1 = NormalIndPower().solve_power(effect_size=h, alpha=0.05, power=0.80,
                                   ratio=1.0, alternative="two-sided")
 ```
 
-Alternative (exact-ish, gives per-group n directly, handles unequal n via `ratio`):
+Alternative: work in raw proportions instead of the arcsine scale. This gives per-group n
+directly, handles unequal n via `ratio`, and takes `alternative=` rather than any manual
+doubling of α.
 
 ```python
 from statsmodels.stats.proportion import samplesize_proportions_2indep_onetail
-# one-sided; double alpha intent by passing alpha/... per your convention
+n1 = samplesize_proportions_2indep_onetail(diff=0.15, prop2=0.40, power=0.80,
+                                           ratio=1, alpha=0.05, alternative="two-sided")
+print(n1)   # 172.80 per group — the h route above gives 172.66 for the same design
 ```
+
+`prop2` is the reference proportion and `p1 = prop2 + diff`, so this is the 0.40-vs-0.55
+design from the block above. The two routes agree to a fraction of a subject here; they
+diverge for rare events, where neither normal approximation is trustworthy.
 
 For small samples or rare events, prefer **simulation** with the exact test you'll
 run (Fisher's exact, or a chi-square with continuity correction).
@@ -115,16 +123,30 @@ with the exact-test power via simulation if the sample is small.
 
 ## Correlation
 
-Effect size = **Pearson r**. No statsmodels solver; use the Fisher z transform
-(implemented in `power.py`). Required n for r at power 1−β, two-sided:
+Effect size = **Pearson r**. statsmodels has no solver for this one; use the Fisher z
+transform. Required n for r at power 1−β, two-sided:
 
 ```
 z_r = arctanh(r)
 n   = ((z_{1-α/2} + z_{1-β}) / z_r)^2 + 3
 ```
 
-`pingouin.power_corr(r=0.3, power=0.8, alternative="two-sided")` gives the same
-answer if you prefer a library call.
+```python
+import numpy as np
+from scipy import stats
+
+def n_correlation(r, alpha=0.05, power=0.80):
+    z_r = np.arctanh(r)
+    return ((stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(power)) / z_r) ** 2 + 3
+
+print(n_correlation(0.30))   # 84.93 -> enrol 85
+```
+
+`pingouin.power_corr(r=0.3, power=0.8, alternative="two-sided")` is the library call for
+the same quantity. It returns 84.07 against the formula's 84.93 — pingouin (a port of R's `pwr.r.test`) takes
+its critical value from the *t* distribution on n − 2 df and adds the far tail, where the
+formula above uses the normal — so both round up to **n = 85**. Prefer whichever you
+will state in the protocol, and do not present the difference as a disagreement.
 
 ## Chi-square
 
@@ -142,14 +164,25 @@ w benchmarks: 0.10 (small), 0.30 (medium), 0.50 (large).
 ## Multiple regression
 
 Effect size = **Cohen's f²** = R²/(1−R²) for the overall model, or
-ΔR²/(1−R²_full) for a set of added predictors. `power.py` solves this directly via
-the noncentral F (noncentrality λ = f²·n), which is more reliable than
-statsmodels' `FTestPower` for sample-size search.
+ΔR²/(1−R²_full) for a set of added predictors. Solve it directly on the noncentral F
+(noncentrality λ = f²·n) and search over whole n — searching integers is more reliable here
+than asking a continuous solver for a fractional sample size:
 
 ```python
-from power import sample_size, power
+import numpy as np
+from scipy import stats
+
+def n_regression(f2, df_num, k_total, alpha=0.05, power=0.80, n_max=100_000):
+    """Smallest n giving `power` to detect Cohen's f2 from `df_num` tested predictors."""
+    for n in range(k_total + 2, n_max):
+        df_den = n - k_total - 1
+        crit = stats.f.ppf(1 - alpha, df_num, df_den)
+        if 1 - stats.ncf.cdf(crit, df_num, df_den, f2 * n) >= power:
+            return n
+    raise ValueError("no n below n_max reaches the target power")
+
 # detect f^2 = 0.15 from 3 tested predictors (3 total in the model)
-sample_size("linear_regression", effect_size=0.15, df_num=3, k_total=3, power=0.80)
+print(n_regression(0.15, df_num=3, k_total=3))   # 77
 ```
 
 - `df_num` = number of predictors being **tested** (the numerator df).
@@ -159,16 +192,16 @@ f² benchmarks: 0.02 (small), 0.15 (medium), 0.35 (large).
 
 ## Effect-size units per test
 
-| Test | `power.py` `test=` | Effect size | Small / Medium / Large |
-|------|--------------------|-------------|------------------------|
-| Two independent means | `t_ind` | Cohen's d | 0.2 / 0.5 / 0.8 |
-| Paired / one-sample | `t_paired`, `t_one` | Cohen's d (dz) | 0.2 / 0.5 / 0.8 |
-| One-way ANOVA | `anova` | Cohen's f | 0.1 / 0.25 / 0.4 |
-| Two proportions | `two_proportions` | Cohen's h (auto from props) | 0.2 / 0.5 / 0.8 |
-| One proportion | `one_proportion` | Cohen's h (auto) | 0.2 / 0.5 / 0.8 |
-| Correlation | `correlation` | Pearson r | 0.1 / 0.3 / 0.5 |
-| Chi-square | `chi2` | Cohen's w | 0.1 / 0.3 / 0.5 |
-| Regression (ΔR²) | `linear_regression` | Cohen's f² | 0.02 / 0.15 / 0.35 |
+| Test | Solver | Effect size | Small / Medium / Large |
+|------|--------|-------------|------------------------|
+| Two independent means | `TTestIndPower` (n per group) | Cohen's d | 0.2 / 0.5 / 0.8 |
+| Paired / one-sample | `TTestPower` (n pairs) | Cohen's d (dz) | 0.2 / 0.5 / 0.8 |
+| One-way ANOVA | `FTestAnovaPower` (**total** n) | Cohen's f | 0.1 / 0.25 / 0.4 |
+| Two proportions | `NormalIndPower` via `proportion_effectsize`, or `samplesize_proportions_2indep_onetail` | Cohen's h (or raw props) | 0.2 / 0.5 / 0.8 |
+| One proportion | `NormalIndPower` with `ratio=0` | Cohen's h | 0.2 / 0.5 / 0.8 |
+| Correlation | Fisher z formula, or `pingouin.power_corr` | Pearson r | 0.1 / 0.3 / 0.5 |
+| Chi-square | `GofChisquarePower` | Cohen's w | 0.1 / 0.3 / 0.5 |
+| Regression (ΔR²) | `n_regression` above (noncentral F) | Cohen's f² | 0.02 / 0.15 / 0.35 |
 
 Benchmarks are last-resort conventions — prefer a smallest-effect-of-interest.
 See `effect_sizes.md`.
