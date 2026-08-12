@@ -19,33 +19,53 @@ Always report the **Monte Carlo confidence interval** on the estimate (a Wilson
 interval on the hit count). With R = 1,000 the
 ±2 SE width near p = 0.8 is roughly ±0.025, so don't over-interpret 0.81 vs 0.79.
 
-## Using the harness
+## The harness
 
-The harness in SKILL.md gives you `simulate_power()`; pair it with a bisection
-search for `find_sample_size()`.
-You supply a function `gen_and_test(n, rng) -> bool` that builds one dataset, runs
-the analysis, and returns whether it was significant. The `rng` is a seeded
-`numpy.random.Generator` so runs are reproducible and replicates are independent.
+Write these two functions into the project — `simulate_power()` from SKILL.md plus a
+bisection search — and keep them next to the analysis code, so the assumed truth is part of
+the record. You supply `gen_and_test(n, rng) -> bool`, which builds one dataset, runs the
+analysis, and returns whether it was significant. The `rng` is a seeded
+`numpy.random.Generator`, so runs are reproducible and replicates are independent.
 
 ```python
-from simulate_power import simulate_power, find_sample_size
+import numpy as np
+from scipy import stats
+from statsmodels.stats.proportion import proportion_confint
+
+def simulate_power(gen_and_test, n, n_sims=2000, alpha=0.05, seed=0):
+    """gen_and_test(n, rng) -> True when the planned test is significant."""
+    rng = np.random.default_rng(seed)
+    hits = sum(bool(gen_and_test(n, rng)) for _ in range(n_sims))
+    lo, hi = proportion_confint(hits, n_sims, method="wilson")
+    return hits / n_sims, lo, hi
+
+def find_sample_size(gen_and_test, target_power=0.80, lo=10, hi=1000, n_sims=2000, seed=0):
+    """Bisect on n. Each step costs n_sims model fits, so bisect rather than sweep."""
+    while lo < hi:
+        mid = (lo + hi) // 2
+        pw, *_ = simulate_power(gen_and_test, mid, n_sims=n_sims, seed=seed)
+        if pw >= target_power: hi = mid
+        else: lo = mid + 1
+    return lo, simulate_power(gen_and_test, lo, n_sims=n_sims, seed=seed)[0]
 
 def gen_and_test(n, rng):
-    # ... simulate n observations under the assumed effect ...
-    # ... fit the planned model ...
-    return pvalue < 0.05
+    a = rng.normal(0.0, 1.0, n)
+    b = rng.normal(0.5, 1.0, n)          # assumed true effect, d = 0.5
+    return stats.ttest_ind(a, b).pvalue < 0.05
 
-# power at a fixed n
 print(simulate_power(gen_and_test, n=200, n_sims=2000))
-
-# search for the n that hits 80% power
 n, est = find_sample_size(gen_and_test, target_power=0.80, n_sims=2000)
+print(f"n per group = {n} (simulated power {est:.3f})")
 ```
 
-The file ships four adaptable examples: two-group difference (a sanity check
-against the closed-form t-test), logistic regression, a cluster-randomized trial
-with an ICC, and a repeated-measures linear mixed model. Copy the closest one and
-edit the data-generating block.
+Run as written this prints `n per group = 64 (simulated power 0.807)` — the same 64 the
+closed-form t-test returns for d = 0.5, which is the point of starting here. **Validate the
+harness on a design that has a formula before trusting it on one that doesn't**, then swap
+in the data-generating block for your real design: the two-group `gen_and_test` above is the
+sanity check, and the table below says what to generate for the cases that need simulation.
+
+Bisection assumes power increases with n, which holds for these designs but not for
+sequential or adaptive rules — sweep a grid there instead.
 
 ## When you must simulate
 
@@ -83,7 +103,9 @@ edit the data-generating block.
   `1/(1−dropout)`.
 - **Clustering / ICC.** Split total variance into between-cluster (τ²) and residual
   (σ²) with `ICC = τ²/(τ²+σ²)`, draw a cluster random effect ~ N(0, τ), add it to
-  every member of the cluster. See `example_cluster_randomized`.
+  every member of the cluster, and fit the planned mixed model inside `gen_and_test`.
+  Bisect on the **number of clusters**, not on the number of individuals: past a modest
+  cluster size, adding members to existing clusters buys very little power.
 - **Unequal allocation / stratification.** Generate the exact group sizes and strata
   the design will produce; don't assume balance the design won't deliver.
 - **Repeated measures.** Subject random intercept (and slope, if relevant) plus a
