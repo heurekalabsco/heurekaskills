@@ -91,7 +91,9 @@ Generate molecular fingerprints for similarity calculations.
   - `'rdkit'` - RDKit topological fingerprint
   - Count variants: `'ecfp-count'`, `'fcfp-count'`, `'atompair-count'`, etc.
 - **Implementation**: Uses RDKit `rdFingerprintGenerator` (datamol ≥ 0.12.5)
-- **Common parameters**: `n_bits` (default 2048), `radius`
+- **Common parameters**: `fpSize` (default 2048), `radius` (default 3, i.e. ECFP6). Extra
+  keywords are forwarded to the RDKit generator, so they use RDKit's spelling — `n_bits`
+  raises `Boost.Python.ArgumentError`
 - **Returns**: Numpy array or RDKit fingerprint object
 
 ### `pdist(mols, ...)`

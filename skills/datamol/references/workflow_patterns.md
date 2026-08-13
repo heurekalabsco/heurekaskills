@@ -22,22 +22,23 @@ df = df[df['mol'].notna()]  # Remove failed molecules
 desc_df = dm.descriptors.batch_compute_many_descriptors(
     df['mol'].tolist(),
     n_jobs=-1,
+    batch_size="auto",   # required whenever n_jobs > 1
     progress=True
 )
 
-# 4. Filter by drug-likeness
+# 4. Filter by drug-likeness (datamol's key names, and 'mw' is the exact mass)
 druglike = (
     (desc_df['mw'] <= 500) &
-    (desc_df['logp'] <= 5) &
-    (desc_df['hbd'] <= 5) &
-    (desc_df['hba'] <= 10)
+    (desc_df['clogp'] <= 5) &
+    (desc_df['n_lipinski_hbd'] <= 5) &
+    (desc_df['n_lipinski_hba'] <= 10)
 )
 filtered_df = df[druglike]
 
-# 5. Cluster and select diverse subset
-diverse_mols = dm.pick_diverse(
+# 5. Cluster and select diverse subset — pick_diverse returns (indices, molecules)
+diverse_idx, diverse_mols = dm.pick_diverse(
     filtered_df['mol'].tolist(),
-    npick=100
+    npick=min(100, len(filtered_df))
 )
 
 # 6. Visualize results

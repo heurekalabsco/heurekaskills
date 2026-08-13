@@ -153,19 +153,22 @@ FreeSolv dataset - experimental and calculated hydration free energies.
 #### `dm.data.solubility(as_df=True, mol_column='mol')`
 RDKit solubility dataset with train/test splits.
 - **Contents**: Aqueous solubility data with pre-defined splits
-- **Columns**: Includes 'split' column with 'train' or 'test' values
+- **Columns**: `mol`, `ID`, `NAME`, `SOL`, `SOL_classification`, `smiles`, `split` — the
+  target is `SOL`, and `split` holds `'train'` (1025 rows) or `'test'` (257 rows)
 - **Use case**: Testing ML workflows with proper train/test separation
 - **Example**:
   ```python
+  import numpy as np
+
   sol_df = dm.data.solubility(as_df=True)
 
   # Split into train/test
   train_df = sol_df[sol_df['split'] == 'train']
   test_df = sol_df[sol_df['split'] == 'test']
 
-  # Use for model development
-  X_train = dm.to_fp(train_df[mol_column])
-  y_train = train_df['solubility']
+  # Use for model development. dm.to_fp takes one molecule, not a Series.
+  X_train = np.array([dm.to_fp(mol) for mol in train_df['mol']])
+  y_train = train_df['SOL']
   ```
 
 ### Usage Guidelines
@@ -176,30 +179,36 @@ RDKit solubility dataset with train/test splits.
 df = dm.data.cdk2()
 mols = df['mol'].tolist()
 
-# Test descriptor calculation
+# Test descriptor calculation (add batch_size="auto" if you pass n_jobs > 1)
 descriptors_df = dm.descriptors.batch_compute_many_descriptors(mols)
 
-# Test clustering
-clusters = dm.cluster_mols(mols, cutoff=0.3)
+# Test clustering — the return is a 2-tuple, not a list of clusters
+cluster_indices, mol_clusters = dm.cluster_mols(mols, cutoff=0.3)
 ```
 
 **For learning workflows**:
 ```python
 # Complete ML pipeline example
+import numpy as np
+
 sol_df = dm.data.solubility()
+# columns: mol, ID, NAME, SOL, SOL_classification, smiles, split
+# The target column is SOL (log solubility), and the split column is already there:
+# 1025 train / 257 test.
 
 # Preprocessing
 train = sol_df[sol_df['split'] == 'train']
 test = sol_df[sol_df['split'] == 'test']
 
-# Featurization
-X_train = dm.to_fp(train['mol'])
-X_test = dm.to_fp(test['mol'])
+# Featurization. dm.to_fp takes ONE molecule — handing it a pandas Series raises
+# a Boost.Python.ArgumentError. Map it over the column instead.
+X_train = np.array([dm.to_fp(mol) for mol in train['mol']])
+X_test = np.array([dm.to_fp(mol) for mol in test['mol']])
 
 # Model training (example; scikit-learn is a PyPI dependency, not a bundled skill script)
 from sklearn.ensemble import RandomForestRegressor  # third-party library
-model = RandomForestRegressor()
-model.fit(X_train, train['solubility'])
+model = RandomForestRegressor(random_state=0)
+model.fit(X_train, train['SOL'])
 predictions = model.predict(X_test)
 ```
 
