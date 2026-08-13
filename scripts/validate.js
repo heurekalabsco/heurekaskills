@@ -22,10 +22,10 @@ const TAG_RE = /^[a-z0-9-]+$/;
 // Skills that predate the `## Try it` requirement (§7a). The nightshift backfills these one
 // at a time. Only ever remove entries — adding one re-opens the hole the rule closed.
 const TRY_IT_GRANDFATHERED = new Set([
-  'anndata', 'autodock-vina', 'biopython', 'boltz2-nim', 'cellxgene-census', 'datamol',
+  'anndata', 'autodock-vina', 'biopython', 'boltz2-nim', 'cellxgene-census',
   'diffdock-nim', 'esm', 'experimental-design', 'gaudi', 'graphical-abstract', 'paperpush',
   'pathway-cca-coessentiality', 'pathway-enrichment', 'polars-bio', 'pydeseq2',
-  'scientific-critical-thinking', 'scikit-bio', 'scvi-tools', 'statistical-power',
+  'scientific-critical-thinking', 'scikit-bio', 'scvi-tools',
 ]);
 const MAX_DESCRIPTION = 250;
 
@@ -214,6 +214,12 @@ for (const slug of slugs) {
   //     skill without a `## Try it` fails here, which is the point.
   if (!hasTryIt && !TRY_IT_GRANDFATHERED.has(slug)) {
     err(slug, 'missing a "## Try it" section — every new skill must be runnable and checkable (§7a)');
+  }
+  // ...and the list must actually shrink. A slug that has been backfilled but left in the
+  // set is a permanent hole: delete the section later and nothing would notice. Enforce it
+  // here rather than trusting whoever does the backfill to remember.
+  if (hasTryIt && TRY_IT_GRANDFATHERED.has(slug)) {
+    err(slug, 'has "## Try it" but is still listed in TRY_IT_GRANDFATHERED — remove it from that list, or the section could be deleted later without failing validation');
   }
 
   // 5. Path safety + file types.
