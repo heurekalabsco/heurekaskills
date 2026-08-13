@@ -53,7 +53,9 @@ Compute multiple molecular properties for a single molecule.
   ```python
   mol = dm.to_mol("CCO")
   descriptors = dm.descriptors.compute_many_descriptors(mol)
-  # Returns: {'mw': 46.07, 'logp': -0.03, 'hbd': 1, 'hba': 1, ...}
+  # Returns 22 keys: {'mw': 46.0419, 'clogp': -0.0014, 'n_lipinski_hbd': 1,
+  #                   'n_lipinski_hba': 1, 'tpsa': 20.23, 'fsp3': 1.0, ...}
+  # 'mw' is the exact (monoisotopic) mass. There is no 'logp'/'hbd'/'hba' key.
   ```
 
 #### `dm.descriptors.batch_compute_many_descriptors(mols, properties_fn=None, add_properties=True, n_jobs=1, batch_size=None, progress=False)`
@@ -61,7 +63,8 @@ Compute descriptors for multiple molecules in parallel.
 - **Parameters**:
   - `mols`: List of molecules
   - `n_jobs`: Number of parallel jobs (-1 for all cores)
-  - `batch_size`: Chunk size for parallel processing
+  - `batch_size`: Chunk size for parallel processing. **The `None` default is not usable
+    with `n_jobs` > 1** — joblib rejects it and nothing is computed. Pass `"auto"`
   - `progress`: Show progress bar
 - **Returns**: Pandas DataFrame with one row per molecule
 - **Example**:
@@ -70,6 +73,7 @@ Compute descriptors for multiple molecules in parallel.
   df = dm.descriptors.batch_compute_many_descriptors(
       mols,
       n_jobs=-1,
+      batch_size="auto",
       progress=True
   )
   ```
@@ -91,12 +95,15 @@ Retrieve any descriptor function from RDKit by name.
 
 **Drug-likeness Filtering (Lipinski's Rule of Five)**:
 ```python
+# The keys are datamol's own: 'clogp' and 'n_lipinski_hb[ad]'.
+# 'logp', 'hbd' and 'hba' do not exist and raise KeyError.
+# 'mw' is the exact (monoisotopic) mass, not the average molecular weight.
 descriptors = dm.descriptors.compute_many_descriptors(mol)
 is_druglike = (
     descriptors['mw'] <= 500 and
-    descriptors['logp'] <= 5 and
-    descriptors['hbd'] <= 5 and
-    descriptors['hba'] <= 10
+    descriptors['clogp'] <= 5 and
+    descriptors['n_lipinski_hbd'] <= 5 and
+    descriptors['n_lipinski_hba'] <= 10
 )
 ```
 

@@ -112,13 +112,17 @@ print(f"Generated {n_conformers} unique conformers")
 # 3. Calculate SASA
 sasa_values = dm.conformers.sasa(mol_3d)
 
-# 4. Cluster conformers
-clusters = dm.conformers.cluster(mol_3d, rms_cutoff=1.0, centroids=False)
+# 4. Cluster conformers. `cluster` calls `return_centroids` for you, so its return
+#    value is already the finished answer — do NOT pass it to `return_centroids`
+#    again (that expects raw Butina index clusters and raises TypeError here).
+#    centroids=True  -> ONE molecule holding one representative conformer per cluster
+#    centroids=False -> a LIST of molecules, one per cluster, keeping every conformer
+centroid_mol = dm.conformers.cluster(mol_3d, rms_cutoff=1.0, centroids=True)
+cluster_mols = dm.conformers.cluster(mol_3d, rms_cutoff=1.0, centroids=False)
+print(f"{centroid_mol.GetNumConformers()} clusters, "
+      f"sizes {[m.GetNumConformers() for m in cluster_mols]}")
 
-# 5. Get representative conformers
-centroids = dm.conformers.return_centroids(mol_3d, clusters)
-
-# 6. Access 3D coordinates
+# 5. Access 3D coordinates (one row per atom)
 coords = dm.conformers.get_coords(mol_3d, conf_id=0)
 ```
 

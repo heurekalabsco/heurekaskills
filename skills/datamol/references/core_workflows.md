@@ -117,8 +117,11 @@ Refer to `references/descriptors_viz.md` for detailed descriptor documentation.
 ```python
 # Get standard descriptor set
 descriptors = dm.descriptors.compute_many_descriptors(mol)
-# Returns: {'mw': 46.07, 'logp': -0.03, 'hbd': 1, 'hba': 1,
-#           'tpsa': 20.23, 'n_aromatic_atoms': 0, ...}
+# 22 keys, and they are datamol's names — not RDKit's and not Lipinski's.
+# For ethanol: {'mw': 46.0419, 'clogp': -0.0014, 'n_lipinski_hbd': 1,
+#               'n_lipinski_hba': 1, 'tpsa': 20.23, 'fsp3': 1.0, ...}
+# There is no 'logp', 'hbd' or 'hba' key — those raise KeyError.
+# 'mw' is the EXACT (monoisotopic) mass, not the average molecular weight.
 ```
 
 **Batch descriptor computation** (recommended for datasets):
@@ -126,8 +129,9 @@ descriptors = dm.descriptors.compute_many_descriptors(mol)
 # Compute for all molecules in parallel
 desc_df = dm.descriptors.batch_compute_many_descriptors(
     mols,
-    n_jobs=-1,      # Use all CPU cores
-    progress=True   # Show progress bar
+    n_jobs=-1,            # Use all CPU cores
+    batch_size="auto",    # REQUIRED for n_jobs > 1 — the default None is rejected by joblib
+    progress=True         # Show progress bar
 )
 ```
 
@@ -151,10 +155,10 @@ n_rigid = dm.descriptors.n_rigid_bonds(mol)
 def is_druglike(mol):
     desc = dm.descriptors.compute_many_descriptors(mol)
     return (
-        desc['mw'] <= 500 and
-        desc['logp'] <= 5 and
-        desc['hbd'] <= 5 and
-        desc['hba'] <= 10
+        desc['mw'] <= 500 and            # exact mass; ~0.1% below average MW at this size
+        desc['clogp'] <= 5 and
+        desc['n_lipinski_hbd'] <= 5 and
+        desc['n_lipinski_hba'] <= 10
     )
 
 druglike_mols = [mol for mol in mols if is_druglike(mol)]
@@ -164,11 +168,14 @@ druglike_mols = [mol for mol in mols if is_druglike(mol)]
 
 **Generating fingerprints**:
 
-Datamol defaults to ECFP6 (`radius=3`, `n_bits=2048`). Pass `radius=2` explicitly for ECFP4.
+Datamol defaults to ECFP6 (`radius=3`, `fpSize=2048`). Pass `radius=2` explicitly for ECFP4.
+
+`dm.to_fp` forwards its extra keyword arguments straight to RDKit's fingerprint generator,
+so the width kwarg is RDKit's `fpSize`. `n_bits=` raises `Boost.Python.ArgumentError`.
 
 ```python
 # ECFP4 (common in similarity screening)
-fp = dm.to_fp(mol, fp_type='ecfp', radius=2, n_bits=2048)
+fp = dm.to_fp(mol, fp_type='ecfp', radius=2, fpSize=2048)
 
 # Other fingerprint types
 fp_maccs = dm.to_fp(mol, fp_type='maccs')
@@ -197,33 +204,37 @@ Refer to `references/core_api.md` for clustering details.
 
 **Butina clustering**:
 ```python
-# Cluster molecules by structural similarity
-clusters = dm.cluster_mols(
+# Cluster molecules by structural similarity.
+# NOTE the return is a 2-TUPLE, not a list of clusters. Iterating it without
+# unpacking gives you exactly two items no matter how many clusters there are.
+cluster_indices, mol_clusters = dm.cluster_mols(
     mols,
     cutoff=0.2,    # Tanimoto distance threshold (0=identical, 1=completely different)
     n_jobs=-1      # Parallel processing
 )
 
-# Each cluster is a list of molecule indices
-for i, cluster in enumerate(clusters):
-    print(f"Cluster {i}: {len(cluster)} molecules")
-    cluster_mols = [mols[idx] for idx in cluster]
+# cluster_indices: one tuple of positions per cluster, partitioning the input.
+# mol_clusters:    the same clusters, already as Mol objects.
+for i, (idx, cluster) in enumerate(zip(cluster_indices, mol_clusters)):
+    print(f"Cluster {i}: {len(idx)} molecules -> {[dm.to_smiles(m) for m in cluster]}")
 ```
 
 **Important**: Butina clustering builds a full distance matrix - suitable for ~1000 molecules, not for 10,000+.
 
 **Diversity selection**:
 ```python
-# Pick diverse subset
-diverse_mols = dm.pick_diverse(
+# Both pickers return a 2-TUPLE (indices, molecules), like cluster_mols.
+# npick must not exceed len(mols) — otherwise RDKit raises
+# "pickSize cannot be larger than the poolSize".
+diverse_idx, diverse_mols = dm.pick_diverse(
     mols,
-    npick=100  # Select 100 diverse molecules
+    npick=min(100, len(mols))  # Select up to 100 diverse molecules
 )
 
 # Pick cluster centroids
-centroids = dm.pick_centroids(
+centroid_idx, centroids = dm.pick_centroids(
     mols,
-    npick=50   # Select 50 representative molecules
+    npick=min(50, len(mols))   # Select up to 50 representative molecules
 )
 ```
 
@@ -339,15 +350,15 @@ positions = conf.GetPositions()  # Nx3 array of atom coordinates
 
 **Conformer clustering**:
 ```python
-# Cluster conformers by RMSD
-clusters = dm.conformers.cluster(
-    mol_3d,
-    rms_cutoff=1.0,
-    centroids=False
-)
+# Cluster conformers by RMSD. `cluster` already applies `return_centroids`
+# internally, so what it hands back is the finished result — passing it to
+# `return_centroids` again raises TypeError.
+#
+# centroids=True  -> one molecule holding one representative conformer per cluster
+centroid_mol = dm.conformers.cluster(mol_3d, rms_cutoff=1.0, centroids=True)
 
-# Get representative conformers
-centroids = dm.conformers.return_centroids(mol_3d, clusters)
+# centroids=False -> a list of molecules, one per cluster, keeping every conformer
+cluster_mols = dm.conformers.cluster(mol_3d, rms_cutoff=1.0, centroids=False)
 ```
 
 **SASA calculation**:
