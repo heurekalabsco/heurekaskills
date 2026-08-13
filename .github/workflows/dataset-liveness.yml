@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: '0 7 * * *'
   workflow_dispatch:
+    inputs:
+      selftest:
+        description: 'Run against a fixture with a known-dead dataset, to prove the notify path still fires'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'skills/**/SKILL.md'
@@ -33,14 +38,22 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Probe every declared dataset
+        if: inputs.selftest != true
         run: node scripts/check-datasets.js
+
+      # An alarm nobody has watched fire is not known to work. This points the same script
+      # at a fixture declaring one unreachable dataset, so a dispatch can prove the notify
+      # job still opens an issue — without waiting for a real dataset to rot.
+      - name: Self-test — prove the alarm fires
+        if: inputs.selftest == true
+        run: SKILLS_DIR=.github/fixtures/dataset-selftest/skills node scripts/check-datasets.js
 
   # A red X in the Actions tab is not a notification — logs expire and nobody watches. File
   # it where the backlog already lives. Scheduled runs only: a failing PR check is already
   # visible on the PR itself.
   notify:
     needs: check
-    if: failure() && github.event_name == 'schedule'
+    if: failure() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
