@@ -22,7 +22,7 @@ const TAG_RE = /^[a-z0-9-]+$/;
 // Skills that predate the `## Try it` requirement (§7a). The nightshift backfills these one
 // at a time. Only ever remove entries — adding one re-opens the hole the rule closed.
 const TRY_IT_GRANDFATHERED = new Set([
-  'anndata', 'autodock-vina', 'biopython', 'boltz2-nim', 'cellxgene-census', 'datamol',
+  'anndata', 'autodock-vina', 'biopython', 'boltz2-nim', 'cellxgene-census',
   'diffdock-nim', 'esm', 'experimental-design', 'gaudi', 'graphical-abstract', 'paperpush',
   'pathway-cca-coessentiality', 'pathway-enrichment', 'polars-bio', 'pydeseq2',
   'scientific-critical-thinking', 'scikit-bio', 'scvi-tools',
