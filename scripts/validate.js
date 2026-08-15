@@ -19,14 +19,6 @@ const MAX_FILES = 50;
 const MAX_TAGS = 5;
 const TAG_RE = /^[a-z0-9-]+$/;
 
-// Skills that predate the `## Try it` requirement (§7a). The nightshift backfills these one
-// at a time. Only ever remove entries — adding one re-opens the hole the rule closed.
-const TRY_IT_GRANDFATHERED = new Set([
-  'anndata', 'autodock-vina', 'biopython', 'boltz2-nim', 'cellxgene-census',
-  'diffdock-nim', 'esm', 'experimental-design', 'gaudi', 'graphical-abstract', 'paperpush',
-  'pathway-cca-coessentiality', 'pathway-enrichment', 'polars-bio', 'pydeseq2',
-  'scientific-critical-thinking', 'scikit-bio', 'scvi-tools',
-]);
 const MAX_DESCRIPTION = 250;
 
 // Every skill's frontmatter licence must be one we can positively identify as permissive,
@@ -209,17 +201,21 @@ for (const slug of slugs) {
     err(slug, 'has "## Try it" but declares no datasets: — add `datasets: [https://…]`, or `datasets: []` if the data is generated inline');
   }
 
-  // 4d. Every skill must be testable (§7a). Existing skills predate the rule and are
-  //     grandfathered; the nightshift backfills them. THIS LIST MAY ONLY SHRINK — a new
-  //     skill without a `## Try it` fails here, which is the point.
-  if (!hasTryIt && !TRY_IT_GRANDFATHERED.has(slug)) {
-    err(slug, 'missing a "## Try it" section — every new skill must be runnable and checkable (§7a)');
+  // 4d. Every skill must be testable (§7a). A skill that predates the rule carries
+  //     `try-it: pending` in its OWN frontmatter rather than sitting in a list here.
+  //     That is deliberate: the nightshift publishes one skill's files at a time, so an
+  //     exemption stored anywhere else makes backfilling a two-file change the routine
+  //     cannot make, and the whole queue deadlocks. Backfilling is now: delete the marker,
+  //     add the section. One file.
+  const exempt = String(fm['try-it'] ?? '').trim() === 'pending';
+  if (exempt && hasTryIt) {
+    err(slug, 'has "## Try it" but still declares `try-it: pending` — drop that line, it is only for skills awaiting backfill');
   }
-  // ...and the list must actually shrink. A slug that has been backfilled but left in the
-  // set is a permanent hole: delete the section later and nothing would notice. Enforce it
-  // here rather than trusting whoever does the backfill to remember.
-  if (hasTryIt && TRY_IT_GRANDFATHERED.has(slug)) {
-    err(slug, 'has "## Try it" but is still listed in TRY_IT_GRANDFATHERED — remove it from that list, or the section could be deleted later without failing validation');
+  if (!hasTryIt && !exempt) {
+    err(slug, 'missing a "## Try it" section — every new skill must be runnable and checkable (§7a). A skill awaiting backfill declares `try-it: pending`, but a new one may not');
+  }
+  if (fm['try-it'] !== undefined && !exempt) {
+    err(slug, `try-it must be \`pending\` or absent — got "${String(fm['try-it']).slice(0, 30)}"`);
   }
 
   // 5. Path safety + file types.

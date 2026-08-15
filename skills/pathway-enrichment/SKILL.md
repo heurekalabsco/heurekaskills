@@ -6,6 +6,7 @@ license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
 version: 1.0.0
+try-it: pending
 tags: [gsea, enrichment, gene-ontology, kegg, reactome]
 allowed-tools: Read, Write, Edit, Bash
 ---

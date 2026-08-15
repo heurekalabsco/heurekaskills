@@ -6,6 +6,7 @@ license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
 version: 1.1.0
+try-it: pending
 tags: [microbiome, diversity, unifrac, ordination, permanova]
 allowed-tools: Read, Write, Edit, Bash
 ---
