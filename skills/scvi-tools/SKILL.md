@@ -9,6 +9,7 @@ version: 1.1.0
 try-it: pending
 tags: [single-cell, batch-correction, generative-models, scvi, multimodal]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # scvi-tools
 

@@ -9,6 +9,7 @@ version: 1.0.0
 try-it: pending
 tags: [gsea, enrichment, gene-ontology, kegg, reactome]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # Pathway Enrichment
 

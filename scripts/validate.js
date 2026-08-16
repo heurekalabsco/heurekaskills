@@ -19,6 +19,10 @@ const MAX_FILES = 50;
 const MAX_TAGS = 5;
 const TAG_RE = /^[a-z0-9-]+$/;
 
+// Floor on executed share of RUNNABLE blocks. Raise it as coverage improves; never
+// silently lower it to make a skill pass.
+const MIN_VERIFIED = 0.5;
+
 const MAX_DESCRIPTION = 250;
 
 // Every skill's frontmatter licence must be one we can positively identify as permissive,
@@ -216,6 +220,62 @@ for (const slug of slugs) {
   }
   if (fm['try-it'] !== undefined && !exempt) {
     err(slug, `try-it must be \`pending\` or absent — got "${String(fm['try-it']).slice(0, 30)}"`);
+  }
+
+  // 4e. Verification coverage (§7). The registry's claim is that skills are executed, not
+  //     merely written — but "every block ran" has never been literally true, and the
+  //     disclosure lived in PR bodies no reader sees: `biopython` shipped 43 unexecuted
+  //     Entrez/BLAST blocks, `polars-bio` its whole `s3://` surface. This makes the claim
+  //     checkable instead of aspirational.
+  //
+  //     Declared, not computed. Of 1037 code blocks in the registry, most are narrative
+  //     fragments that continue from earlier context and cannot run standalone by
+  //     construction — so a computed denominator would punish good skills for prose style.
+  //     The author states how many RUNNABLE blocks they ran; we check the shape, the floor,
+  //     and the age. Trusting the author is the deliberate trade: a wrong number is visible
+  //     and re-auditable, an absent one is not.
+  const V = fm.verified;
+  if (V === undefined) {
+    err(slug, 'missing `verified:` — state when this skill was last executed and what fraction of its runnable blocks ran (§7)');
+  } else if (V === 'pending') {
+    // Predates the rule. The nightshift fills it in when it next touches the skill, the
+    // same way `try-it: pending` clears. This list can only shrink.
+  } else if (typeof V !== 'object' || Array.isArray(V)) {
+    err(slug, 'verified must be a mapping (date/against/executed/unverified) or the literal `pending`');
+  } else {
+    // YAML turns an unquoted 2026-08-09 into a Date, so accept both rather than making
+    // every author remember to quote it.
+    const vdate = V.date instanceof Date
+      ? V.date.toISOString().slice(0, 10)
+      : String(V.date ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(vdate)) {
+      err(slug, `verified.date must be YYYY-MM-DD — got "${vdate.slice(0, 20)}"`);
+    } else if (vdate > new Date().toISOString().slice(0, 10)) {
+      err(slug, `verified.date is in the future (${vdate}) — it records when the run happened`);
+    }
+    if (!String(V.against ?? '').trim()) {
+      err(slug, 'verified.against is required — the versions the run was made against, so a later pass knows what to re-run');
+    }
+    const ran = Number(V.executed), skipped = Number(V.unverified ?? 0);
+    if (!Number.isInteger(ran) || ran < 0) {
+      err(slug, 'verified.executed must be a non-negative integer (runnable blocks actually executed)');
+    } else if (!Number.isInteger(skipped) || skipped < 0) {
+      err(slug, 'verified.unverified must be a non-negative integer');
+    } else {
+      const runnable = ran + skipped;
+      if (runnable === 0) {
+        err(slug, 'verified.executed + verified.unverified is 0 — a skill with no runnable block cannot claim verification');
+      } else {
+        const pct = ran / runnable;
+        if (pct < MIN_VERIFIED) {
+          err(slug, `only ${ran}/${runnable} runnable blocks executed (${Math.round(pct * 100)}%) — the floor is ${Math.round(MIN_VERIFIED * 100)}%. Execute more, or drop what cannot be verified`);
+        }
+        // An unverified block must say why, or nobody can act on it later.
+        if (skipped > 0 && !String(V.unverified_reason ?? '').trim()) {
+          err(slug, `${skipped} block(s) unverified but no verified.unverified_reason — say what blocked them and what would unblock it`);
+        }
+      }
+    }
   }
 
   // 5. Path safety + file types.

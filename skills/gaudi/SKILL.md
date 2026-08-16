@@ -8,6 +8,7 @@ version: 1.0.0
 try-it: pending
 tags: [multi-omics, umap, hdbscan, clustering, shap]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 
 # GAUDI: multi-omics integration via UMAP + HDBSCAN

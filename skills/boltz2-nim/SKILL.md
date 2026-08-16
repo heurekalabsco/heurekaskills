@@ -10,6 +10,7 @@ try-it: pending
 tags: [protein-structure, binding-affinity, nim, nvidia, boltz2]
 compatibility: "requests>=2.28"
 allowed-tools: Bash, Read, Write, AskUserQuestion
+verified: pending
 ---
 
 # Boltz2 NIM

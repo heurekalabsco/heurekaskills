@@ -32,6 +32,10 @@ const SKILLS_DIR = process.env.SKILLS_DIR
 
 const JSON_OUT = process.argv.includes('--json');
 const MAX_REDIRECTS = 5;
+// A skill verified long enough ago has quietly become a claim about the past. This does not
+// fail the build — staleness is a queue, not a break — but it must be visible, or "verified"
+// decays into "was verified once, we think".
+const STALE_AFTER_DAYS = Number(process.env.VERIFIED_STALE_DAYS || 90);
 const RETRIES = 2;
 
 // Some hosts block an unknown client outright: alphafold.ebi.ac.uk answers 403 to a bare
@@ -199,8 +203,25 @@ function collect() {
       else unusable.push(String(d));
     }
 
+    // Verification age, for the re-audit queue.
+    const V = fm.verified;
+    let verifiedOn = null, verifiedPending = V === 'pending', coverage = null;
+    if (V && typeof V === 'object' && !Array.isArray(V)) {
+      verifiedOn = V.date instanceof Date
+        ? V.date.toISOString().slice(0, 10)
+        : (typeof V.date === 'string' ? V.date : null);
+      const ran = Number(V.executed), skipped = Number(V.unverified ?? 0);
+      if (Number.isFinite(ran) && Number.isFinite(skipped) && ran + skipped > 0) {
+        coverage = ran / (ran + skipped);
+      }
+    }
+    const ageDays = verifiedOn
+      ? Math.floor((Date.now() - Date.parse(verifiedOn + 'T00:00:00Z')) / 86400000)
+      : null;
+
     out.push({
       slug,
+      verifiedOn, verifiedPending, coverage, ageDays,
       hasTryIt: /^##\s+Try it\s*$/m.test(raw),
       present, urls, unusable, unparseable,
       // An explicit empty list is how a skill says "generated inline, nothing to fetch".
@@ -242,6 +263,14 @@ const unprobed = skills.flatMap((s) => [
 const missing = skills.filter((s) => s.hasTryIt && !s.present);
 const withoutTryIt = skills.filter((s) => !s.hasTryIt);
 const inline = skills.filter((s) => s.intentionallyNone);
+const staleVerify = skills
+  .filter((s) => s.ageDays !== null && s.ageDays > STALE_AFTER_DAYS)
+  .sort((a, b) => b.ageDays - a.ageDays);
+const unverifiedYet = skills.filter((s) => s.verifiedPending);
+const covered = skills.filter((s) => s.coverage !== null);
+const meanCoverage = covered.length
+  ? covered.reduce((t, s) => t + s.coverage, 0) / covered.length
+  : null;
 const failed = dead.length + unprobed.length;
 
 if (JSON_OUT) {
@@ -252,6 +281,12 @@ if (JSON_OUT) {
     dead,
     unprobed,
     inconclusive,
+    verification: {
+      staleAfterDays: STALE_AFTER_DAYS,
+      stale: staleVerify.map((s) => ({ slug: s.slug, verifiedOn: s.verifiedOn, ageDays: s.ageDays })),
+      awaitingFirstVerification: unverifiedYet.map((s) => s.slug),
+      meanCoverage,
+    },
     tryItWithoutDatasets: missing.map((s) => s.slug),
     withoutTryIt: withoutTryIt.map((s) => s.slug),
     inlineByDesign: inline.map((s) => s.slug),
@@ -263,6 +298,9 @@ if (JSON_OUT) {
   for (const d of dead) console.log(`  ✗ ${d.slug}: ${d.url} — ${d.reason}`);
   for (const u of unprobed) console.log(`  ✗ ${u.slug}: declared "${u.value}" — ${u.reason}, so it was never checked`);
   for (const t of inconclusive) console.log(`  ? ${t.slug}: ${t.url} — ${t.reason} after ${RETRIES + 1} attempts (not counted as dead)`);
+  for (const v of staleVerify) console.log(`  ⧗ ${v.slug}: last verified ${v.verifiedOn} (${v.ageDays}d ago) — past the ${STALE_AFTER_DAYS}d re-audit window`);
+  if (unverifiedYet.length) console.log(`  · ${unverifiedYet.length} skill(s) awaiting first verification: ${unverifiedYet.map((s) => s.slug).join(', ')}`);
+  if (meanCoverage !== null) console.log(`  · mean executed share across ${covered.length} verified skill(s): ${Math.round(meanCoverage * 100)}%`);
   if (missing.length) console.log(`  ! ${missing.length} skill(s) have "## Try it" but declare no datasets: ${missing.map((s) => s.slug).join(', ')}`);
   if (withoutTryIt.length) console.log(`  · ${withoutTryIt.length} skill(s) awaiting "## Try it": ${withoutTryIt.map((s) => s.slug).join(', ')}`);
   if (inline.length) console.log(`  · ${inline.length} skill(s) generate their data inline, nothing to probe: ${inline.map((s) => s.slug).join(', ')}`);

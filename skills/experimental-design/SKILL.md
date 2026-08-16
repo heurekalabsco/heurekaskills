@@ -9,6 +9,7 @@ version: 1.1.0
 tags: [doe, randomization, blocking, factorial, study-design]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # Experimental Design
 

@@ -9,6 +9,7 @@ version: 1.0.0
 try-it: pending
 tags: [rna-seq, differential-expression, deseq2, statistics]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # PyDESeq2
 

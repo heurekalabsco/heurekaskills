@@ -8,6 +8,7 @@ version: 1.0.0
 try-it: pending
 tags: [molecular-docking, autodock, vina, structure-based, virtual-screening]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 
 # AutoDock Vina — molecular docking

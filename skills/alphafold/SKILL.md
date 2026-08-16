@@ -8,6 +8,7 @@ version: 1.1.0
 tags: [protein-structure, alphafold, uniprot, plddt, pae]
 datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # AlphaFold Protein Structure Database
 
