@@ -148,6 +148,12 @@ Write descriptions that name **both the source and what is in it**. "Query HuBMA
 findable only by people who already know to look for HuBMAP, which is not the person who
 needed it.
 
+**Write the words people type, not the category they belong to.** Learned by testing:
+`cellxgene-census` was given `tissue` and `disease` as covers terms, and a search for
+`liver rna-seq` then found nothing — `rna-seq` matched via `scRNA-seq`, `liver` matched
+nothing. Nobody searches for "tissue". Name the actual tissues, assays and organisms.
+Matching is substring, so no term expands into another.
+
 `papers:` carries provenance — the paper defining the resource, and papers that used it.
 Both `PMID:39607691` and `doi:10.…` are accepted, because deposits on Zenodo and Dryad have
 a DOI and no PMID.
