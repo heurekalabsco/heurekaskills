@@ -5,9 +5,9 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
-try-it: pending
+version: 1.1.0
 tags: [doe, randomization, blocking, factorial, study-design]
+datasets: []
 allowed-tools: Read, Write, Edit, Bash
 ---
 # Experimental Design
@@ -42,10 +42,17 @@ This skill helps you choose among design types, generate the actual randomizatio
 uv pip install "numpy>=1.26" "pandas>=2.0" pyDOE3
 ```
 
-`pyDOE3` is the maintained successor to pyDOE/pyDOE2 and supplies factorial,
-fractional-factorial, Plackett-Burman, central-composite, Box-Behnken, and
-Latin-hypercube generators. It returns coded matrices; the `to_real` helper below
-converts them to real factor units with named columns and randomized run order.
+`pyDOE3` supplies factorial, fractional-factorial, Plackett-Burman, central-composite,
+Box-Behnken, and Latin-hypercube generators. It returns coded matrices; the `to_real`
+helper below converts them to real factor units with named columns and randomized run
+order.
+
+One note before you pin the dependency. The lineage runs pyDOE → pyDOE2 → pyDOE3 and, as
+of 2026, continues in `pydoe`, which reclaims the original name and carries the whole
+copyright chain; pyDOE2 has been dormant since 2020. Everything below is written and
+checked against `pyDOE3` 1.6.2 (released 2026-01-12). `pydoe` 1.4.0 (2026-08-05) exposes
+the same generators under the same names, so these imports work unchanged if you switch.
+Both are BSD-3-Clause.
 
 ---
 
@@ -218,13 +225,121 @@ These are structural — they can't be fixed in analysis, only in design.
 3. **Pick the design** using the decision tree and reference files.
 4. **Decide replication** at the correct level (and get n from the
    **statistical-power** skill for the chosen design).
-5. **Generate the layout** with `randomization.py` / `doe_designs.py`, seeded.
+5. **Generate the layout** with the seeded snippets above, written into the project as a
+   small module so the allocation is regenerable.
 6. **Randomize run/processing order** and plate/batch positions.
 7. **Document** the design, seed, and schedule (pre-register if possible) so the
    analysis is confirmatory and the layout is auditable.
 8. **Match the analysis to the design** — blocks, strata, clusters, and nesting must
    appear in the model. A design feature omitted from the model is a design feature
    you did not get.
+
+---
+
+## Try it
+
+A self-contained check that this skill still works. No account, no key, nothing to download
+beyond the packages above.
+
+**Data** — generated inline, and the frontmatter says so with `datasets: []` rather than
+naming a source. That is not a shortcut: this skill is used *before* any data exists, so its
+claims are about the structure of an allocation, not the content of a dataset. There is
+nothing to fetch, and every assertion below is checkable from the design matrix alone.
+
+```python
+import numpy as np, pandas as pd
+from pyDOE3 import ff2n, fracfact
+
+def block_randomization(n, arms, block_size=None, seed=None):
+    rng = np.random.default_rng(seed)
+    block_size = block_size or 2 * len(arms)
+    if block_size % len(arms):
+        raise ValueError("block_size must be a multiple of len(arms)")
+    out = []
+    while len(out) < n:
+        block = np.repeat(arms, block_size // len(arms))
+        out.extend(rng.permutation(block))
+    return pd.DataFrame({"subject": range(1, n + 1), "arm": out[:n]})
+
+def max_running_imbalance(arms_seq, a="treatment"):
+    """Worst |n_a - n_b| at ANY point during enrollment, not just at the end."""
+    diff = np.cumsum([1 if x == a else -1 for x in arms_seq])
+    return int(np.abs(diff).max())
+
+def counts(seq):
+    c = pd.Series(list(seq)).value_counts()
+    return ", ".join(f"{str(k)}={int(v)}" for k, v in sorted(c.items()))
+
+# 1. Permuted blocks bound imbalance THROUGHOUT enrollment; simple randomization does not.
+n, arms, bs = 60, ["treatment", "control"], 4
+blocked = block_randomization(n, arms, block_size=bs, seed=42)
+simple = np.random.default_rng(42).choice(arms, size=n)
+
+mb, ms = max_running_imbalance(blocked.arm), max_running_imbalance(simple)
+print(f"max running imbalance  blocked(bs={bs}): {mb}   simple: {ms}")
+print(f"final balance          blocked: {counts(blocked.arm)}")
+print(f"                       simple:  {counts(simple)}")
+assert mb <= bs // 2, "permuted blocks must bound imbalance at half the block size"
+
+# 2. A full 2^k factorial is exactly orthogonal — every main effect estimable independently.
+X = ff2n(3)
+print(f"\nfull 2^3: {X.shape[0]} runs, Gram matrix = {X.shape[0]} x I:",
+      np.array_equal(X.T @ X, X.shape[0] * np.eye(3)))
+assert np.array_equal(X.T @ X, X.shape[0] * np.eye(3))
+
+# 3. Mistake 7 made numerical: a resolution-III fraction aliases C with AB perfectly.
+F = fracfact("a b ab")
+alias = abs(np.corrcoef(F[:, 0] * F[:, 1], F[:, 2])[0, 1])
+print(f"res-III 2^(3-1): {F.shape[0]} runs, |corr(A*B, C)| = {alias:.6f}")
+assert abs(alias - 1.0) < 1e-12, "C is aliased with AB by construction"
+
+# 4. The error path is part of the contract, not an afterthought.
+try:
+    block_randomization(10, ["a", "b", "c"], block_size=4)
+except ValueError as e:
+    print(f"error path      : ValueError({e})")
+else:
+    raise AssertionError("expected ValueError: 4 does not divide across 3 arms")
+
+print("\nall checks passed")
+```
+
+**Expect**
+
+Invariants — these hold regardless of package version, and a failure means the skill is
+**wrong**, not that something drifted:
+
+- Permuted blocks bound the running imbalance at **half the block size** at every point in
+  enrollment (≤ 2 for `block_size=4`), and finish exactly balanced. The guarantee is
+  *throughout*, not merely at the end — that is the whole reason to prefer them at small n.
+- A full 2^k factorial is exactly orthogonal: `X.T @ X` equals the run count times the
+  identity, so every main effect is estimable independently of the others.
+- A resolution-III fraction aliases a main effect with an interaction **perfectly**:
+  `|corr(A*B, C)| = 1.000000`, exactly. That is mistake 7 above made numerical — in those
+  four runs C and AB are not merely correlated, they are the same column, and no analysis
+  applied afterwards can separate them.
+- `block_size` not a multiple of `len(arms)` raises `ValueError` rather than silently
+  producing an unbalanced schedule.
+
+Observed 2026-08-16 with `pyDOE3` 1.6.2, NumPy 2.4.6, pandas 3.0.5. The run is seeded and
+reproducible, but the simple-randomization figures depend on NumPy's generator stream — if
+those two numbers move, treat it as drift to investigate, not as a failure:
+
+```
+max running imbalance  blocked(bs=4): 2   simple: 9
+final balance          blocked: control=30, treatment=30
+                       simple:  control=33, treatment=27
+
+full 2^3: 8 runs, Gram matrix = 8 x I: True
+res-III 2^(3-1): 4 runs, |corr(A*B, C)| = 1.000000
+error path      : ValueError(block_size must be a multiple of len(arms))
+
+all checks passed
+```
+
+Simple randomization landing at 33/27, having been as far as 9 apart mid-enrollment, is the
+failure mode blocking exists to prevent. It is a property of the method at this n, not an
+unlucky seed.
 
 ---
 
