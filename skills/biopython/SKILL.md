@@ -9,6 +9,15 @@ version: 1.1.0
 try-it: pending
 tags: [sequences, fasta, genbank, entrez, blast]
 allowed-tools: Read, Write, Edit, Bash
+verified:
+  date: 2026-08-09
+  against: biopython 1.88 / Python 3.11
+  executed: 84
+  unverified: 43
+  unverified_reason: >-
+    Entrez and BLAST blocks need outbound access to NCBI, which the validating environment
+    does not have. Unchanged by the 1.88 update and 1.88's notes record no Entrez or BLAST
+    change, but not re-confirmed against it. Re-run from a host with NCBI access.
 ---
 # Biopython: Computational Molecular Biology in Python
 

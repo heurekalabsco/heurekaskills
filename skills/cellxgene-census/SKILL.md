@@ -9,6 +9,7 @@ version: 1.0.0
 try-it: pending
 tags: [single-cell, atlas, transcriptomics, spatial, public-data]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # CZ CELLxGENE Census
 

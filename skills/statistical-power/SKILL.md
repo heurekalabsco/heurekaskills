@@ -9,6 +9,7 @@ version: 1.1.0
 tags: [power-analysis, sample-size, effect-size, study-planning]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # Statistical Power & Sample Size
 

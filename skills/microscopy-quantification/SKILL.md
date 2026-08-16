@@ -8,6 +8,7 @@ version: 1.0.0
 tags: [microscopy, image-analysis, segmentation, cell-counting, scikit-image]
 datasets: [https://gitlab.com/scikit-image/data/-/raw/45e2cec9a2ebd24354beccf293e81dabc6220bbe/cells3d-with-metadata.tif]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # Quantifying microscope images
 

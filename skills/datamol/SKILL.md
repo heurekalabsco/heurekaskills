@@ -9,6 +9,7 @@ version: 1.1.0
 tags: [cheminformatics, rdkit, smiles, descriptors, fingerprints]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # Datamol Cheminformatics Skill
 

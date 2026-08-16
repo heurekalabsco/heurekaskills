@@ -6,6 +6,7 @@ tags: [cca, pathway-coessentiality]
 author: Pol Castellano-Escuder
 license: CC-BY-4.0
 try-it: pending
+verified: pending
 ---
 
 # Pathway association mapping (PCA → CCA → CC1)

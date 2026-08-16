@@ -9,6 +9,7 @@ version: 1.1.0
 try-it: pending
 tags: [genomic-intervals, bed, vcf, polars, file-io]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # polars-bio
 

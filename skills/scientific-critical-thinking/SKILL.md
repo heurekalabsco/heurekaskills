@@ -9,6 +9,7 @@ version: 1.0.0
 try-it: pending
 tags: [evidence-appraisal, bias, confounding, grade, study-validity]
 allowed-tools: Read, Write, Edit
+verified: pending
 ---
 # Scientific Critical Thinking
 

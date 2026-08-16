@@ -8,6 +8,7 @@ version: 1.0.0
 try-it: pending
 tags: [graphical-abstract, figures, accessibility, svg, publishing]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # Graphical Abstract
 

@@ -197,6 +197,13 @@ and treating it as a dict is the usual mistake.
 Keeping those apart is the whole point. Collapse them and every upstream release reads as
 a failure, and the section gets ignored within a month.
 
+**State your coverage.** Every skill declares `verified:` — the date, the versions, how many
+runnable blocks you executed, how many you did not, and why not. The floor is 50% of runnable
+blocks, and an unverified count needs a reason naming what would unblock it. Narrative
+fragments that cannot run standalone count neither way; the number is about blocks a reader
+could actually execute. `biopython` is the worked example, at 84 executed against 43
+unverified. Skills predating the rule carry `verified: pending`.
+
 **Run it before you ship it.** The block goes in the skill only after it has executed
 verbatim and produced the output written under Expect. This is `## 7` applied to the one
 block a reader is most likely to run first.

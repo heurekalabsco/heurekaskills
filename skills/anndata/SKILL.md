@@ -9,6 +9,7 @@ version: 1.1.0
 try-it: pending
 tags: [h5ad, single-cell, data-format, scverse]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # AnnData
 

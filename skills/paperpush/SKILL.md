@@ -9,6 +9,7 @@ version: 1.0.0
 try-it: pending
 tags: [manuscript, preprint, submission, publishing]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 
 # Submitting a manuscript with paperpush

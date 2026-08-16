@@ -9,6 +9,7 @@ version: 1.0.0
 try-it: pending
 tags: [protein-language-model, esm3, esmc, embeddings, structure-prediction]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # ESM: Evolutionary Scale Modeling
 

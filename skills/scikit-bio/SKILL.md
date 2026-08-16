@@ -9,6 +9,7 @@ version: 1.1.0
 try-it: pending
 tags: [microbiome, diversity, unifrac, ordination, permanova]
 allowed-tools: Read, Write, Edit, Bash
+verified: pending
 ---
 # scikit-bio
 

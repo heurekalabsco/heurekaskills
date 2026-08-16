@@ -10,6 +10,7 @@ try-it: pending
 tags: [molecular-docking, binding-pose, nim, nvidia, diffdock]
 compatibility: "requests>=2.28"
 allowed-tools: Bash, Read, Write, AskUserQuestion
+verified: pending
 ---
 
 # DiffDock NIM
