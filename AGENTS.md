@@ -162,6 +162,13 @@ The checker reads that key and never parses the body — which is what keeps the
 the registry grows. Prose still needs to say what the dataset *is*, what licence it carries,
 and when it was last confirmed reachable; frontmatter is what a machine sweeps.
 
+**A skill awaiting backfill declares `try-it: pending`** in its own frontmatter. That marker
+is the only exemption from the rule above, and it lives in the skill rather than in a central
+list on purpose: the nightshift publishes one skill's files at a time, so an exemption stored
+anywhere else makes backfilling a two-file change it cannot make — which deadlocked the whole
+queue until 2026-08-15. Backfilling is now: delete the marker, add the section, declare the
+data. One file. A new skill may not use the marker.
+
 Entries must be `https://` URLs. If your `Try it` generates its data inline and there is
 nothing to fetch, say so explicitly with an empty list — `datasets: []` — rather than
 omitting the key. `npm run validate` enforces all of this on every PR, so a malformed entry

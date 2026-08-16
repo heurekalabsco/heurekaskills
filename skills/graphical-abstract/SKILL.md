@@ -5,6 +5,7 @@ category: communication
 license: CC-BY-4.0
 author: Heureka Labs
 version: 1.0.0
+try-it: pending
 tags: [graphical-abstract, figures, accessibility, svg, publishing]
 allowed-tools: Read, Write, Edit, Bash
 ---

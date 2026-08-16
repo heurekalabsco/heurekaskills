@@ -6,6 +6,7 @@ license: CC-BY-4.0 AND Apache-2.0
 author: NVIDIA BioNeMo Agent Toolkit (adapted by Heureka Labs)
 attribution: https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit
 version: 1.0.0
+try-it: pending
 tags: [molecular-docking, binding-pose, nim, nvidia, diffdock]
 compatibility: "requests>=2.28"
 allowed-tools: Bash, Read, Write, AskUserQuestion
