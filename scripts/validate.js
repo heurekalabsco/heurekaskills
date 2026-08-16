@@ -23,6 +23,19 @@ const TAG_RE = /^[a-z0-9-]+$/;
 // silently lower it to make a skill pass.
 const MIN_VERIFIED = 0.5;
 
+// Instructions that hand a reader's HOST to whatever they run. A skill may document a
+// container — that is an ordinary reader requirement, like a GPU — but it may never tell
+// somebody to dissolve the boundary the container exists to provide. These four are
+// unambiguous: each one is host root, or arbitrary unreviewed remote code. Anything
+// genuinely needing them belongs upstream in the project's own docs, not in a skill an
+// agent executes.
+const DANGEROUS_INSTRUCTIONS = [
+  [/--privileged\b/, 'container run with --privileged is host root'],
+  [/\/var\/run\/docker\.sock/, 'mounting the Docker socket into a container is host root'],
+  [/(?:-v|--volume)\s+\/:(?:\/|\s)/, 'mounting the host root filesystem into a container'],
+  [/\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba)?sh\b/, 'piping a download straight into a shell runs unreviewed remote code'],
+];
+
 const MAX_DESCRIPTION = 250;
 
 // Every skill's frontmatter licence must be one we can positively identify as permissive,
@@ -274,6 +287,21 @@ for (const slug of slugs) {
         if (skipped > 0 && !String(V.unverified_reason ?? '').trim()) {
           err(slug, `${skipped} block(s) unverified but no verified.unverified_reason — say what blocked them and what would unblock it`);
         }
+      }
+    }
+  }
+
+  // 4f. Container and shell safety. Skills document tools; a container-based tool is fine
+  //     (§3b treats a runtime like a GPU). What is never fine is instructing a reader — or
+  //     an agent acting for them — to give away the host. Checked across every markdown
+  //     file in the skill, code block or prose, because a copyable line is a copyable line.
+  for (const rel of listSkillFiles(dir).filter((f) => f.toLowerCase().endsWith('.md'))) {
+    let text;
+    try { text = fs.readFileSync(path.join(dir, rel), 'utf8'); } catch { continue; }
+    for (const [re, why] of DANGEROUS_INSTRUCTIONS) {
+      const hit = text.match(re);
+      if (hit) {
+        err(slug, `${rel} instructs "${hit[0].trim().slice(0, 48)}" — ${why}. Skills never tell a reader to escalate privilege; document the tool, not a way around its sandbox`);
       }
     }
   }

@@ -197,6 +197,13 @@ and treating it as a dict is the usual mistake.
 Keeping those apart is the whole point. Collapse them and every upstream release reads as
 a failure, and the section gets ignored within a month.
 
+**Containers are fine; privilege escalation is not.** A container runtime is an ordinary
+reader requirement — disclose it like an API key or a GPU. But `validate.js` rejects
+`--privileged`, mounting `/var/run/docker.sock`, mounting the host root filesystem, and piping
+a download into a shell, anywhere in a skill. Those are host root or unreviewed remote code,
+and an agent will run them without pausing. Skills still ship documentation only: an inline
+build command is fine, a `Dockerfile` shipped as a file is not.
+
 **State your coverage.** Every skill declares `verified:` — the date, the versions, how many
 runnable blocks you executed, how many you did not, and why not. The floor is 50% of runnable
 blocks, and an unverified count needs a reason naming what would unblock it. Narrative
