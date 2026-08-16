@@ -97,18 +97,27 @@ for (const slug of slugs) {
     err(slug, `description must be a single-line scalar (no block scalars \`>\`/\`|\` or quoting) — the loader would read "${(naive.description ?? '').slice(0, 40)}…"`);
   }
 
-  // 1a. Nested-key collision. That same parser has no nesting model — it splits every line
-  //     on its first colon — so the children of a multi-line mapping land in the TOP-level
-  //     namespace the client reads. `verified:` already does this benignly: its date/against/
-  //     executed keys are visible to the client and simply unused. A nested key named `name`,
-  //     `description` or `allowed-tools` would not be benign; it would overwrite what every
-  //     client installs, and nothing downstream would report it. Cheap to forbid, and the
-  //     surface grows with every key added.
+  // 1a. Client/YAML agreement on every key the client reads. That same parser has no nesting
+  //     model — it splits every line on its first colon — so the children of a multi-line
+  //     mapping land in the TOP-level namespace, and it is last-write-wins. `verified:` does
+  //     this harmlessly: its date/against/executed keys are visible to the client and unused.
+  //
+  //     The invariant that matters is not "is there a nested key" but **the client must read
+  //     the same value as YAML**. Checks 1 above enforce exactly that for `name` and
+  //     `description`; this extends it to `allowed-tools`, which had no such comparison and
+  //     is the one that grants capability.
+  //
+  //     Written first as a presence test (`flat && !top`) and that was backwards: it fired
+  //     only when the top-level key was ABSENT — the harmless direction — and stayed silent
+  //     when a nested occurrence overwrote a real one. 18 of the corpus carry a top-level
+  //     `allowed-tools`, so that silent case was the normal one. A skill could ship
+  //     `allowed-tools: Read` to reviewers and install `Bash, Write, Edit`.
   for (const key of CLIENT_READ_KEYS) {
-    const top = Object.prototype.hasOwnProperty.call(fm, key);
-    const flat = Object.prototype.hasOwnProperty.call(naive, key);
-    if (flat && !top) {
-      err(slug, `a nested frontmatter key named "${key}" collides with the top-level key the client reads — rename it`);
+    if (!Object.prototype.hasOwnProperty.call(naive, key)) continue;
+    const asClient = String(naive[key] ?? '');
+    const asYaml = fm[key] === undefined ? '' : String(fm[key]);
+    if (asClient !== asYaml) {
+      err(slug, `the client would read ${key} as "${asClient.slice(0, 40)}" but YAML says "${asYaml.slice(0, 40)}" — a nested or repeated \`${key}:\` line is overwriting it`);
     }
   }
 
@@ -127,6 +136,12 @@ for (const slug of slugs) {
   if (fm.attribution !== undefined) {
     if (typeof fm.attribution !== 'string' || !fm.attribution.trim()) {
       err(slug, 'attribution must be a non-empty string (the source URL) when present');
+    } else if (!/^https?:\/\//.test(fm.attribution.trim())) {
+      // The site renders this straight into an href. Escaping protects the attribute but
+      // not the scheme, so `javascript:…` here produced a live link on a public page.
+      // Found by audit, pre-dates the discovery keys; fixed at the gate because the
+      // renderer should not be the only thing standing between frontmatter and an href.
+      err(slug, `attribution must be an http(s) URL — "${String(fm.attribution).slice(0, 40)}" is rendered as a link, and a non-http scheme becomes a live one`);
     } else {
       attributed.add(slug);
     }
@@ -271,6 +286,12 @@ for (const slug of slugs) {
   //     "access granted case by case" rejection and does not ship. Sources with tiers list
   //     both — GTEx is [open, controlled], documents the open summary tier, and names the
   //     controlled tier so a reader learns which side their question sits on.
+  //     Required on `data`, because a gate you can skip by not declaring it is not a gate.
+  //     Written first as optional-if-present, which meant the controlled-only rejection was
+  //     opt-in: the author who would fail it simply omitted the key.
+  if (fm.category === 'data' && fm.access === undefined) {
+    err(slug, 'a data skill must declare access: [open|registered|controlled] — state the route a reader takes to the data');
+  }
   if (fm.access !== undefined) {
     if (!Array.isArray(fm.access)) {
       err(slug, `access must be a list (e.g. [open]) — "${String(fm.access).slice(0, 40)}" would be ignored entirely`);
@@ -327,7 +348,10 @@ for (const slug of slugs) {
   //     exemption stored anywhere else makes backfilling a two-file change the routine
   //     cannot make, and the whole queue deadlocks. Backfilling is now: delete the marker,
   //     add the section. One file.
-  const exempt = String(fm['try-it'] ?? '').trim() === 'pending';
+  // Strict, not stringified. `String(['pending'])` is the bare word `pending`, so
+  // `try-it: [pending]` — a list — bought the exemption and, once 4d-i below started reading
+  // this flag, bypassed the `## Get the files` requirement too.
+  const exempt = fm['try-it'] === 'pending';
   if (exempt && hasTryIt) {
     err(slug, 'has "## Try it" but still declares `try-it: pending` — drop that line, it is only for skills awaiting backfill');
   }

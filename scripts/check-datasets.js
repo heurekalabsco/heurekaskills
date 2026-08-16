@@ -223,6 +223,11 @@ function collect() {
       slug,
       verifiedOn, verifiedPending, coverage, ageDays,
       hasTryIt: /^##\s+Try it\s*$/m.test(raw),
+      // A `data` skill exempted from `## Get the files` by `try-it: pending` is real work
+      // owed, and it was invisible here — the routine that clears the backfill queue could
+      // not see it. Same reasoning as withoutTryIt: an untracked queue is not a queue.
+      isData: fm.category === 'data',
+      hasGetFiles: /^##\s+Get the files\s*$/m.test(raw),
       present, urls, unusable, unparseable,
       // An explicit empty list is how a skill says "generated inline, nothing to fetch".
       intentionallyNone: present && Array.isArray(fm.datasets) && fm.datasets.length === 0,
@@ -262,6 +267,7 @@ const unprobed = skills.flatMap((s) => [
 
 const missing = skills.filter((s) => s.hasTryIt && !s.present);
 const withoutTryIt = skills.filter((s) => !s.hasTryIt);
+const withoutGetFiles = skills.filter((s) => s.isData && !s.hasGetFiles);
 const inline = skills.filter((s) => s.intentionallyNone);
 const staleVerify = skills
   .filter((s) => s.ageDays !== null && s.ageDays > STALE_AFTER_DAYS)
@@ -289,6 +295,7 @@ if (JSON_OUT) {
     },
     tryItWithoutDatasets: missing.map((s) => s.slug),
     withoutTryIt: withoutTryIt.map((s) => s.slug),
+    withoutGetFiles: withoutGetFiles.map((s) => s.slug),
     inlineByDesign: inline.map((s) => s.slug),
     ok: failed === 0,
   }, null, 2));
@@ -303,6 +310,7 @@ if (JSON_OUT) {
   if (meanCoverage !== null) console.log(`  · mean executed share across ${covered.length} verified skill(s): ${Math.round(meanCoverage * 100)}%`);
   if (missing.length) console.log(`  ! ${missing.length} skill(s) have "## Try it" but declare no datasets: ${missing.map((s) => s.slug).join(', ')}`);
   if (withoutTryIt.length) console.log(`  · ${withoutTryIt.length} skill(s) awaiting "## Try it": ${withoutTryIt.map((s) => s.slug).join(', ')}`);
+  if (withoutGetFiles.length) console.log(`  · ${withoutGetFiles.length} data skill(s) awaiting "## Get the files": ${withoutGetFiles.map((s) => s.slug).join(', ')}`);
   if (inline.length) console.log(`  · ${inline.length} skill(s) generate their data inline, nothing to probe: ${inline.map((s) => s.slug).join(', ')}`);
   if (!failed) console.log(jobs.length ? '✓ every probed dataset is reachable' : '✓ nothing to probe');
 }
