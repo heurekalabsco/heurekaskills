@@ -7,6 +7,7 @@ import yaml from 'js-yaml';
 import {
   listSkillDirs, listSkillFiles, parseFrontmatterNaive,
   CATEGORIES, SLUG_RE, ALLOWED_EXTENSIONS,
+  MAX_COVERS, MAX_PAPERS, ACCESS_LEVELS, PAPER_ID_RE, CLIENT_READ_KEYS,
 } from './lib.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +37,7 @@ const DANGEROUS_INSTRUCTIONS = [
   [/\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba)?sh\b/, 'piping a download straight into a shell runs unreviewed remote code'],
 ];
 
-const MAX_DESCRIPTION = 250;
+const MAX_DESCRIPTION = 400;
 
 // Every skill's frontmatter licence must be one we can positively identify as permissive,
 // original or adapted. An unrecognised value is rejected rather than assumed benign. This
@@ -65,6 +66,7 @@ const err = (slug, msg) => errors.push(`${slug}: ${msg}`);
 const slugs = listSkillDirs(SKILLS);
 const attributed = new Set();
 const tagUses = new Map();
+const coversUses = new Map();
 // Skills whose frontmatter could not be read at all. They already reported a real
 // error; the NOTICE pairing below cannot say anything true about them, so it stays
 // quiet rather than adding a second, misleading one.
@@ -93,6 +95,21 @@ for (const slug of slugs) {
   }
   if ((naive.description ?? '') !== String(fm.description ?? '')) {
     err(slug, `description must be a single-line scalar (no block scalars \`>\`/\`|\` or quoting) — the loader would read "${(naive.description ?? '').slice(0, 40)}…"`);
+  }
+
+  // 1a. Nested-key collision. That same parser has no nesting model — it splits every line
+  //     on its first colon — so the children of a multi-line mapping land in the TOP-level
+  //     namespace the client reads. `verified:` already does this benignly: its date/against/
+  //     executed keys are visible to the client and simply unused. A nested key named `name`,
+  //     `description` or `allowed-tools` would not be benign; it would overwrite what every
+  //     client installs, and nothing downstream would report it. Cheap to forbid, and the
+  //     surface grows with every key added.
+  for (const key of CLIENT_READ_KEYS) {
+    const top = Object.prototype.hasOwnProperty.call(fm, key);
+    const flat = Object.prototype.hasOwnProperty.call(naive, key);
+    if (flat && !top) {
+      err(slug, `a nested frontmatter key named "${key}" collides with the top-level key the client reads — rename it`);
+    }
   }
 
   // 2. Identity.
@@ -124,7 +141,13 @@ for (const slug of slugs) {
   }
 
   // 3c. Description budget. Every installed skill's description is loaded into every
-  //     session whether or not the skill is used, so length is a shared cost.
+  //     session whether or not the skill is used, so length is a shared cost — roughly
+  //     a quarter of a token per character, per installed skill, per session.
+  //     Raised 250 -> 400 on 2026-08-16: descriptions were running at a median of 223 of
+  //     250, so authors were truncating rather than choosing. A data skill has more to say
+  //     than a tool skill — source, modality, tissue, organism, what you get back.
+  //     The long-tail search vocabulary belongs in `covers`, which is not loaded per
+  //     session and so costs nothing here; this budget is for routing and for humans.
   const desc = String(fm.description ?? '');
   if (desc.length > MAX_DESCRIPTION) {
     err(slug, `description is ${desc.length} characters, over the ${MAX_DESCRIPTION} budget`);
@@ -195,6 +218,86 @@ for (const slug of slugs) {
     }
   }
 
+  // 4b-i. Discovery and provenance keys. Optional everywhere, expected on `category: data`.
+  //
+  //     Why these exist rather than a longer description: a skill's whole searchable surface
+  //     on the site is name + slug + description + tags + category, AND-matched. Body text is
+  //     invisible. So "liver rna-seq" could never reach a project skill whose description
+  //     spends its budget naming the project. `covers` carries that vocabulary instead, and
+  //     unlike `description` it is never loaded into session context — search reach at no
+  //     per-session cost.
+  //
+  //     `covers` is free text on purpose. Tissue, assay, organism, platform, whatever a
+  //     reader would actually type. The singleton report at the end of this run surfaces
+  //     fragmentation (liver/hepatic/hepatocyte) without forbidding it.
+  if (fm.covers !== undefined) {
+    if (!Array.isArray(fm.covers)) {
+      err(slug, `covers must be a list (e.g. [liver, rna-seq]) — "${String(fm.covers).slice(0, 40)}" would be ignored entirely`);
+    } else {
+      if (fm.covers.length > MAX_COVERS) err(slug, `${fm.covers.length} covers terms exceeds cap of ${MAX_COVERS}`);
+      const seen = new Set();
+      for (const c of fm.covers) {
+        if (typeof c !== 'string' || !c.trim()) {
+          err(slug, `covers entry "${c}" must be a non-empty string`);
+        } else {
+          const k = c.trim().toLowerCase();
+          if (seen.has(k)) err(slug, `covers contains a duplicate: "${c}"`);
+          seen.add(k);
+          coversUses.set(k, (coversUses.get(k) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  //     `papers` is the provenance a dataset card needs — the paper defining the resource,
+  //     and papers that used it. Both id forms are real: PubMed-indexed work has a PMID,
+  //     deposits on Zenodo or Dryad have a DOI and no PMID.
+  if (fm.papers !== undefined) {
+    if (!Array.isArray(fm.papers)) {
+      err(slug, `papers must be a list (e.g. [PMID:31597973]) — "${String(fm.papers).slice(0, 40)}" would be ignored entirely`);
+    } else {
+      if (fm.papers.length > MAX_PAPERS) err(slug, `${fm.papers.length} papers exceeds cap of ${MAX_PAPERS}`);
+      if (new Set(fm.papers).size !== fm.papers.length) err(slug, 'papers contains duplicates');
+      for (const p of fm.papers) {
+        if (typeof p !== 'string' || !PAPER_ID_RE.test(p)) {
+          err(slug, `paper id "${p}" must be PMID:<digits> or doi:10.<registrant>/<suffix>`);
+        }
+      }
+    }
+  }
+
+  //     `access` records the route THIS skill documents. It is the §3b access test made
+  //     mechanical, not a relaxation of it: a skill whose only route is approval-only is the
+  //     "access granted case by case" rejection and does not ship. Sources with tiers list
+  //     both — GTEx is [open, controlled], documents the open summary tier, and names the
+  //     controlled tier so a reader learns which side their question sits on.
+  if (fm.access !== undefined) {
+    if (!Array.isArray(fm.access)) {
+      err(slug, `access must be a list (e.g. [open]) — "${String(fm.access).slice(0, 40)}" would be ignored entirely`);
+    } else if (fm.access.length === 0) {
+      err(slug, 'access is an empty list — state the route the skill documents, or omit the key');
+    } else {
+      for (const a of fm.access) {
+        if (!ACCESS_LEVELS.includes(a)) {
+          err(slug, `access "${a}" must be one of ${ACCESS_LEVELS.join(', ')}`);
+        }
+      }
+      if (fm.category === 'data' && fm.access.every((a) => a === 'controlled')) {
+        err(slug, 'access is controlled-only — no reader has a lawful route, which is the settled §3b rejection. Document an open or registered route, or do not ship this skill');
+      }
+    }
+  }
+
+  //     `platform` records shared infrastructure (snovault, hive-elasticsearch). One skill
+  //     per project means several skills over one platform, and when that platform's query
+  //     grammar drifts nothing else records the kinship — it gets fixed in one and rots in
+  //     the others. This is what makes that sweepable.
+  if (fm.platform !== undefined) {
+    if (typeof fm.platform !== 'string' || !TAG_RE.test(fm.platform)) {
+      err(slug, `platform "${fm.platform}" must be a single lowercase-hyphenated token`);
+    }
+  }
+
   // 4c. Datasets. `## Try it` (§7a of adding-skills.md) declares the data a reader runs the
   //     skill against, and scripts/check-datasets.js probes those URLs nightly. It reads
   //     this key with real YAML, so anything that parses to a non-list — or to a list
@@ -233,6 +336,19 @@ for (const slug of slugs) {
   }
   if (fm['try-it'] !== undefined && !exempt) {
     err(slug, `try-it must be \`pending\` or absent — got "${String(fm['try-it']).slice(0, 30)}"`);
+  }
+
+  // 4d-i. A `data` skill has to end in files on disk. The point of the category is that an
+  //     agent can obtain data, and the likeliest failure is a skill that teaches a query
+  //     grammar beautifully and stops at a printed result — the API is the interesting part
+  //     to write, and the download is the part the reader actually needed. Requiring the
+  //     section makes that omission visible at review instead of at use.
+  //
+  //     Reuses the `try-it: pending` backfill marker rather than inventing a second one: a
+  //     skill that has not been made testable at all cannot be expected to document a
+  //     verified download, and both clear together when the routine touches it.
+  if (fm.category === 'data' && !exempt && !/^##\s+Get the files\s*$/m.test(raw)) {
+    err(slug, 'a data skill must have a "## Get the files" section — retrieving the data is the point of the category, and a skill that stops at a query result has not delivered it');
   }
 
   // 4e. Verification coverage (§7). The registry's claim is that skills are executed, not
@@ -373,4 +489,13 @@ console.log(`✓ ${slugs.length} skill(s) valid (${attributed.size} adapted, all
 const singletons = [...tagUses.entries()].filter(([, n]) => n === 1).map(([t]) => t);
 if (singletons.length) {
   console.log(`  ${tagUses.size} unique tags; ${singletons.length} used by a single skill — prefer an existing tag over a new synonym`);
+}
+
+// Same reasoning, weaker rule. `covers` is free text by design, so a singleton is often
+// correct — one project really is the only source of a given assay. What this catches is
+// drift between spellings of the same idea (liver / hepatic / hepatocyte), which nothing
+// else would surface until search quietly stopped working.
+const coversSingletons = [...coversUses.entries()].filter(([, n]) => n === 1).length;
+if (coversUses.size) {
+  console.log(`  ${coversUses.size} unique covers terms; ${coversSingletons} used by a single skill — free text by design, but check for spelling drift`);
 }

@@ -8,6 +8,9 @@ attribution: https://github.com/K-Dense-AI/scientific-agent-skills
 version: 1.0.0
 try-it: pending
 tags: [single-cell, atlas, transcriptomics, spatial, public-data]
+covers: [single-cell, scRNA-seq, spatial transcriptomics, gene expression, cell atlas, cell type, tissue, disease, human, mouse, h5ad, anndata, embeddings, census]
+papers: [PMID:39607691]
+access: [open]
 allowed-tools: Read, Write, Edit, Bash
 verified: pending
 ---

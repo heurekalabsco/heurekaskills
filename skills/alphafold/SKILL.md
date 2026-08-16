@@ -4,11 +4,18 @@ description: Retrieve predicted protein structures from the AlphaFold database b
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.2.0
 tags: [protein-structure, alphafold, uniprot, plddt, pae]
+covers: [protein structure, structure prediction, alphafold, uniprot, plddt, pae, alphamissense, missense variants, variant effect, cif, pdb, proteome, human, all organisms]
+papers: [PMID:34265844, PMID:34791371, PMID:37733863]
+access: [open]
 datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-08-16
+  against: AlphaFold DB model v6 / Python 3.12.8 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
+  executed: 7
+  unverified: 0
 ---
 # AlphaFold Protein Structure Database
 
@@ -102,6 +109,57 @@ of writing), and a hand-built URL silently rots.
 rec = canonical(fetch_prediction("P04637"), "P04637")
 open("P04637.cif", "wb").write(requests.get(rec["cifUrl"], timeout=60).content)
 ```
+
+## Get the files
+
+Everything above reads the record. This puts the artifacts on disk, which is usually what
+you actually wanted — coordinates to open in a viewer, PAE to plot, AlphaMissense to join
+against variants.
+
+Take every URL **from the record**, and write a manifest beside the files recording the
+model version they came from. A directory of `.cif` files with no version stamp cannot be
+compared against a rebuild later, and AlphaFold does rebuild.
+
+```python
+import json, os, urllib.request
+
+ACC, OUT = "P04637", "Data/alphafold"
+os.makedirs(OUT, exist_ok=True)
+
+recs = json.loads(urllib.request.urlopen(
+    f"https://alphafold.ebi.ac.uk/api/prediction/{ACC}", timeout=45).read())
+rec = next(r for r in recs if r["entryId"] == f"AF-{ACC}-F1")
+
+wanted = {"cifUrl": "structure.cif", "pdbUrl": "structure.pdb",
+          "paeDocUrl": "pae.json", "amAnnotationsUrl": "alphamissense.csv"}
+
+manifest = []
+for key, base in wanted.items():
+    url = rec.get(key)
+    if not url:                      # not every entry has every artifact
+        print(f"  {key:18} absent for this entry — skipping")
+        continue
+    dest = os.path.join(OUT, f"{ACC}_{base}")
+    urllib.request.urlretrieve(url, dest)
+    manifest.append({"field": key, "url": url, "path": dest,
+                     "bytes": os.path.getsize(dest)})
+    print(f"  {key:18} {manifest[-1]['bytes']:>10,} bytes -> {dest}")
+
+with open(os.path.join(OUT, f"{ACC}_manifest.json"), "w") as fh:
+    json.dump({"accession": ACC, "modelVersion": rec["latestVersion"],
+               "files": manifest}, fh, indent=2)
+print(f"\n{len(manifest)} files, model version {rec['latestVersion']}")
+```
+
+Run 2026-08-16 against model v6: four files — 363,485 B `.cif`, 254,339 B `.pdb`,
+422,267 B PAE, 141,628 B AlphaMissense. Sizes move with each rebuild; the count and the
+`absent` branch are the parts that should hold.
+
+**`amAnnotationsUrl` is not always there**, which is why the loop skips rather than fails.
+Checked 2026-08-16: present for `P04637` (human), absent for `P00648` and `Q8W3K0`
+(bacterial and plant). AlphaMissense is a human proteome resource, so a non-human accession
+yields three files, not four — code that indexes the key directly raises `KeyError` on most
+of the database.
 
 ## Reading pLDDT
 
