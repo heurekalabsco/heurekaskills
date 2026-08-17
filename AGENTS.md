@@ -172,6 +172,42 @@ tiers list both, document the open one, and say plainly which side a reader's qu
 on — `alphafold` is `[open]`; a resource with an open summary tier and controlled
 individual-level data is `[open, controlled]`.
 
+### Controlled tiers: describe them, never promise them
+
+Much of the most valuable biomedical data is individual-level human data behind an
+application — dbGaP and the programs built on it. §3b says we do not ship a skill promising
+data nobody can lawfully obtain. It does **not** rule out a skill answering *does a cohort
+like this exist, and what would using it require* — a question whose answer is entirely open.
+
+The distinction that makes this legitimate: **the access test asks what the skill instructs a
+reader to do.** Querying a public study catalogue, reading terms, and reporting requirements
+is open to anyone. The controlled tier is what such a skill *describes*, never what it *uses*.
+So it declares `access: [open, controlled]` — and `[controlled]` alone stays rejected, because
+that is a skill that can deliver nothing.
+
+**Declaring `controlled` requires a `## Requesting access` section, enforced by CI.** Who may
+apply, what the application asks for, what it costs in time, and where the authoritative
+instructions live. Without it, a skill names a locked door and walks away.
+
+Two things that decide whether such a skill is useful or a well-formatted trap:
+
+- **Lead with what the data may be used for, not with how to get in.** The binding constraint
+  is usually the consent under which subjects enrolled, not the application. A study consented
+  for one disease is unusable for unrelated research *even after access is granted*. Surface
+  that during triage, before the application is mentioned, or you send someone through a
+  months-long process for data that cannot answer their question.
+- **Assist with an application; never author one.** Draft a research use statement, checklist
+  the requirements, explain what an institutional signing official is and why one is needed,
+  state the renewal and cancellation timelines. **Do not fill in attestations** — IRB status,
+  data security, non-re-identification. Those are legal claims published under a named
+  person's name, and an agent that makes them easy to produce makes them easy to produce
+  carelessly.
+
+Say in the body that the skill cannot obtain access and does not promise it. And be explicit
+in the `description` about what a reader actually gets: someone searching for a gated
+resource's *data* will find a catalogue skill, and they should learn that before installing,
+not after.
+
 ## Documentation only — do not add scripts
 
 Publishable file types: `.md` `.txt` `.json` `.yaml` `.yml` `.csv` `.tsv` `.bib`.

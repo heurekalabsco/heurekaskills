@@ -57,6 +57,9 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 - A `data` skill has a `## Get the files` section, and an `access:` that is not
   `controlled` alone — retrieving the data is the point of the category, and a source no
   reader can lawfully reach does not ship.
+- A skill whose `access:` includes `controlled` has a `## Requesting access` section, saying
+  who may apply, what the application requires, and how long it takes. Describing a gated
+  tier is allowed; naming a locked door and walking away is not.
 - Neither `SKILL.md` nor `references/*.md` references a skill outside this registry —
   checked for "see/use/refer to the … skill" and for names under a "Related skills"
   heading.

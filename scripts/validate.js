@@ -375,6 +375,31 @@ for (const slug of slugs) {
     err(slug, 'a data skill must have a "## Get the files" section — retrieving the data is the point of the category, and a skill that stops at a query result has not delivered it');
   }
 
+  // 4d-ii. A skill documenting a controlled tier owes the reader the way through it.
+  //
+  //     `access` records what a reader meets. Declaring `controlled` is a statement that some
+  //     of what this skill describes sits behind an application — committee review, an
+  //     institutional agreement, a data use certification. That is allowed, and it is not the
+  //     §3b rejection, because what the SKILL instructs is still open: query a public
+  //     catalogue, read the terms, report the requirements. The controlled tier is described,
+  //     never used. `access: [controlled]` alone remains rejected above — that is a skill that
+  //     can deliver nothing.
+  //
+  //     What turns that from a dead end into something useful is telling the reader what
+  //     applying involves, so a person can decide before spending months. Hence the section.
+  //     Unconditional, with no `try-it: pending` escape: declaring `controlled` is an active
+  //     choice made while writing the skill, not a state inherited from before the rule.
+  //
+  //     The section is also where the boundary gets stated. A skill may draft a research use
+  //     statement, checklist requirements, and name the timelines. It may not fill in
+  //     attestations — those are legal claims about IRB approval, data security and
+  //     re-identification, published under a named applicant, and an agent that makes them
+  //     easy to produce makes them easy to produce carelessly.
+  if (Array.isArray(fm.access) && fm.access.includes('controlled')
+      && !/^##\s+Requesting access\s*$/m.test(raw)) {
+    err(slug, 'declares access: controlled but has no "## Requesting access" section — say who may apply, what the application requires, and how long it takes, or do not claim the controlled tier');
+  }
+
   // 4e. Verification coverage (§7). The registry's claim is that skills are executed, not
   //     merely written — but "every block ran" has never been literally true, and the
   //     disclosure lived in PR bodies no reader sees: `biopython` shipped 43 unexecuted
