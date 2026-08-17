@@ -53,7 +53,7 @@
 ## Multiple Comparisons Problems
 
 ### Pitfall 6: Multiple Testing Without Correction
-**Problem:** Testing 20 hypotheses at p < .05 gives ~65% chance of at least one false positive.
+**Problem:** Testing 20 hypotheses at p < .05 gives a ~64% chance of at least one false positive — exactly 1 − 0.95^20 = 0.6415. See `## Try it` in SKILL.md, which computes it and confirms it by simulation.
 
 **Examples:**
 - Testing many outcomes

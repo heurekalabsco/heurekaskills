@@ -271,7 +271,7 @@
 **Description:** Not accounting for increased false positive rate when testing many hypotheses.
 
 **Example:**
-- Testing 20 hypotheses at p < .05 gives ~65% chance of at least one false positive
+- Testing 20 hypotheses at p < .05 gives a ~64% chance of at least one false positive (1 − 0.95^20 = 0.6415)
 - Claiming jellybean color X causes acne after testing 20 colors
 
 **Solution:** Correct for multiple comparisons (Bonferroni, FDR).
