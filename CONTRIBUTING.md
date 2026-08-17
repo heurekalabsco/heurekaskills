@@ -53,7 +53,10 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
   CC-BY-4.0, CC0-1.0, ISC, Unlicense). SPDX expressions are evaluated, not string-matched:
   `A AND B` needs both permitted, `A OR B` needs either, so `MIT OR GPL-3.0` is accepted
   on its MIT branch.
-- `description` is at most 250 characters.
+- `description` is at most 400 characters.
+- A `data` skill has a `## Get the files` section, and an `access:` that is not
+  `controlled` alone — retrieving the data is the point of the category, and a source no
+  reader can lawfully reach does not ship.
 - Neither `SKILL.md` nor `references/*.md` references a skill outside this registry —
   checked for "see/use/refer to the … skill" and for names under a "Related skills"
   heading.

@@ -32,6 +32,20 @@ attribution: https://example.com/source   # only when adapted from a third party
 > **`name` and `description` must be single-line scalars.** They are read by a line-based
 > parser, so YAML block scalars (`>` / `|`) and multi-line values will not load. CI enforces this.
 
+A `data` skill carries four more keys, and needs a `## Get the files` section — retrieving
+the data is the point of the category:
+
+```yaml
+covers: [liver, rna-seq, human]   # free-text search vocabulary, max 30 — how people find this
+papers: [PMID:39607691]           # provenance; doi:10.… also accepted
+access: [open]                    # open | registered | controlled
+platform: snovault                # optional — shared infrastructure, for drift sweeps
+```
+
+`covers` is what makes a dataset findable by question rather than by name: the site indexes
+it, so someone searching `liver rna-seq` reaches your skill even though neither word fits in
+the description.
+
 Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.yml`,
 `.csv`, `.tsv`, and `.bib` files may be published.
 

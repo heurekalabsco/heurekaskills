@@ -7,6 +7,28 @@ export const CATEGORIES = ['data', 'models', 'analysis', 'utility', 'communicati
 
 export const SLUG_RE = /^[a-z0-9-]+$/;
 
+// Discovery vocabulary for `data` skills. `covers` is deliberately free text — tissue,
+// assay, organism, modality, whatever a reader would actually type. It is NOT rendered as
+// filter chips (that is what `tags` is for) and it is NOT loaded into session context, so
+// unlike `description` its length costs nothing per session. The cap is a sanity bound, not
+// a budget.
+export const MAX_COVERS = 30;
+export const MAX_PAPERS = 20;
+
+// What a reader must do to obtain the data by the route the skill documents.
+// This is the §3b access test made mechanical rather than a new policy: `controlled` alone
+// on a data skill is the "access granted case by case" rejection, and validate.js refuses it.
+export const ACCESS_LEVELS = ['open', 'registered', 'controlled'];
+
+// Provenance ids. Both forms are accepted: papers indexed in PubMed carry a PMID, and
+// dataset deposits (Zenodo, Dryad) have a DOI and no PMID.
+export const PAPER_ID_RE = /^(PMID:\d{1,8}|doi:10\.\d{4,9}\/\S+)$/;
+
+// The client's frontmatter parser has no nesting model (see parseFrontmatterNaive), so a
+// nested mapping flattens into the top level. A nested key named one of these would
+// overwrite what every client actually installs.
+export const CLIENT_READ_KEYS = ['name', 'description', 'allowed-tools'];
+
 // Skills are documentation the agent reads, not programs it runs. Clients write
 // skill files non-executable and refuse a manifest containing anything outside
 // this list, so a skill shipping one would publish and then fail to install.

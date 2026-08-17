@@ -33,6 +33,29 @@
           "author": { "type": "string" },
           "license": { "type": "string" },
           "tags": { "type": "array", "items": { "type": "string" } },
+          "covers": {
+            "description": "Free-text discovery vocabulary — tissue, assay, organism, modality. Indexed for search; not rendered as filter chips.",
+            "type": "array",
+            "maxItems": 30,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "papers": {
+            "description": "Provenance for the data this skill retrieves — the paper defining the resource, and papers that used it.",
+            "type": "array",
+            "maxItems": 20,
+            "items": { "type": "string", "pattern": "^(PMID:[0-9]{1,8}|doi:10\\.[0-9]{4,9}/\\S+)$" }
+          },
+          "access": {
+            "description": "The route this skill documents. A data skill listing only 'controlled' has no lawful reader route and does not ship.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "enum": ["open", "registered", "controlled"] }
+          },
+          "platform": {
+            "description": "Shared infrastructure behind this source, so grammar drift can be swept across every skill using it.",
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
           "updatedAt": { "type": "string" },
           "fileCount": { "type": "integer" },
           "checksum": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

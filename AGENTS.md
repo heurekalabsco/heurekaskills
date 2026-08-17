@@ -52,6 +52,12 @@ author: <name or org>
 version: 1.0.0
 tags: [a, b]                 # max 5, no duplicates
 attribution: <source url>    # adapted skills only
+
+# data skills — see "Making a data skill findable" below
+covers: [liver, rna-seq, human]   # free-text search vocabulary; max 30
+papers: [PMID:39607691]           # or doi:10.…; max 20
+access: [open]                    # open | registered | controlled
+platform: snovault                # optional; shared infrastructure
 ---
 ```
 
@@ -62,9 +68,16 @@ Traps that will fail CI or, worse, fail silently in a client:
   return the same value. Quoting makes them diverge, so the check fails by design.
 - **No `: ` inside an unquoted description.** YAML reads it as a nested mapping and the
   file stops parsing. Use an em dash instead.
-- **Keep descriptions at or under 250 characters — CI enforces this.** A description is
-  loaded for every installed skill in every session whether or not the skill is used.
-  Upstream descriptions routinely run past 1,000 characters — rewrite them, don't paste.
+- **Keep descriptions at or under 400 characters — CI enforces this.** A description is
+  loaded for every installed skill in every session whether or not the skill is used, so
+  it is a shared cost and not free space. Upstream descriptions routinely run past 1,000
+  characters — rewrite them, don't paste. The long tail of search vocabulary belongs in
+  `covers`, which costs nothing per session; don't stuff it in here.
+- **Nested keys flatten into the top level.** The client's parser splits each line on its
+  first colon and has no nesting model, so the children of a mapping land beside `name` and
+  `description`. `verified:` does this harmlessly. A nested key *named* `name`,
+  `description` or `allowed-tools` would overwrite what every client installs, so CI
+  rejects it.
 - Upstream frontmatter often carries junk: authoring metadata, platform-specific blocks,
   stale compatibility strings. Rebuild the frontmatter rather than patching theirs.
 - **Reuse an existing tag before inventing one.** Tags are filter chips on the site, so a
@@ -99,6 +112,65 @@ When both readings fit, ask **what the skill hands back at the end**:
 The subject matter being publication-adjacent does not make it `communication`.
 Submission, formatting and packaging are plumbing; the manuscript is the artefact a
 person reads, and a skill that does not produce that artefact is `utility`.
+
+### `data` skills: one per project, one per repository
+
+**A named project gets its own skill** — HuBMAP, GTEx, SenNet, DepMap — even one no longer
+funded or collecting. **A generic repository gets one skill for the repository**, not one per
+deposit: GEO, Zenodo, Dryad, PRIDE.
+
+The test between them: *does it have an ongoing maintained access surface and its own
+identity, or is it a deposit?* A Zenodo record is a deposit. HuBMAP is a project.
+
+Split on the **project**, not on the infrastructure, even when two projects share it — 4DN
+and SMaHT are both snovault and answer the same query grammar, HuBMAP and SenNet are both an
+Elasticsearch passthrough, and each still gets its own skill. Shared infrastructure is an
+implementation detail that can change under the skill, and nobody has ever gone looking for
+"the snovault grammar" — they want HuBMAP data. Record the shared platform in `platform:` so
+grammar drift can be swept across every skill using it; that is what the key is for.
+
+The redundancy this creates is deliberate and it is the cheaper mistake. Merging two projects
+into one skill makes it findable under one name and invisible under the other.
+
+### Making a `data` skill findable
+
+A skill's whole searchable surface on the site is `name`, `slug`, `description`, `tags` and
+`category`, matched as *every term must appear somewhere*. **The body is not indexed.** So a
+reader searching `liver rna-seq` reaches a project skill only if both words are in that
+surface — and a description that spends its budget naming the project has nothing left.
+
+That is what `covers:` is for. Free text, up to 30 terms — tissue, assay, organism, modality,
+platform, whatever someone would actually type. It is indexed for search and is *not*
+rendered as filter chips (that is `tags`, which stays at five and stays curated). It is also
+not loaded into session context, so unlike `description` its length is free.
+
+Write descriptions that name **both the source and what is in it**. "Query HuBMAP" is
+findable only by people who already know to look for HuBMAP, which is not the person who
+needed it.
+
+**Write the words people type, not the category they belong to.** Learned by testing:
+`cellxgene-census` was given `tissue` and `disease` as covers terms, and a search for
+`liver rna-seq` then found nothing — `rna-seq` matched via `scRNA-seq`, `liver` matched
+nothing. Nobody searches for "tissue". Name the actual tissues, assays and organisms.
+Matching is substring, so no term expands into another.
+
+`papers:` carries provenance — the paper defining the resource, and papers that used it.
+Both `PMID:39607691` and `doi:10.…` are accepted, because deposits on Zenodo and Dryad have
+a DOI and no PMID.
+
+### `data` skills end in files on disk
+
+Every `data` skill needs a `## Get the files` section, and CI enforces it. Retrieving the
+data is the point of the category. The failure this prevents is real and tempting: the query
+grammar is the interesting thing to write, and a skill that explains it beautifully and stops
+at a printed result has not given the reader what they came for.
+
+`access:` states the route the skill documents — `open`, `registered`, `controlled`, or
+several. This is the §3b access test made mechanical rather than a new rule: a `data` skill
+whose only route is `controlled` has no lawful reader path and CI rejects it. Sources with
+tiers list both, document the open one, and say plainly which side a reader's question sits
+on — `alphafold` is `[open]`; a resource with an open summary tier and controlled
+individual-level data is `[open, controlled]`.
 
 ## Documentation only — do not add scripts
 
