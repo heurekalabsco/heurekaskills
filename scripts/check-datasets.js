@@ -144,7 +144,10 @@ async function probeOnce(startUrl) {
     try {
       res = await once(u.href, 'HEAD');
       // Plenty of hosts reject HEAD outright; a ranged GET is the cheap fallback.
-      if ([403, 405, 501].includes(res.status)) res = await once(u.href, 'GET');
+      // 406 belongs here with 405: www.metabolomicsworkbench.org/rest/ answers HEAD with
+      // 406 Not Acceptable and the identical URL with 200 application/json under GET.
+      // Without it, a live endpoint is reported dead.
+      if ([403, 405, 406, 501].includes(res.status)) res = await once(u.href, 'GET');
     } catch (e) {
       return {
         state: 'transient',
