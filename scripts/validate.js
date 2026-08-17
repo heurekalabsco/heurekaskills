@@ -8,6 +8,7 @@ import {
   listSkillDirs, listSkillFiles, parseFrontmatterNaive,
   CATEGORIES, SLUG_RE, ALLOWED_EXTENSIONS,
   MAX_COVERS, MAX_PAPERS, ACCESS_LEVELS, PAPER_ID_RE, CLIENT_READ_KEYS,
+  hasSection, sectionBody,
 } from './lib.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -303,7 +304,7 @@ for (const slug of slugs) {
           err(slug, `access "${a}" must be one of ${ACCESS_LEVELS.join(', ')}`);
         }
       }
-      if (fm.category === 'data' && fm.access.every((a) => a === 'controlled')) {
+      if (fm.access.every((a) => a === 'controlled')) {
         err(slug, 'access is controlled-only — no reader has a lawful route, which is the settled §3b rejection. Document an open or registered route, or do not ship this skill');
       }
     }
@@ -326,7 +327,7 @@ for (const slug of slugs) {
   //     here, on every PR, rather than discovering it at 07:00 UTC. Same reasoning as tags
   //     above: silently ignored is the failure mode worth failing loudly on.
   //     An explicit empty list is legal and meaningful: "generated inline, nothing to fetch".
-  const hasTryIt = /^##\s+Try it\s*$/m.test(raw);
+  const hasTryIt = hasSection(raw, 'Try it');
   if (fm.datasets !== undefined) {
     if (!Array.isArray(fm.datasets)) {
       err(slug, `datasets must be a list (e.g. [https://…]) — "${String(fm.datasets).slice(0, 40)}" would never be probed`);
@@ -371,7 +372,7 @@ for (const slug of slugs) {
   //     Reuses the `try-it: pending` backfill marker rather than inventing a second one: a
   //     skill that has not been made testable at all cannot be expected to document a
   //     verified download, and both clear together when the routine touches it.
-  if (fm.category === 'data' && !exempt && !/^##\s+Get the files\s*$/m.test(raw)) {
+  if (fm.category === 'data' && !exempt && !hasSection(raw, 'Get the files')) {
     err(slug, 'a data skill must have a "## Get the files" section — retrieving the data is the point of the category, and a skill that stops at a query result has not delivered it');
   }
 
@@ -395,9 +396,13 @@ for (const slug of slugs) {
   //     attestations — those are legal claims about IRB approval, data security and
   //     re-identification, published under a named applicant, and an agent that makes them
   //     easy to produce makes them easy to produce carelessly.
-  if (Array.isArray(fm.access) && fm.access.includes('controlled')
-      && !/^##\s+Requesting access\s*$/m.test(raw)) {
-    err(slug, 'declares access: controlled but has no "## Requesting access" section — say who may apply, what the application requires, and how long it takes, or do not claim the controlled tier');
+  if (Array.isArray(fm.access) && fm.access.includes('controlled')) {
+    const body = sectionBody(raw, 'Requesting access');
+    if (body === null) {
+      err(slug, 'declares access: controlled but has no "## Requesting access" section — a level-2 heading in SKILL.md, outside any code block. Say who may apply, what the application requires and how long it takes, or do not claim the controlled tier');
+    } else if (!body.trim()) {
+      err(slug, '"## Requesting access" is empty — a heading over nothing tells a reader less than omitting the controlled tier would');
+    }
   }
 
   // 4e. Verification coverage (§7). The registry's claim is that skills are executed, not

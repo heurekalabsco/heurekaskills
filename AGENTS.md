@@ -182,12 +182,18 @@ like this exist, and what would using it require* — a question whose answer is
 The distinction that makes this legitimate: **the access test asks what the skill instructs a
 reader to do.** Querying a public study catalogue, reading terms, and reporting requirements
 is open to anyone. The controlled tier is what such a skill *describes*, never what it *uses*.
-So it declares `access: [open, controlled]` — and `[controlled]` alone stays rejected, because
-that is a skill that can deliver nothing.
+So it declares `access: [open, controlled]` — and `[controlled]` alone stays rejected in any
+category, because that is a skill that can deliver nothing. §3b is not about `data`: a `models`
+skill documenting weights handed out case by case fails for the same reason.
 
-**Declaring `controlled` requires a `## Requesting access` section, enforced by CI.** Who may
-apply, what the application asks for, what it costs in time, and where the authoritative
-instructions live. Without it, a skill names a locked door and walks away.
+**Declaring `controlled` requires a `## Requesting access` section.** CI enforces that the
+section exists and is not empty — it cannot read what you wrote there, so the rest is on
+review: who may apply, what the application asks for, what it costs in time, and where the
+authoritative instructions live. Without it, a skill names a locked door and walks away.
+
+The section has to be a real level-2 heading in `SKILL.md`. Showing `## Requesting access`
+inside a code block, an HTML comment, or the frontmatter used to satisfy the check — all four
+now fail, along with `## Try it` and `## Get the files` shown the same way.
 
 Two things that decide whether such a skill is useful or a well-formatted trap:
 
