@@ -46,6 +46,14 @@ platform: snovault                # optional — shared infrastructure, for drif
 it, so someone searching `liver rna-seq` reaches your skill even though neither word fits in
 the description.
 
+Some sources keep their data behind an application — individual-level human data, typically.
+A skill may **describe** such a tier as long as what it actually instructs is open: query the
+public catalogue, report what applying requires. Declare `access: [open, controlled]`, and add
+a non-empty `## Requesting access` section covering who may apply, what the application asks
+for, and how long it takes. A skill whose only route is `controlled` cannot deliver anything
+and is not accepted, whatever its category; and no skill should fill in an application's
+attestations on someone's behalf.
+
 Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.yml`,
 `.csv`, `.tsv`, and `.bib` files may be published.
 

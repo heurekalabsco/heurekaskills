@@ -49,6 +49,58 @@ export function parseFrontmatterNaive(content) {
   return { frontmatter, body: m[2] };
 }
 
+// Section checks must read the PROSE, and only the prose.
+//
+// `## Try it`, `## Get the files` and `## Requesting access` were each tested with
+// /^##\s+Heading\s*$/m against the whole file. Four ways that passed without the section
+// existing, all reproduced:
+//
+//   - the heading inside a fenced code block — a skill that SHOWS the heading in an example
+//     satisfied the gate;
+//   - the heading inside an HTML comment;
+//   - the heading as a line in the FRONTMATTER, where `## Requesting access` is a valid YAML
+//     comment. One line, and the cheapest of the four;
+//   - `##` and the text on separate lines, because `\s+` spans newlines — matching something
+//     that is not a heading at all. Hence `[ \t]+` below.
+//
+// This is what `## Try it` — the registry's claim that skills are runnable — was resting on.
+export function stripFences(md) {
+  const out = [];
+  let fence = null;                       // the opening run, e.g. ``` or ~~~~
+  for (const line of md.split('\n')) {
+    const m = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      // A closing fence is the same character, at least as long, and carries no info string.
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) {
+        fence = null;
+      }
+      continue;                           // drop everything inside, including the fences
+    }
+    if (m) { fence = m[1]; continue; }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+// The body a reader actually sees: frontmatter gone, fenced blocks gone, HTML comments gone.
+export const proseOf = (md) => stripFences(md.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, ''))
+  .replace(/<!--[\s\S]*?-->/g, '');
+
+// Return the body under an `## <name>` heading, or null when the section is absent.
+// Trailing text after the name is allowed — `## Requesting access: dbGaP` is an honest author
+// writing an honest heading, and an anchored `$` rejected it.
+export function sectionBody(md, name) {
+  const prose = proseOf(md);
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`^##[ \\t]+${esc}\\b.*$`, 'm').exec(prose);
+  if (!m) return null;
+  const after = prose.slice(m.index + m[0].length);
+  const next = /^#{1,2}[ \t]+\S/m.exec(after);   // next section at the same level or above
+  return next ? after.slice(0, next.index) : after;
+}
+
+export const hasSection = (md, name) => sectionBody(md, name) !== null;
+
 // List immediate skill slugs (directories) under skills/.
 export function listSkillDirs(skillsRoot) {
   if (!fs.existsSync(skillsRoot)) return [];

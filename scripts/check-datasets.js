@@ -20,7 +20,7 @@ import net from 'node:net';
 import dns from 'node:dns/promises';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-import { listSkillDirs } from './lib.js';
+import { listSkillDirs, hasSection } from './lib.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -222,12 +222,12 @@ function collect() {
     out.push({
       slug,
       verifiedOn, verifiedPending, coverage, ageDays,
-      hasTryIt: /^##\s+Try it\s*$/m.test(raw),
+      hasTryIt: hasSection(raw, 'Try it'),
       // A `data` skill exempted from `## Get the files` by `try-it: pending` is real work
       // owed, and it was invisible here — the routine that clears the backfill queue could
       // not see it. Same reasoning as withoutTryIt: an untracked queue is not a queue.
       isData: fm.category === 'data',
-      hasGetFiles: /^##\s+Get the files\s*$/m.test(raw),
+      hasGetFiles: hasSection(raw, 'Get the files'),
       present, urls, unusable, unparseable,
       // An explicit empty list is how a skill says "generated inline, nothing to fetch".
       intentionallyNone: present && Array.isArray(fm.datasets) && fm.datasets.length === 0,
