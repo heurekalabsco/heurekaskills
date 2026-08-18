@@ -476,6 +476,39 @@ for (const slug of slugs) {
     }
   }
 
+  // 4g. `## Try it` has to run cold. The section exists so a reader — or a re-audit months
+  //     from now — can check the skill without reading the rest of it, and that only works
+  //     if the block provisions whatever it invokes.
+  //
+  //     The failure is invisible to the routine that validates skills, which is why this is
+  //     a gate and not advice: it executes EVERY fenced block, in order, in ONE working
+  //     directory. An earlier block writes `foo.py`; `## Try it` then shells out to it and
+  //     passes — truthfully, in a directory the earlier steps primed. Run the same block in
+  //     a fresh directory and it fails, and `verified:` has already counted it as executed.
+  if (hasTryIt) {
+    const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|\Z)/m) || [])[1] || '';
+    for (const [, code] of tryBody.matchAll(/```(?:python|bash|sh)\n([\s\S]*?)```/g)) {
+      const invoked = new Set();
+      // A local script named as a string arg, or run by an interpreter.
+      for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) invoked.add(m[1]);
+      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript)\s+([\w./-]+\.(?:py|sh|R))/g)) invoked.add(m[1]);
+      for (const f of invoked) {
+        const base = f.replace(/^\.\//, '');
+        const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Does this same block create it? open(...,"w"), Path.write_text, a heredoc, cp/mv.
+        const creates = new RegExp(
+          `(open\\(\\s*["']${esc}["']\\s*,\\s*["'][wax]|` +
+          `Path\\(\\s*["']${esc}["']\\s*\\)\\s*\\.write_|` +
+          `["']${esc}["']\\s*\\)?\\s*\\.write_text|` +
+          `cat\\s*>\\s*${esc}|cp\\s+\\S+\\s+${esc}|mv\\s+\\S+\\s+${esc})`
+        ).test(code);
+        if (!creates) {
+          err(slug, `"## Try it" invokes ${base} but never creates it — the block must run in a fresh directory. Write it inline, or drop the section's self-contained claim and have it fail with a message naming the missing file`);
+        }
+      }
+    }
+  }
+
   // 5. Path safety + file types.
   const files = listSkillFiles(dir);
   for (const rel of files) {
