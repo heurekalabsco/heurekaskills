@@ -260,7 +260,8 @@ def main(argv):
     palette = sorted({c for e in els for c in colours_in(e)})
     notes.append(f"{len(els)} elements, {len(texts)} text nodes, {len(sizes)} font size(s), {len(widths)} stroke width(s)")
     notes.append("colours: " + (" ".join(palette) if palette else "(none as hex)"))
-    notes.append("-> feed those colours to palette_audit.py with the background colour")
+    notes.append("-> audit the MEANING-BEARING ones: palette_audit.py BACKGROUND COLOUR [COLOUR ...]")
+    notes.append("   omit the background itself and any de-emphasized scaffolding neutral")
 
     for n in notes:
         print(f"note  {n}")
@@ -272,6 +273,31 @@ def main(argv):
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
 ```
+
+## Handing one tool's output to the other
+
+`svg_lint.py` prints every hex colour in the file, because it cannot know which ones
+carry meaning. `palette_audit.py` assumes every colour it is given does. **Select
+before you paste**, or a correct figure fails its own audit:
+
+- **Drop the background.** It is the first argument, and passing it again scores it
+  against itself at 1.00:1 — an automatic failure that says nothing.
+- **Drop the scaffolding neutral.** Context is drawn faintly on purpose (Step 4), so
+  `#d9d9d9` lands at 1.41:1 against white. That is the intended design, not a defect;
+  it is exempt because it carries no meaning.
+- **Keep the meaning-bearing colours** — the ones a reader has to tell apart to read
+  the figure. For the default palette that is the ink, the baseline and the
+  perturbation, and nothing else.
+
+So a figure whose lint output reads
+`colours: #111111 #1b4965 #ca6702 #d9d9d9` is audited as:
+
+```bash
+python3 palette_audit.py '#ffffff' '#111111' '#1b4965' '#ca6702'
+```
+
+The `## Try it` section of `SKILL.md` runs both selections against the same figure and
+shows the raw-list version failing, so the distinction is checkable rather than asserted.
 
 ## Worked examples
 
