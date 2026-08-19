@@ -307,7 +307,7 @@ of this, all of them cheap:
 - **Never read `data` without reading `paging_info` in the same breath.** `len(data) ==
   totalNumberOfItems` is the assertion; `numberOfPages > 1` is the alarm.
 - **A fixed `itemsPerPage` is a guess, and guesses expire.** `itemsPerPage=20000` looks
-  generous against the 11,070 eGenes of left ventricle and silently loses 2,693 genes
+  generous against the 11,070 eGenes of left ventricle and silently loses 2,694 genes
   against the 22,694 of testis. Page, or assert against the source's own count.
 - `itemsPerPage` is honoured up to at least `100000`, so most single-gene work is one
   request — write the loop anyway, because the query that outgrows it is one gene away.
@@ -728,7 +728,7 @@ The unfiltered count matches `eGeneCount` in the tissue table exactly, which is 
 prove the filter was dropped rather than merely unhelpful. Sanity-check any per-gene
 association result against that field — and note the last line, which is Trap 3 in this
 endpoint: a single request capped at 20,000 covers left ventricle's 11,070 eGenes and
-loses 2,693 of testis's 22,694. The table comes back in genomic order, so the cut
+loses 2,694 of testis's 22,694. The table comes back in genomic order, so the cut
 discards the tail of the genome — everything past chr19:37.9 Mb, `A1BG` and `ABCB7`
 included — and "is my gene an eGene here" then answers `False` for genes that are.
 Four tissues — Kidney_Medulla, Cervix_Ectocervix, Cervix_Endocervix, Fallopian_Tube —
@@ -1231,6 +1231,10 @@ FIVE = [gid, "ENSG00000164308.17", "ENSG00000229807.13",
 part = raw("expression/medianGeneExpression", gencodeId=FIVE, datasetId=DATASET)
 counts = sorted(sum(r["gencodeId"] == g for r in part["data"]) for g in FIVE)
 assert len(part["data"]) < part["paging_info"]["totalNumberOfItems"]
+# The stated claim is that the cut lands INSIDE one gene — four full, one short.
+# `counts[0] < len(tis)` alone would also pass if paging went tissue-major and cut
+# every gene evenly, which is the case the Expect bullet says is disproved.
+assert counts.count(len(tis)) == len(FIVE) - 1, counts
 assert counts[0] < len(tis), counts
 full, full_info = get("expression/medianGeneExpression", gencodeId=FIVE,
                       datasetId=DATASET, itemsPerPage=100000)
@@ -1254,15 +1258,19 @@ print(f"subset rows / reported : {len(expr)} / {expr_info['totalNumberOfItems']}
 
 # 4b. COUNTER-EXAMPLE, empty subset groups. A bracket or a sex with no donors
 # comes back with an EMPTY vector rather than being dropped, so any loop that
-# calls statistics.median on every group dies on 11 of the 54 tissues.
+# calls statistics.median on every group dies on 9 of the 54 tissues.
 thin, _ = get("expression/geneExpression", gencodeId=gid, datasetId=DATASET,
               tissueSiteDetailId="Kidney_Medulla", attributeSubset="ageBracket")
 empty_brackets = [g["subsetGroup"] for g in thin if not g["data"]]
 assert empty_brackets, thin
 one_sex, _ = get("expression/geneExpression", gencodeId=gid, datasetId=DATASET,
                  tissueSiteDetailId="Uterus", attributeSubset="sex")
-assert sorted((g["subsetGroup"], len(g["data"])) for g in one_sex) == \
-    [("female", 153), ("male", 0)]
+# The invariant is that the empty group is PRESENT, not how many donors the other
+# group has — 153 is a v10 number, and asserting it turns a GTEx rebuild into a
+# hard failure instead of the drift report it should be.
+sexes = sorted((g["subsetGroup"], len(g["data"])) for g in one_sex)
+assert [g for g, _ in sexes] == ["female", "male"], sexes
+assert dict(sexes)["male"] == 0 and dict(sexes)["female"] > 0, sexes
 print(f"empty subset groups    : Kidney_Medulla {empty_brackets}, Uterus male n=0")
 
 # 5. Paging. The default page holds 250 rows and never claims to be everything.
@@ -1302,10 +1310,12 @@ Invariants — these hold regardless of release, and a failure means the skill i
   `0.0`.** If that ever holds fewer than the full tissue count, or a non-zero value,
   the PAR handling in `resolve_gene` needs revisiting. This is the counter-example that
   passes every row-count check while being entirely wrong.
-- **Five genes at the default page size return 250 of 270 rows, and the missing 20 come
-  out of one gene.** The per-gene counts must be `[34, 54, 54, 54, 54]`-shaped, not a
-  clean multiple of 54 — that is the proof the cut lands inside a gene, and it is why
-  every call in this skill either passes `itemsPerPage` or pages.
+- **A default page cuts inside a gene, not between two.** The per-gene counts come back
+  with all but one at the full tissue count and one short — never a clean even split.
+  That is what proves the truncation is invisible from the rows themselves, and it is why
+  every call in this skill either passes `itemsPerPage` or pages. The specific arithmetic
+  (five genes, 250 of 270, one gene at 34) is a v10 observation and sits below, because it
+  depends on the release having 54 tissues and the server defaulting to 250 rows.
 - Per-sample vectors from `attributeSubset=ageBracket` sum to the tissue's
   `rnaSeqSampleSummary.totalCount`, and their **recomputed median matches the published
   median** from `medianGeneExpression`. That is what proves the two endpoints describe
@@ -1319,8 +1329,10 @@ Invariants — these hold regardless of release, and a failure means the skill i
 - A default page of a multi-page result holds exactly `maxItemsPerPage` rows, strictly
   fewer than `totalNumberOfItems`. Any client that ignores `numberOfPages` is silently
   truncating.
-- **Testis holds more eGenes than a 20,000-row request returns**, and the request that
-  loses 2,693 of them looks exactly like the one that returns all 11,070 of left
+- **A fixed `itemsPerPage` is not a substitute for the source's own count.** At least one
+  tissue always outgrows any hardcoded cap; assert against `eGeneCount`. In `gtex_v10` that
+  is Testis (22,694) and Nerve_Tibial (20,101) against a 20,000-row request — the request that
+  loses 2,694 of them looks exactly like the one that returns all 11,070 of left
   ventricle's. Assert against `eGeneCount` from the tissue table.
 
 Observed 2026-08-18 against **`gtex_v10`** (GENCODE v39, GRCh38, API 2.0.0) — these move
