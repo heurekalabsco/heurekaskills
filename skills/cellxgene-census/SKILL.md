@@ -15,9 +15,9 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-18
   against: Census 2025-11-08 LTS (schema 2.4.0, 1,845 datasets) / cellxgene-census 1.17.0 / tiledbsoma 2.3.0 / tiledbsoma-ml 0.1.0 / spatialdata 0.8.0 / scanpy 1.12.3 / Python 3.12.8
-  executed: 8
-  unverified: 3
-  unverified_reason: Use Case 3 streams all 99.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Cases 2 and 4 have every count and every API argument checked, but the get_anndata materialisation itself did not finish on a loaded machine; re-run them when one is free.
+  executed: 9
+  unverified: 2
+  unverified_reason: Use Case 3 streams all 99.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Case 4's counts, subsample and every API argument are checked, but the get_anndata materialisation itself did not finish on a loaded machine; re-run it when one is free.
 ---
 # CZ CELLxGENE Census
 
@@ -188,11 +188,13 @@ print(f"Query will return {n_cells:,} cells")
 ```
 
 Above roughly 100k cells, move to `axis_query`, or subsample. **A `var_value_filter` alone does
-not save you** — `get_anndata` memory tracks the cell count, not the gene count. A 224,666-cell
-slice of *three* genes was measured past 6 GB of RSS here. Several filters that read as ordinary
-examples are far over that line in this release: `tissue_general in ['lung','liver','kidney']`
-is 9,257,011 primary cells, `cell_type == 'neuron'` is 3,858,369, and `cell_type == 'macrophage'
-and tissue_general in ['lung','liver','brain']` is 807,855.
+not save you.** `get_anndata` carries a multi-gigabyte fixed cost whatever the slice — a
+3,364-cell, three-gene query peaked at 4.0 GB of RSS and took 319 s — and grows from there with
+the **cells**, not the genes: 224,666 cells on those same three genes passed 6 GB, and 437,482
+cells on sixteen genes was past 9 GB and still going after nineteen minutes. Several filters
+that read as ordinary examples are far over that line in this release: `tissue_general in
+['lung','liver','kidney']` is 9,257,011 primary cells, `cell_type == 'neuron'` is 3,858,369, and
+`cell_type == 'macrophage' and tissue_general in ['lung','liver','brain']` is 807,855.
 
 To subsample, take the `soma_joinid`s from `get_obs` and pass them back as `obs_coords`. Use the
 ids within the same open release and do not persist them — see the section above.
@@ -410,6 +412,7 @@ with cellxgene_census.open_soma(census_version="2025-11-08") as census:
         obs_column_names=["cell_type", "assay", "donor_id"],
     )                                                  # 3,364 x 3 — 2,020 B cells, 1,344 T cells
 ```
+Even that took 319 s and 4.0 GB. `get_anndata` is never cheap; it is only ever cheaper.
 Size varies wildly by tissue for the same filter: spleen 42,196, kidney 47,245, lymph node
 115,795, liver 168,816 — and `tissue_general == 'thymus'` is 0, because thymus is a `tissue`
 label and not a `tissue_general` one. Count before you load, every time.
