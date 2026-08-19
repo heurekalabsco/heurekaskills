@@ -165,6 +165,10 @@ data is the point of the category. The failure this prevents is real and temptin
 grammar is the interesting thing to write, and a skill that explains it beautifully and stops
 at a printed result has not given the reader what they came for.
 
+One carve-out, set out under *Document the platform; never operate inside it* below: where a
+source's terms forbid removing the data at all, this section delivers a catalogue instead. Still
+files on disk — just not the data.
+
 `access:` states the route the skill documents — `open`, `registered`, `controlled`, or
 several. This is the §3b access test made mechanical rather than a new rule: a `data` skill
 whose only route is `controlled` has no lawful reader path and CI rejects it. Sources with
@@ -221,8 +225,8 @@ happens on the provider's own platform. A skill may describe how to reach such a
 what access requires. **It must never drive an agent inside one.**
 
 This is not caution, it is the terms. Repositories are adding clauses aimed squarely at tools
-like ours as they respond to AI. The All of Us Data User Code of Conduct, revised 17 Aug 2026,
-is the worked example:
+like ours as they respond to AI. The All of Us Data User Code of Conduct (V6, July 2026) is the
+worked example:
 
 > I will NOT use or provision research resource access, including access to any All of Us
 > analytical platform, to any Artificial Intelligence (AI), AI-enabled, or other type of tool
@@ -237,8 +241,10 @@ a private liability they did not ask for — and they, not we, would carry it.
 Three consequences for how such a skill is written:
 
 - **`## Get the files` delivers a catalogue, not the data.** Where the terms forbid removing
-  participant-level data, the section cannot deliver it. Say what it does deliver, in the
-  `description`, before anyone installs.
+  participant-level data, the section cannot deliver it — so it delivers the catalogue instead,
+  as files on disk. That still satisfies *`data` skills end in files on disk* above; what the
+  rule forbids is stopping at a printed result, not delivering something other than the data
+  itself. Say which it is, in the `description`, before anyone installs.
 - **Synthetic data has a direction.** Generating it *inside* from participant data and taking it
   out is prohibited outright — All of Us names synthetic data explicitly in both its
   no-removal and no-reproduction clauses. Generating it *outside*, against a published open
