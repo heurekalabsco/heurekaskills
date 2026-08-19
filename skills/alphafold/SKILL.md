@@ -12,7 +12,7 @@ access: [open]
 datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-18
+  date: 2026-08-19
   against: AlphaFold DB model v6 / Python 3.12.8 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
   executed: 10
   unverified: 0
@@ -144,8 +144,10 @@ isoform records do. Only the first is obvious, and only the second corrupts an a
 
 There is no fragment set to stitch back together either. Older AlphaFold material refers to
 `-F1`/`-F2`/`-F3` models for long proteins; under v6 they are gone —
-`AF-Q8WZ42-F2-model_v4.cif`, `AF-Q8NF91-F2-model_v4.cif` and `AF-P11532-F1-model_v2.cif` all
-404. Do not write a loop that walks `F1, F2, F3…`. If you need the full-length structure of a
+`AF-Q8WZ42-F2-model_v6.cif` and `AF-Q8NF91-F2-model_v6.cif` 404, and no `-F2` or `-F3`
+`entryId` is served for any accession. **Check that at the current version suffix, not an old
+one** — `AF-P04637-F1-model_v4.cif` also 404s, and that is a live canonical model, so a `_v4`
+miss tells you only that `/files/` serves v6. Do not write a loop that walks `F1, F2, F3…`. If you need the full-length structure of a
 protein this long, predict it; the database does not have it under any accession.
 
 ## What each record gives you
@@ -179,6 +181,7 @@ of writing), and a hand-built URL silently rots.
 ```python
 rec = full_length(canonical(fetch_prediction("P04637"), "P04637"), "P04637")
 open("P04637.cif", "wb").write(requests.get(rec["cifUrl"], timeout=60).content)
+open("P04637.pdb", "wb").write(requests.get(rec["pdbUrl"], timeout=60).content)
 ```
 
 ### Not every record is an AlphaFold model
@@ -190,7 +193,7 @@ warns you. `providerId` and `toolUsed` are what distinguish them:
 |---|---|---|---|---|
 | `P04637` | TP53 | `GDM` | AlphaFold Monomer v2.0 pipeline | `AF-P04637-F1` |
 | `P0DTC2` | SARS-CoV-2 spike | `VR3D` | **ColabFold v1.5.2** | `AF-0000000365840314` |
-| `P0DTD1` | SARS-CoV-2 rep1ab | `VR3D` | ColabFold v1.5.2 | `AF-0000000365840311` (one of 28) |
+| `P0DTD1` | SARS-CoV-2 rep1ab | `VR3D` | ColabFold v1.5.2 | `AF-0000000365840311` (one of 28, none full-length) |
 
 `GDM` is Google DeepMind — a real AlphaFold model. `VR3D` is Viro3D (MRC-University of
 Glasgow), computed with ColabFold, carrying `latestVersion: 1` and a numeric `entryId` that
@@ -481,7 +484,7 @@ print("P0DTC2         :", viral[0]["entryId"], "-", viral[0]["toolUsed"], "(Viro
 code, rep = api("P0DTD1")
 sub = next(r for r in rep if r["uniprotStart"] != 1)
 assert len(sub["uniprotSequence"]) == sub["uniprotEnd"] - sub["uniprotStart"] + 1
-print(f"P0DTD1         : {len(rep)} records; one covers "
+print(f"P0DTD1         : {len(rep)} records, none starting at 1; one covers "
       f"{sub['uniprotStart']}-{sub['uniprotEnd']} of 7096 — add uniprotStart-1 before mapping")
 ```
 
