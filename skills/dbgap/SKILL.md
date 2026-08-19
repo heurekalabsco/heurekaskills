@@ -4,7 +4,7 @@ description: Find controlled-access human cohorts in the dbGaP study catalogue b
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [dbgap, controlled-access, gwas, human-genetics, public-data]
 covers: [dbgap, phs accession, controlled access, data access committee, consent groups, GRU, HMB, data use limitation, data use certification, research use statement, genotype, phenotype, gwas, whole genome sequencing, whole exome sequencing, longitudinal cohort, case-control, aging, InCHIANTI, BLSA, SardiNIA, Framingham, Million Veteran Program, macular degeneration, cataract, Alzheimer disease, frailty, sarcopenia, DNA methylation, serum iron]
 papers: [PMID:17898773, PMID:24297256, PMID:11129752, PMID:19880490, PMID:19303062, PMID:10588299]
@@ -12,8 +12,8 @@ access: [open, controlled]
 datasets: [https://ftp.ncbi.nlm.nih.gov/dbgap/studies/phs000215/phs000215.v2.p1/GapExchange_phs000215.v2.p1.xml, https://ftp.ncbi.nlm.nih.gov/dbgap/studies/phs000001/phs000001.v3.p1/pheno_variable_summaries/phs000001.v3.pht002477.v1.p1.AREDS_Subject.var_report.xml]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
-  against: dbGaP public study tree read 2026-08-17 (3253 study directories) / dbGaP FHIR API x1, FHIR 4.0.1 / dbGaPEx2.1.5 exchange schema / Python 3.12.8, standard library only / curl 8.7.1
+  date: 2026-08-18
+  against: dbGaP public study tree read 2026-08-18 (3253 study directories, 3216 catalogued) / dbGaP FHIR API x1, FHIR 4.0.1 / dbGaPEx2.1.5 exchange schema / Python 3.12.8, standard library only / curl 8.7.1 / every block run across 16 studies — phs000001 phs000007 phs000200 phs000215 phs000282 phs000313 phs000338 phs000342 phs000401 phs000424 phs000853 phs001489 phs001672 phs004526 phs004771 and a nonexistent phs
   executed: 9
   unverified: 0
 ---
@@ -21,7 +21,7 @@ verified:
 
 dbGaP holds individual-level human genotype and phenotype data — GWAS arrays, exomes,
 genomes, methylation, and the deep phenotype tables that go with them — from 3,253 studies
-with a public directory as of 2026-08-17. The individual-level files sit behind a written
+with a public directory as of 2026-08-18. The individual-level files sit behind a written
 application to a Data Access Committee. Aggregate genomic summary results are treated
 separately by NIH policy and are not always gated the same way, but a study can be marked
 GSR-restricted and some are, so do not assume either way from the accession.
@@ -60,7 +60,7 @@ curl -s "$EU/einfo.fcgi?retmode=json" | python3 -c \
   "import json,sys; d=json.load(sys.stdin)['einforesult']['dblist']; print(len(d),'E-utilities databases; gap present:','gap' in d)"
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
 esearch db=gap -> HTTP 200
@@ -102,46 +102,89 @@ https://ftp.ncbi.nlm.nih.gov/dbgap/studies/<phs>/<phs.vN.pM>/GapExchange_<phs.vN
 Nothing in any of those is individual-level data. The individual-level files are not on
 this tree at all.
 
-Resolving "the current version of a study" has three traps in it, and all three bite:
+**A study can be a child of another study, and the tree files it under the parent.**
+The catalogue reports this as `NumSubStudies` — Framingham `phs000007` has 13, WHI
+`phs000200` has 10, ARIC `phs000280` 9, Jackson Heart `phs000286` 8. Once a study is a
+child, its own directory stops being maintained: the child gets **no `GapExchange` of its
+own at all**, and its `data_dict` and `var_report` files move into the parent's
+`pheno_variable_summaries/`, filenames keeping the child's accession.
+`phs000007.v35.p16/pheno_variable_summaries/` holds 1,127 files named for the parent and
+45 named for eleven of its children, among them
+`phs000342.v23.pht004418.v7.p16.Framingham_SHARe_Subject_Phenotypes.var_report.xml` —
+child accession, parent directory. The child accessions appear in the parent's free-text
+description and nowhere in any element you can parse, so there is no reliable way to
+enumerate children from the XML; `NumSubStudies` tells you how many to expect, and the
+filenames under `pheno_variable_summaries/` tell you which. Read only the parent and you
+miss the children; go looking for a child on its own and, ten times out of thirteen for
+Framingham, there is nothing there.
+
+Resolving "the current version of a study" has four traps in it, and all four bite. The
+last one is the dangerous one, because the tree answers confidently and is wrong.
 
 ```python
-import re, urllib.error, urllib.request
+import json, re, urllib.error, urllib.request
 
 FTP = "https://ftp.ncbi.nlm.nih.gov/dbgap/studies"
+FHIR = "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/"
+vnum = lambda acc: tuple(int(n) for n in re.search(r"\.v(\d+)\.p(\d+)", acc).groups())
 
 def versions(phs):
-    """Every released version, oldest first. Sort NUMERICALLY, not as strings."""
+    """Every version directory on the tree, oldest first. Sort NUMERICALLY, not as strings."""
     html = urllib.request.urlopen(f"{FTP}/{phs}/", timeout=60).read().decode("utf-8", "replace")
     # Inside a study directory the hrefs DO have a trailing slash. At /dbgap/studies/ they do NOT.
     vs = set(re.findall(r'href="' + phs + r'\.v(\d+)\.p(\d+)/"', html))
     return [f"{phs}.v{v}.p{p}" for v, p in sorted(vs, key=lambda t: (int(t[0]), int(t[1])))]
 
-def metadata_url(phs):
-    """Newest version that actually carries a GapExchange file.
+def declared_accession(phs):
+    """The accession dbGaP's own catalogue calls current. `_id` takes the BARE phs id —
+    hand it `phs000401.v18.p16` and you get HTTP 200 with an empty Bundle."""
+    body = urllib.request.urlopen(FHIR + "?_id=" + phs, timeout=180).read().decode("iso-8859-1")
+    entry = json.loads(body).get("entry") or [{}]
+    return (entry[0].get("resource", {}).get("identifier") or [{}])[0].get("value")
 
-    The newest version directory does not always have one — some hold only
-    release_notes/ — so walk backwards instead of trusting the newest.
+def metadata_url(phs, vs=None):
+    """Newest GapExchange file on the tree, refused unless the tree is actually current.
+
+    Two separate things go wrong. The newest version directory does not always hold a
+    GapExchange file — some hold only release_notes/ — so walk backwards. And the tree
+    does not always have the newest release at all: once a study becomes a child of a
+    parent study, dbGaP stops updating its own directory and files later versions under
+    the parent's accession. The tree keeps answering, twenty-three versions out of date.
     """
-    for ver in reversed(versions(phs)):
+    want = declared_accession(phs)
+    vs = versions(phs) if vs is None else vs
+    if not vs:
+        raise LookupError(f"{phs}: no version directory on the tree; dbGaP declares {want}")
+    if vnum(vs[-1]) < vnum(want):
+        raise LookupError(f"{phs}: tree stops at {vs[-1]}, dbGaP declares {want} — "
+                          f"the current release is filed under the parent study")
+    for ver in reversed(vs):
         url = f"{FTP}/{phs}/{ver}/GapExchange_{ver}.xml"
         try:
             urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=60)
-            return ver, url
+            return ver, url, "" if ver == want else f"(read from {ver}; declared {want})"
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise
     raise LookupError(f"{phs}: no GapExchange XML in any version directory")
 
-for phs in ["phs000215", "phs000424", "phs001672"]:
-    print(phs, len(versions(phs)), "versions ->", metadata_url(phs)[0])
+for phs in ["phs000215", "phs000424", "phs001672", "phs000401", "phs000342"]:
+    vs = versions(phs)
+    try:
+        ver, url, note = metadata_url(phs, vs)
+        print(f"{phs}  {len(vs):>2} version dirs -> {ver:<20} {note}")
+    except LookupError as e:
+        print(f"{phs}  {len(vs):>2} version dirs -> REFUSED: {e}")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
-phs000215 2 versions -> phs000215.v2.p1
-phs000424 11 versions -> phs000424.v11.p2
-phs001672 14 versions -> phs001672.v13.p1
+phs000215   2 version dirs -> phs000215.v2.p1      
+phs000424  11 version dirs -> phs000424.v11.p2     
+phs001672  14 version dirs -> phs001672.v13.p1     (read from phs001672.v13.p1; declared phs001672.v14.p1)
+phs000401   1 version dirs -> REFUSED: phs000401: tree stops at phs000401.v1.p1, dbGaP declares phs000401.v18.p16 — the current release is filed under the parent study
+phs000342   0 version dirs -> REFUSED: phs000342: no version directory on the tree; dbGaP declares phs000342.v23.p16
 ```
 
 - **`phs000424` proves the sort.** Sorted as strings, `v11` lands before `v2` and you
@@ -151,6 +194,25 @@ phs001672 14 versions -> phs001672.v13.p1
 - **The trailing slash differs by level.** At `/dbgap/studies/` the links are
   `phs000001` with no slash; inside a study they are `phs000001.v3.p1/` with one. A single
   regex for both finds nothing at one of the two levels.
+- **`phs000401` and `phs000342` prove the cross-check, and this is the one that bites
+  hardest.** Both are child studies of Framingham (`phs000007`). `phs000401`'s directory
+  stops at `v1.p1` while dbGaP declares `v18.p16`; `phs000342` has no version directory
+  at all — only `analyses/` — while dbGaP declares `v23.p16`. The current material for
+  both is filed under the parent's accession, and 10 of Framingham's 13 children have no
+  directory on the tree whatsoever. Without the `declared_accession` check, `phs000401`
+  returns a 2011 record reading `GRU` and `NPU` for a study dbGaP now publishes as
+  `HMB-IRB-MDS` and `HMB-IRB-NPU-MDS` — you would be told it is general research use with
+  no IRB requirement when it is health/medical/biomedical only and IRB documentation is
+  required.
+
+Swept across all 3,216 catalogued studies on 2026-08-18: the tree's newest version
+disagrees with the declared accession for **44 studies**, is *behind* it for **30**, and
+**4** more have no version directory at all. Twenty-eight of those 34 answer silently
+with a stale record, and on **20 of the 28 the consent codes have since changed** —
+`phs000090` reads `GRU` on the tree against `HMB-IRB-NPU-MDS` / `DS-CVD-IRB-NPU-MDS`
+declared, `phs000462` reads `DAR` against `DS-DIAB-IRB-RD`, `phs000140` reads `T2D`
+against `DS-T2D-IRB-RD`. One extra catalogue call per study is what stands between you
+and a triage note that is confidently wrong about who may use the data.
 
 One more file will tempt you and should not: `Studies_Table_Of_Contents.xml` at the root of
 the tree is **not** a study catalogue. It is a listing of every file on the whole dbGaP FTP
@@ -171,7 +233,7 @@ you apply for — not the study. The codes follow a grammar:
 ROOT [ -DISEASE ] [ -MODIFIER ]...
 ```
 
-Roots seen across the catalogue on 2026-08-17, with the number of consent groups carrying
+Roots seen across the catalogue on 2026-08-18, with the number of consent groups carrying
 each and the gloss taken from a real `UseLimitation` string rather than from memory:
 
 | root | groups | what its own text says |
@@ -196,7 +258,7 @@ and the modifiers that stack on a root, quoted from the studies they were read o
 | `GSO` | 174 | "Use of the data is limited to genetic studies only." |
 
 **`MDS` is the one to get right, and it is easy to get backwards.** It looks like a
-restriction on methods work and it is the opposite — a *permission*. Verified 2026-08-17
+restriction on methods work and it is the opposite — a *permission*. Verified 2026-08-18
 against `phs000007` (`HMB-IRB-MDS`) and `phs001672` (`HMB-MDS`), both of which state that
 use "includes methods development research". A triage note that reports `HMB-MDS` as
 "no methods development allowed" rejects a study that would in fact have permitted the
@@ -208,7 +270,7 @@ routinely *not* in the code. `phs000007` adds, in prose only, that phenotype-onl
 are prohibited and that the data may not be used to investigate pedigree structures. That
 restriction has no letters in `HMB-IRB-MDS` at all.
 
-Verified 2026-08-17 by sweeping the whole catalogue: **949 distinct consent codes across
+Verified 2026-08-18 by sweeping the whole catalogue: **949 distinct consent codes across
 3,216 studies.** This is not a short enumeration you can hardcode. 508 studies carry more
 than one group, one carries 32, and 19 publish no code at all. The tail is study-specific
 and gets stranger the further out you go — some codes end in the surname of the study's
@@ -219,14 +281,26 @@ recognise, and treat anything else as "read the text".
 Now pull the actual terms for a study:
 
 ```python
-import re, urllib.error, urllib.request, xml.etree.ElementTree as ET
+import json, re, urllib.error, urllib.request, xml.etree.ElementTree as ET
 
 FTP = "https://ftp.ncbi.nlm.nih.gov/dbgap/studies"
+FHIR = "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/"
+vnum = lambda acc: tuple(int(n) for n in re.search(r"\.v(\d+)\.p(\d+)", acc).groups())
+
+def declared_accession(phs):
+    body = urllib.request.urlopen(FHIR + "?_id=" + phs, timeout=180).read().decode("iso-8859-1")
+    entry = json.loads(body).get("entry") or [{}]
+    return (entry[0].get("resource", {}).get("identifier") or [{}])[0].get("value")
 
 def metadata_url(phs):
+    """As in the previous section: walk back for the file, and refuse a stale tree."""
     html = urllib.request.urlopen(f"{FTP}/{phs}/", timeout=60).read().decode("utf-8", "replace")
     vs = sorted(set(re.findall(r'href="' + phs + r'\.v(\d+)\.p(\d+)/"', html)),
                 key=lambda t: (int(t[0]), int(t[1])))
+    want = declared_accession(phs)
+    if not vs or vnum(f"{phs}.v{vs[-1][0]}.p{vs[-1][1]}") < vnum(want):
+        raise LookupError(f"{phs}: tree has nothing at or after {want}, which dbGaP "
+                          f"declares current — read the parent study instead")
     for v, p in reversed(vs):
         ver = f"{phs}.v{v}.p{p}"
         url = f"{FTP}/{phs}/{ver}/GapExchange_{ver}.xml"
@@ -280,7 +354,7 @@ for phs in ["phs000215", "phs000001", "phs001672"]:
     print(f"  policy   {t['policy']}")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
 phs000215.v2.p1  Genome-Wide Association Analysis of Biomarkers in the InCHIANTI and BLSA
@@ -323,10 +397,22 @@ is the sum across groups, and you only ever get the groups you qualify for. That
 public, per group, in the `var_report.xml` files.
 
 ```python
-import re, urllib.request, xml.etree.ElementTree as ET
+import json, re, urllib.error, urllib.request, xml.etree.ElementTree as ET
 
 FTP = "https://ftp.ncbi.nlm.nih.gov/dbgap/studies"
+FHIR = "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/"
 get = lambda url: urllib.request.urlopen(url, timeout=180).read()
+
+def declared_subjects(phs):
+    """dbGaP's own published subject count — the figure to check your read against."""
+    body = get(FHIR + "?_id=" + phs).decode("iso-8859-1")
+    stack = [x for e in json.loads(body).get("entry", []) for x in e["resource"].get("extension", [])]
+    while stack:
+        e = stack.pop()
+        if "extension" in e:
+            stack += e["extension"]
+        elif e["url"].endswith("ResearchStudy-Content-NumSubjects"):
+            return e["valueCount"]["value"]
 
 def reachable_subjects(phs, ver):
     """Subjects per consent group — the number that decides whether applying is worth it."""
@@ -337,38 +423,77 @@ def reachable_subjects(phs, ver):
         codes[cg.get("groupNum")] = cg.get("shortName")
     for ps in gx.iter("ParticipantSet"):
         codes.setdefault(ps.get("groupNum-REF"), ps.findtext("ConsentAbbrev"))
+    declared = declared_subjects(phs)
 
-    listing = get(f"{base}/pheno_variable_summaries/").decode("utf-8", "replace")
+    # Two ways a study has no variable summaries, and neither may reach `reports[0]`:
+    # the directory 404s, or it is HTTP 200 holding nothing but two .xsl stylesheets.
+    try:
+        listing = get(f"{base}/pheno_variable_summaries/").decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        listing = ""
     reports = re.findall(r'href="([^"]*var_report\.xml)"', listing)
+    if not reports:
+        print(f"{ver}  publishes no var_report — per-group N is NOT available for this study."
+              f"\n   dbGaP declares {declared:,} subjects across "
+              f"{sorted(c for c in codes.values() if c and c != 'NRUP')}")
+        return
+
     subj = [r for r in reports if "subject" in r.lower()] or reports
     tbl = ET.fromstring(get(f"{base}/pheno_variable_summaries/{subj[0]}"))
-    print(f"{ver}  table={tbl.get('name')}  ({len(reports)} var_report files)")
+    print(f"{ver}  table={tbl.get('name')}  ({len(reports)} var_report files, "
+          f"{len(subj)} named *subject*)")
 
     first = tbl.find("variable").get("var_name")
+    whole, groups = None, {}
     for v in tbl.findall("variable"):
         if v.get("var_name") != first:
             continue
-        # An id ending .c1 / .c2 is that consent group's slice; a bare id is the whole study.
+        # An id ending .c1 / .c2 is that consent group's slice. A bare id is every row in
+        # the table, INCLUDING the NRUP subjects nobody can ever apply for.
         m = re.search(r"\.(c\d+)$", v.get("id"))
         n = int(v.find("./total/stats/stat").get("n"))
         cc = v.find("./total/subject_profile/case_control")
-        label = "whole study" if not m else f"{codes.get(m.group(1)[1:], '?')} (group {m.group(1)[1:]})"
         extra = f"  cases {cc.findtext('case')} / controls {cc.findtext('control')}" if cc is not None else ""
-        print(f"   {label:26} n = {n:>6,}{extra}")
+        if m:
+            groups[m.group(1)[1:]] = n
+            print(f"   {codes.get(m.group(1)[1:], '?'):24} n = {n:>9,}{extra}")
+        else:
+            whole = n
+            print(f"   {'every row in the table':24} n = {n:>9,}{extra}")
 
-reachable_subjects("phs000001", "phs000001.v3.p1")
-reachable_subjects("phs000853", "phs000853.v2.p2")
+    total = sum(groups.values())
+    if groups:
+        print(f"   {'sum of consent groups':24} n = {total:>9,}   dbGaP declares {declared:,}"
+              f"   not consented (NRUP) {whole - total:,}")
+        assert total == declared, (total, declared)
+    else:
+        print(f"   single consent group — no .cN rows exist; dbGaP declares {declared:,}")
+        assert whole == declared, (whole, declared)
+
+for phs, ver in [("phs000001", "phs000001.v3.p1"), ("phs000313", "phs000313.v4.p2"),
+                 ("phs000853", "phs000853.v2.p2"), ("phs000215", "phs000215.v2.p1")]:
+    reachable_subjects(phs, ver)
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
-phs000001.v3.p1  table=AREDS_Subject  (17 var_report files)
-   whole study                n =  4,757  cases 1458 / controls 808
-   EDO (group 1)              n =    618  cases 170 / controls 105
-   GRU (group 2)              n =  4,139  cases 1288 / controls 703
-phs000853.v2.p2  table=Normative_Aging_Study_Subject  (3 var_report files)
-   whole study                n =    777
+phs000001.v3.p1  table=AREDS_Subject  (17 var_report files, 1 named *subject*)
+   every row in the table   n =     4,757  cases 1458 / controls 808
+   EDO                      n =       618  cases 170 / controls 105
+   GRU                      n =     4,139  cases 1288 / controls 703
+   sum of consent groups    n =     4,757   dbGaP declares 4,757   not consented (NRUP) 0
+phs000313.v4.p2  table=SardiNIA_Subject  (5 var_report files, 2 named *subject*)
+   every row in the table   n =     4,718
+   GRU-IRB                  n =     2,105
+   sum of consent groups    n =     2,105   dbGaP declares 2,105   not consented (NRUP) 2,613
+phs000853.v2.p2  table=Normative_Aging_Study_Subject  (3 var_report files, 1 named *subject*)
+   every row in the table   n =       777
+   single consent group — no .cN rows exist; dbGaP declares 777
+phs000215.v2.p1  publishes no var_report — per-group N is NOT available for this study.
+   dbGaP declares 0 subjects across ['GRU']
 ```
 
 That is the whole argument for putting consent first, in numbers. AREDS advertises 4,757
@@ -376,13 +501,30 @@ subjects. A question about eye disease can reach all of them; a question about a
 else can reach 4,139 and must leave the other 618 alone. Report the reachable N, never the
 headline N, in a feasibility note or a power calculation.
 
-The group figures sum to the whole-study figure — 618 + 4,139 = 4,757 — which is the check
-worth asserting when you automate this. If they do not sum, you are reading a variable that
-is not present in every group rather than the subject table's identifier.
+**The right invariant to assert is `sum of .cN rows == the subject count dbGaP declares`,
+and it is not the same as "the group figures sum to the whole-study row".** Every study
+carrying an `NRUP` group breaks the second one: `NRUP` subjects did not consent, are
+counted in the table's bare-id row, and get no `.cN` row of their own, because no one can
+apply for them. SardiNIA above is the case — 4,718 rows in the table, 2,105 reachable,
+2,613 never reachable by anybody — and it is not a rounding error. Checked 2026-08-18:
+Framingham `phs000007` is 18,260 against 15,089 declared, WHI `phs000200` 143,455 against
+143,213, GTEx `phs000424` 985 against 983. **The bare-id row is not the headline N and
+must not be reported as one.** It matched on AREDS only because that study's `NRUP` group
+happens to hold no subjects.
 
-`phs000853` shows the other case — a single group, so reachable equals headline, and no
-`.cN` rows appear at all. Code that requires the `.cN` suffix to exist breaks on every
-single-consent study, which is most of them.
+`phs000853` shows the second case — a single consent group, so no `.cN` rows appear at
+all. Code that requires the `.cN` suffix to exist breaks on every single-consent study,
+which is most of them.
+
+`phs000215` shows the third, and it is why the loop above ends there. Its
+`pheno_variable_summaries/` directory answers **HTTP 200** and contains exactly two `.xsl`
+stylesheets and no `var_report` at all, so `reports[0]` is an `IndexError` rather than a
+count — the same false green as `db=gap`, one directory down. `phs001672` and `phs000338`
+fail differently again: for those the directory itself 404s. And on this study neither
+route yields a subject count — the catalogue withholds it *and* the tree publishes no
+summaries — so the honest answer for `phs000215` is that its N is not published, not a
+number. Where you need it, the study's own `Study_Report` PDF under `manifest/` and its
+linked publications are the route.
 
 ## Counts, ancestry and design from the catalogue API
 
@@ -391,18 +533,31 @@ way to get subject and sample counts, computed ancestry, assay types and titles 
 downloading an XML per study — and it batches.
 
 ```python
-import json, urllib.request
+import json, time, urllib.error, urllib.request
 
 FHIR = "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/"
 
 def fhir_studies(phs_ids):
     """Batch-read catalogue records. 100 accessions per call keeps the URL sane."""
+    # `_id` matches the BARE accession only. Pass phs000001.v3.p1 — the form every dbGaP
+    # page, every paper and this skill's own catalogue.tsv carry — and the study is
+    # silently dropped from the Bundle. Strip the suffix before you ask.
+    phs_ids = [p.split(".")[0] for p in phs_ids]
     out = {}
     for i in range(0, len(phs_ids), 100):
         url = FHIR + "?_count=100&_id=" + ",".join(phs_ids[i:i + 100])
-        # The server declares charset=iso-8859-1 and means it. .decode("utf-8") raises
-        # UnicodeDecodeError on any study whose text carries a Latin-1 byte.
-        body = urllib.request.urlopen(url, timeout=180).read().decode("iso-8859-1")
+        for attempt in range(5):
+            try:
+                # The server declares charset=iso-8859-1 and means it. .decode("utf-8")
+                # raises UnicodeDecodeError on any study carrying a Latin-1 byte.
+                body = urllib.request.urlopen(url, timeout=180).read().decode("iso-8859-1")
+                break
+            except urllib.error.HTTPError as e:
+                if e.code != 429:          # 3 requests/second, unkeyed. 429 is a retry.
+                    raise
+                time.sleep(1 + 2 * attempt)
+        else:
+            raise RuntimeError("dbGaP FHIR: rate limited five times over")
         for entry in json.loads(body).get("entry", []):
             out[entry["resource"]["id"]] = entry["resource"]
     return out
@@ -445,7 +600,7 @@ for phs, res in fhir_studies(["phs000215", "phs000001", "phs001672"]).items():
     print(f"  assays   {r['molecular']}   ancestry {r['ancestry']}")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
 phs000001.v3.p1  NEI Age-Related Eye Disease Study (AREDS)
@@ -467,18 +622,33 @@ phs001672.v14.p1  Veterans Administration (VA) Million Veteran Program (MVP) Sum
   assays   []   ancestry {}
 ```
 
-Traps in this service, all confirmed 2026-08-17:
+Traps in this service, confirmed 2026-08-18 unless noted:
 
+- **`_id` takes the bare accession and drops the versioned one in silence.** This is the
+  one most likely to cost you a study, because `phs000001.v3.p1` is the form dbGaP itself
+  prints, papers cite, and the `catalogue.tsv` below stores. `?_id=phs000001.v3.p1`
+  returns **HTTP 200**, a well-formed `Bundle`, `"total": 0`, and no error of any kind;
+  in a batch of 100 the versioned ids simply are not in the result, and a naive
+  `absent = [c for c in chunk if c not in seen]` reports them as studies with no
+  catalogue record. It is also case-sensitive — `PHS000001` returns nothing. Split on the
+  first `.` before you ask.
+- **Three requests per second, unkeyed, and the fourth is an HTTP 429** with
+  `{"error":{"status":429,"message":"API rate limit exceeded",...}}`. Any loop that
+  batches without a sleep or a retry dies partway through with an unhandled `HTTPError`.
 - **It is served as ISO-8859-1, and inconsistently.** The header says
   `charset=iso-8859-1`, and one study really does contain a Latin-1 `ü` in `Zürich` — so
-  `.decode("utf-8")` raises. Others contain UTF-8 bytes that then render as mojibake when
-  decoded as Latin-1. Decode `iso-8859-1` so it never raises, and treat non-ASCII prose
-  from this API as unreliable. Accessions, codes and counts are ASCII and safe. Titles
-  also arrive HTML-escaped — `Alzheimer&#39;s`.
-- **Unimplemented search parameters return an empty result, not an error.** A nonsense
-  parameter gets you an `OperationOutcome`, but `?title=<the exact title>` and
-  `?_content=<a word in it>` return a well-formed `Bundle` with `"total": 0`. Same false
-  green as `db=gap`, one layer down. `_id=` is the parameter that works.
+  `.decode("utf-8")` raises. Verified by decoding six 100-study batches as UTF-8:
+  all six raise. Others contain UTF-8 bytes that then render as mojibake when decoded as
+  Latin-1. Decode `iso-8859-1` so it never raises, and treat non-ASCII prose from this API
+  as unreliable. Accessions, codes and counts are ASCII and safe. Titles also arrive
+  HTML-escaped — `Alzheimer&#39;s`.
+- **Some search parameters return an empty result rather than an error.** A nonsense
+  parameter gets you a 400 and an `OperationOutcome` naming it, but `?_content=<a word>`
+  returns a well-formed `Bundle` with `"total": 0` — same false green as `db=gap`, one
+  layer down. `?title=` does work as a prefix match (`?title=Framingham Cohort` → 1,
+  `?title=Framingham` → 10), which is a change from 2026-08-17 when it returned 0; treat
+  it as convenience, not as a search you can enumerate from. `_id=` is the parameter to
+  build on.
 - **`_count` caps at 250** whatever you ask for, and full pagination is not dependable:
   following the `next` link with its opaque `_getpages` cursor returned HTTP 400 at offset
   1500 on 2026-08-17. Enumerate from the FTP directory index and batch by `_id` instead.
@@ -567,7 +737,7 @@ roots = collections.Counter(c.split("-")[0] for r in rows
 print("  root codes:", dict(roots.most_common(6)))
 ```
 
-Run 2026-08-17, searching for the cohorts an aging project actually asks for:
+Run 2026-08-18, searching for the cohorts an aging project actually asks for:
 
 ```
   ... 3216 indexed
@@ -593,24 +763,45 @@ searching 3216 studies for ['InCHIANTI', 'BLSA', 'SardiNIA', 'Normative Aging']
   root codes: {'GRU': 1833, 'DS': 1241, 'HMB': 936, 'EA': 120, 'CADM': 24, 'HMP': 16}
 ```
 
-`n=?` in two of those rows is the API withholding a subject count, not a study with no
-subjects — the per-consent-group numbers above are where that gets resolved. And
-`phs000313` shows as `GRU-IRB` here while its XML also lists an `NRUP` group — the route
-disagreement described in the previous section, seen in the wild.
+`n=?` in two of those rows is the API withholding a subject count, and for those two
+studies — `phs000215` and `phs000338` — **it is not recoverable from the tree either**.
+Both publish no `var_report`, so the per-consent-group route returns nothing rather than a
+number. Do not resolve an `n=?` by assuming the other route has it; check, and say
+"not published" when it is not. And `phs000313` shows as `GRU-IRB` here while its XML also
+lists an `NRUP` group — the route disagreement described in the previous section, seen in
+the wild, and the reason the index's `subjects` column (2,105) is smaller than the row
+count in that study's own subject table (4,718).
+
+Three things about the index itself, all worth knowing before you build on it:
+
+- **`accession` is the versioned form; `phs` is what `_id` accepts.** Feed the
+  `accession` column back into `fhir_studies()` and every row silently disappears.
+- **`status` is `completed` for all 3,216 rows** and carries no information — dbGaP does
+  not publish a retired or superseded state through this field, so the index cannot tell
+  you a study has been withdrawn.
+- **A row in the index does not mean the tree can serve you the metadata.** 34 of these
+  studies either have no version directory or stop short of the declared accession; see
+  the cross-check in *The public study tree*.
 
 **Two things a reader should take from that search rather than from a claim.** InCHIANTI
 (the longitudinal Tuscany cohort) and BLSA (the Baltimore Longitudinal Study of Aging)
 are both in dbGaP, but **only jointly, and only once** — `phs000215`, a biomarker GWAS
 under a single `GRU` group, held by the NIA committee. Searching the 3,216 indexed titles
-on 2026-08-17 for `InCHIANTI`, `BLSA`, `Baltimore`, `Chianti`, `Tuscany`, `frailty` and
+on 2026-08-18 for `InCHIANTI`, `BLSA`, `Baltimore`, `Chianti`, `Tuscany`, `frailty` and
 `sarcopenia` returned no standalone deposit for either cohort. The deep longitudinal
 phenotyping both are known for is not in dbGaP; what is there is the genotype-biomarker
 association layer. If you need the phenotype series, the study contacts in
 `GapExchange`'s attribution block are the route, not an application.
 
-The index also records the studies the two routes disagree about: 3,253 directories exist
-on the FTP tree and 3,216 have a catalogue record, so 37 are visible as files with no
-record in the API. Search both if a study you know exists does not turn up.
+The index also records the studies the two routes disagree about, and the disagreement
+runs both ways. 3,253 directories exist on the FTP tree and 3,216 have a catalogue record,
+so 37 are visible as files with no record in the API. In the other direction the index
+cannot see a study at all when it has no directory: 10 of Framingham's 13 child studies —
+`phs000307`, `phs000363`, `phs000651`, `phs000724`, `phs001610`, `phs002558`, `phs002559`,
+`phs002560`, `phs002611`, `phs002938` — return HTTP 404 on the tree while every one of
+them has a current catalogue record. A `phs` from a paper that is missing from your index
+is more likely a child study than a typo; ask the API for it by `_id` before concluding it
+does not exist.
 
 ## Get the files
 
@@ -624,16 +815,22 @@ Give it a shortlist from the search above.
 import csv, datetime, json, os, re, time, urllib.error, urllib.request
 import xml.etree.ElementTree as ET
 
-PHS = ["phs000215", "phs000313", "phs000338", "phs000853"]   # your shortlist
+PHS = ["phs000215", "phs000313", "phs000338", "phs000853",
+       "phs000401", "phs000342"]                             # your shortlist
 OUT = "Data/dbgap"
 FTP = "https://ftp.ncbi.nlm.nih.gov/dbgap/studies"
 FHIR = "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/"
+vnum = lambda acc: tuple(int(n) for n in re.search(r"\.v(\d+)\.p(\d+)", acc).groups())
 os.makedirs(f"{OUT}/xml", exist_ok=True)
 
-def newest_metadata(phs):
+def newest_metadata(phs, declared):
+    """Refuses rather than returning a stale snapshot — see The public study tree."""
     html = urllib.request.urlopen(f"{FTP}/{phs}/", timeout=90).read().decode("utf-8", "replace")
     vs = sorted(set(re.findall(r'href="' + phs + r'\.v(\d+)\.p(\d+)/"', html)),
                 key=lambda t: (int(t[0]), int(t[1])))
+    if not vs or vnum(f"{phs}.v{vs[-1][0]}.p{vs[-1][1]}") < vnum(declared):
+        raise LookupError(f"{phs}: tree has nothing at or after {declared} — "
+                          f"current release is filed under the parent study")
     for v, p in reversed(vs):
         ver = f"{phs}.v{v}.p{p}"
         try:
@@ -644,7 +841,7 @@ def newest_metadata(phs):
                 raise
     raise LookupError(f"{phs}: no GapExchange XML under any version")
 
-counts = {}
+counts, declared = {}, {}
 for i in range(0, len(PHS), 100):
     body = urllib.request.urlopen(FHIR + "?_count=100&_id=" + ",".join(PHS[i:i + 100]),
                                   timeout=240).read().decode("iso-8859-1")
@@ -659,10 +856,16 @@ for i in range(0, len(PHS), 100):
                     c[t.replace("ResearchStudy-Content-Num", "")] = n["valueCount"]["value"]
         walk(r.get("extension", []))
         counts[r["id"]] = c
+        declared[r["id"]] = (r.get("identifier") or [{}])[0].get("value")
 
-rows, manifest = [], []
+rows, manifest, refused = [], [], []
 for phs in PHS:
-    ver, nver, xml = newest_metadata(phs)
+    try:
+        ver, nver, xml = newest_metadata(phs, declared[phs])
+    except LookupError as e:
+        refused.append(str(e))
+        print(f"  {phs:22} REFUSED: {e}")
+        continue
     path = f"{OUT}/xml/GapExchange_{ver}.xml"
     open(path, "wb").write(xml)
     manifest.append({"phs": phs, "accession": ver, "versions_released": nver,
@@ -710,21 +913,24 @@ with open(cat, "w", newline="") as fh:
     w.writeheader()
     w.writerows(rows)
 json.dump({"retrieved_utc": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-           "catalogue": cat, "studies": manifest}, open(f"{OUT}/manifest.json", "w"), indent=2)
+           "catalogue": cat, "studies": manifest, "refused": refused},
+          open(f"{OUT}/manifest.json", "w"), indent=2)
 
-print(f"\n{len(rows)} studies -> {cat}")
+print(f"\n{len(rows)} studies -> {cat}; {len(refused)} refused as stale on the tree")
 print("NOTE: this is study metadata. No individual-level genotype or phenotype data was fetched.")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
   phs000215.v2.p1          111,142 B  consent=GRU
   phs000313.v4.p2           10,832 B  consent=NRUP|GRU-IRB
   phs000338.v1.p1          121,359 B  consent=GRU|Genotype_Analysis
   phs000853.v2.p2            5,717 B  consent=GRU
+  phs000401              REFUSED: phs000401: tree has nothing at or after phs000401.v18.p16 — current release is filed under the parent study
+  phs000342              REFUSED: phs000342: tree has nothing at or after phs000342.v23.p16 — current release is filed under the parent study
 
-4 studies -> Data/dbgap/catalogue.tsv
+4 studies -> Data/dbgap/catalogue.tsv; 2 refused as stale on the tree
 NOTE: this is study metadata. No individual-level genotype or phenotype data was fetched.
 ```
 
@@ -732,13 +938,20 @@ Files on disk after that run:
 
 ```
 Data/dbgap/catalogue.tsv                          17 columns x 4 rows
-Data/dbgap/manifest.json                          source URL, byte count and version count per study
+Data/dbgap/manifest.json                          source URL, byte count, version count, and the refusals
 Data/dbgap/study_index.tsv                        3,216 rows, the searchable index
 Data/dbgap/xml/GapExchange_phs000215.v2.p1.xml    111,142 B
 Data/dbgap/xml/GapExchange_phs000313.v4.p2.xml     10,832 B
 Data/dbgap/xml/GapExchange_phs000338.v1.p1.xml    121,359 B
 Data/dbgap/xml/GapExchange_phs000853.v2.p2.xml      5,717 B
 ```
+
+**Keep the refusals in the manifest, and never quietly drop them.** Before the
+`declared` check was added, `phs000401` produced a row reading `GRU|NPU` with
+`versions_released: 1` — a study the reader would have been told is general research use,
+against `HMB-IRB-MDS|HMB-IRB-NPU-MDS` and 18 releases in dbGaP's own record. A refusal is
+a study to go and read under its parent; a silent stale row is a wrong answer with a
+citation attached.
 
 Keep the XML, not just the table. Studies get re-versioned and the `Policy` block changes
 with them, so a catalogue row with no snapshot behind it cannot be re-checked later. The
@@ -782,8 +995,9 @@ Certification, both public before you apply:
 - The **consent group** you are requesting, by name. This is the choice the whole triage
   above exists to inform.
 - A **research use statement** describing what you intend to do with the data. Where
-  `DisplayResearchStatement` is `yes` — it is `yes` on every study checked here — that
-  statement is **published on dbGaP under the applicant's name and institution**.
+  `DisplayResearchStatement` is `yes` that statement is **published on dbGaP under the
+  applicant's name and institution**. It is `yes` on most studies and `no` on some —
+  Framingham `phs000007` is `no` — so read it rather than assuming either way.
 - A signed **Data Use Certification**, which is a legal attestation covering IRB status,
   local data security arrangements, non-re-identification, redistribution, and
   acknowledgement in publications.
@@ -795,12 +1009,19 @@ Certification, both public before you apply:
 **What it costs in time.** Read these per study rather than assuming; they are in the XML
 and the schema bounds them:
 
-| `Policy` field | on all six studies read here | schema range |
+| `Policy` field | schema range | seen across the studies read here |
 |---|---|---|
-| `YearsUntilRenewal` | 1 | 1–3 |
-| `WeeksCancelRequest` | 8 | 1–8 |
-| `EmbargoLength` | 0 | 0–12 months |
-| `DisplayResearchStatement` | yes | yes / no |
+| `YearsUntilRenewal` | 1–3 | 1 on all of them |
+| `WeeksCancelRequest` | 1–8 | 8 on all of them |
+| `EmbargoLength` | 0–12 months | 0 on most; **12** on Framingham `phs000007` and WHI `phs000200` |
+| `DisplayResearchStatement` | yes / no | yes on most; **no** on Framingham `phs000007` |
+
+**And the `Policy` block can be absent entirely.** `phs004526` and `phs004771` have no
+`AuthorizedAccess` element at all — no policy, no `DacInfo`, no `UseLimitation` text,
+only a bare consent code in `Configuration`. `triage()` above returns `policy {}` and
+`dac None` for them rather than raising, which is correct behaviour and a genuinely empty
+answer: for those studies the terms are not published in the XML and the Data Use
+Certification is the only source. An empty `policy` dict is not a parse failure.
 
 An approval is not permanent. `YearsUntilRenewal` of 1 means the project is renewed or
 closed out annually, and closeout has its own obligations about destroying local copies.
@@ -814,27 +1035,39 @@ per-consent-group file manifests are public, so you can see the exact terms and 
 file inventory you would be agreeing to.
 
 ```bash
-ACC=phs000215.v2.p1
 mkdir -p Data/dbgap/terms
 
-# The Data Use Certification — the actual contract — is public before you apply.
-curl -sL -o "Data/dbgap/terms/DUC_$ACC.pdf" \
-  "https://dbgap.ncbi.nlm.nih.gov/aa/wga.cgi?page=DUC&view_pdf&stacc=$ACC"
+# The Data Use Certification — the actual contract — is public before you apply. When a
+# study has no DUC the server answers HTTP 200 anyway, with a 9 KB HTML page reading
+# "Error: Cannot find PDF form", and -o writes it under your .pdf name. It does that for
+# a nonexistent accession too. Check the content type, not the status code.
+for ACC in phs000215.v2.p1 phs004771.v1.p1; do
+  OUT="Data/dbgap/terms/DUC_$ACC.pdf"
+  TYPE=$(curl -sL -o "$OUT" -w '%{content_type}' \
+    "https://dbgap.ncbi.nlm.nih.gov/aa/wga.cgi?page=DUC&view_pdf&stacc=$ACC")
+  case "$TYPE" in
+    application/pdf) echo "$ACC  DUC $(wc -c < "$OUT" | tr -d ' ') bytes" ;;
+    *) rm -f "$OUT"; echo "$ACC  no DUC published — server returned HTTP 200 $TYPE" ;;
+  esac
+done
 
 # Per-consent-group file manifests and the study report, from the study's own directory.
+ACC=phs000215.v2.p1
 BASE=https://ftp.ncbi.nlm.nih.gov/dbgap/studies/${ACC%%.*}/$ACC
 curl -s "$BASE/manifest/" | grep -o 'href="[^"]*\.pdf"' | cut -d'"' -f2
-
-wc -c "Data/dbgap/terms/DUC_$ACC.pdf"
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
+phs000215.v2.p1  DUC 727708 bytes
+phs004771.v1.p1  no DUC published — server returned HTTP 200 text/html
 Study_Report.phs000215.Iron.v2.p1.MULTI.pdf
 manifest_phs000215.Iron.v2.p1.c1.GRU.pdf
-  727708 Data/dbgap/terms/DUC_phs000215.v2.p1.pdf
 ```
+
+One manifest PDF per consent group, plus one `Study_Report` — verified against the
+studies with the most groups: `phs001489` has 32 consent groups and 33 PDFs.
 
 ### Assist with the application; never author it
 
@@ -876,24 +1109,54 @@ dbGaP **study metadata** is a work of the US federal government and carries no a
 restriction — no account, no licence acceptance. The individual-level data the document
 describes is controlled and is not touched here. This study is used because its consent
 groups are recorded in only one of the two places they can appear, which is the trap most
-likely to produce a confidently wrong answer. Last confirmed reachable 2026-08-17.
+likely to produce a confidently wrong answer. Three further studies appear as
+counter-examples, each one a case where the obvious shortcut returns something that looks
+like an answer: `phs000401` and `phs000313` on the same tree, and one call against the
+catalogue API. Last confirmed reachable 2026-08-18.
 
 ```python
 import json, re, urllib.request, xml.etree.ElementTree as ET
 
 PHS = "phs000215"          # InCHIANTI + BLSA biomarker GWAS
 FTP = "https://ftp.ncbi.nlm.nih.gov/dbgap/studies"
+FHIR = "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/"
+read = lambda url, t=180: urllib.request.urlopen(url, timeout=t).read()
 
-# 1. Versions. Inside a study directory the hrefs DO carry a trailing slash, and the
-#    version must be sorted numerically — v11 sorts before v2 as a string.
-idx = urllib.request.urlopen(f"{FTP}/{PHS}/", timeout=60).read().decode("utf-8", "replace")
-vs = sorted(set(re.findall(r'href="' + PHS + r'\.v(\d+)\.p(\d+)/"', idx)),
-            key=lambda t: (int(t[0]), int(t[1])))
+def ftp_versions(phs):
+    """Inside a study directory the hrefs DO carry a trailing slash, and the version
+    must be sorted numerically — v11 sorts before v2 as a string."""
+    idx = read(f"{FTP}/{phs}/", 60).decode("utf-8", "replace")
+    return sorted(set(re.findall(r'href="' + phs + r'\.v(\d+)\.p(\d+)/"', idx)),
+                  key=lambda t: (int(t[0]), int(t[1])))
+
+def catalogue(phs_ids):
+    """Bare accessions only — see 4a. The API declares charset=iso-8859-1 and means it;
+    .decode('utf-8') raises on any study carrying a Latin-1 byte."""
+    body = read(FHIR + "?_count=100&_id=" + ",".join(phs_ids)).decode("iso-8859-1")
+    return {e["resource"]["id"]: e["resource"] for e in json.loads(body).get("entry", [])}
+
+def walk(res):
+    def rec(exts):
+        for e in exts:
+            if "extension" in e:
+                yield from rec(e["extension"])
+            else:
+                yield e["url"].rsplit("/", 1)[-1], e
+    return list(rec(res.get("extension", [])))
+
+declared = lambda res: (res.get("identifier") or [{}])[0].get("value")
+consents = lambda res: [e["valueCoding"]["display"] for t, e in walk(res)
+                        if t.endswith("StudyConsents-StudyConsent")]
+subjects = lambda res: next(e["valueCount"]["value"] for t, e in walk(res)
+                            if t == "ResearchStudy-Content-NumSubjects")
+
+# 1. Versions on the tree, and the accession dbGaP's own catalogue declares.
+vs = ftp_versions(PHS)
 ver = "%s.v%s.p%s" % (PHS, *vs[-1])
+cat = catalogue([PHS, "phs000401", "phs000313"])
 
 # 2. Study metadata. Public, no account, no key.
-gx = ET.fromstring(urllib.request.urlopen(
-    f"{FTP}/{PHS}/{ver}/GapExchange_{ver}.xml", timeout=180).read())
+gx = ET.fromstring(read(f"{FTP}/{PHS}/{ver}/GapExchange_{ver}.xml"))
 study = gx.find(".//Study")
 cfg, aa = study.find("Configuration"), study.find("AuthorizedAccess")
 
@@ -905,30 +1168,15 @@ limits = [re.sub(r"\s+", " ", (p.findtext("UseLimitation") or "").strip())
           for p in aa.findall("./ConsentGroups/ParticipantSet")]
 pol = aa.find("Policy")
 
-# 4. The catalogue API, for counts. It declares charset=iso-8859-1 and means it —
-#    .decode("utf-8") raises UnicodeDecodeError on studies containing a Latin-1 byte.
-body = urllib.request.urlopen(
-    "https://dbgap-api.ncbi.nlm.nih.gov/fhir/x1/ResearchStudy/?_id=" + PHS,
-    timeout=180).read().decode("iso-8859-1")
-res = json.loads(body)["entry"][0]["resource"]
-
-fhir_consent = []
-def scan(exts):
-    for e in exts:
-        if "extension" in e:
-            scan(e["extension"])
-        elif e["url"].endswith("StudyConsents-StudyConsent"):
-            fhir_consent.append(e["valueCoding"]["display"])
-scan(res.get("extension", []))
-
-print("versions released :", ["v%s.p%s" % v for v in vs])
-print("newest metadata   :", ver)
+print("versions on tree  :", ["v%s.p%s" % v for v in vs])
+print("newest on tree    :", ver)
+print("declared by dbGaP :", declared(cat[PHS]))
 print("study name        :", cfg.findtext("StudyNameEntrez"))
 print("study types       :", [t.text for t in cfg.findall("./StudyTypes/StudyType")])
 print("DAC               :", aa.findtext("./DacInfo/DacFullName"))
 print("consent  (Config) :", cfg_groups)
 print("consent  (AuthAcc):", aa_groups, "->", limits)
-print("consent  (FHIR)   :", fhir_consent)
+print("consent  (FHIR)   :", consents(cat[PHS]))
 print("renewal / cancel  :", pol.findtext("YearsUntilRenewal"), "yr /",
       pol.findtext("WeeksCancelRequest"), "wk")
 print("embargo (months)  :", pol.findtext("EmbargoLength"))
@@ -937,10 +1185,61 @@ print("DUC pdf           :", next(d.get("FileName") for d in pol.iter("DataUseCe
 print("linked PMIDs      :", len({p.get('pmid') for p in cfg.iter('Pubmed') if p.get('pmid')}),
       "of", len(cfg.find("Publications")), "Publication entries")
 
+# 4a. `_id` takes the BARE accession. The versioned form — what every dbGaP page, every
+#     citation and this skill's own catalogue.tsv carry — comes back HTTP 200, a
+#     well-formed Bundle, "total": 0. Nothing anywhere says it was dropped.
+versioned = json.loads(read(FHIR + "?_id=" + ver).decode("iso-8859-1"))
+
+# 4b. phs000401 is a child study of Framingham. Its own directory on the tree stopped at
+#     v1.p1; the current release is filed under the parent's accession instead. The tree
+#     answers, and its answer is a consent code dbGaP has since replaced.
+v401 = ftp_versions("phs000401")
+x401 = ET.fromstring(read(f"{FTP}/phs000401/phs000401.v1.p1/GapExchange_phs000401.v1.p1.xml"))
+ftp401 = [p.findtext("ConsentAbbrev") for p in x401.iter("ParticipantSet")]
+
+# 4c. This study publishes NO var_report at all. The directory is HTTP 200 and holds two
+#     stylesheets, so reports[0] is an IndexError — not a subject count.
+pv = read(f"{FTP}/{PHS}/{ver}/pheno_variable_summaries/", 60).decode("utf-8", "replace")
+reports = re.findall(r'href="([^"]*var_report\.xml)"', pv)
+
+# 4d. Per-consent-group Ns do NOT sum to the subject table's whole-study row when a study
+#     has an NRUP group — NRUP subjects are in the whole-study row and get no row of
+#     their own. They sum to what dbGaP declares as the study's subject count.
+b313 = f"{FTP}/phs000313/phs000313.v4.p2/pheno_variable_summaries"
+r313 = re.findall(r'href="([^"]*Subject\.var_report\.xml)"',
+                  read(b313 + "/", 60).decode("utf-8", "replace"))[0]
+t313 = ET.fromstring(read(f"{b313}/{r313}"))
+first = t313.find("variable").get("var_name")
+whole313, grp313 = None, {}
+for v in t313.findall("variable"):
+    if v.get("var_name") != first:
+        continue
+    n = int(v.find("./total/stats/stat").get("n"))
+    m = re.search(r"\.(c\d+)$", v.get("id"))
+    if m:
+        grp313[m.group(1)] = n
+    else:
+        whole313 = n
+
+print()
+print("4a versioned _id  : HTTP 200, total=%s, entries=%d"
+      % (versioned["total"], len(versioned.get("entry", []))))
+print("4b phs000401      : tree v%s.p%s %s  ->  dbGaP declares %s %s"
+      % (*v401[-1], ftp401, declared(cat["phs000401"]), consents(cat["phs000401"])))
+print("4c var_reports    : %d in %s" % (len(reports), PHS))
+print("4d phs000313      : whole-study row %d, groups %s sum %d, dbGaP declares %d subjects"
+      % (whole313, grp313, sum(grp313.values()), subjects(cat["phs000313"])))
+
 assert not cfg_groups, "Configuration/ConsentGroups is empty here — AuthorizedAccess must be read too"
-assert aa_groups == ["GRU"] == fhir_consent, (aa_groups, fhir_consent)
+assert aa_groups == ["GRU"] == consents(cat[PHS]), (aa_groups, consents(cat[PHS]))
 assert 1 <= int(pol.findtext("YearsUntilRenewal")) <= 3
 assert 1 <= int(pol.findtext("WeeksCancelRequest")) <= 8
+assert ver == declared(cat[PHS]), "agree with the catalogue before you trust the tree"
+assert versioned["total"] == 0 and not versioned.get("entry"), "a versioned _id is a silent miss"
+assert declared(cat["phs000401"]) != "phs000401.v%s.p%s" % v401[-1], "the tree is stale here"
+assert set(ftp401) != set(consents(cat["phs000401"])), "and it disagrees about consent"
+assert reports == [], "phs000215 publishes no var_report — reports[0] would raise IndexError"
+assert sum(grp313.values()) == subjects(cat["phs000313"]) < whole313, (grp313, whole313)
 print("\nMetadata only. No individual-level genotype or phenotype data was requested.")
 ```
 
@@ -964,12 +1263,35 @@ skill is wrong about the source:
   resolve.
 - Not one request in the block touches an individual-level file, and none can.
 
-Observed 2026-08-17 against `phs000215.v2.p1` and dbGaP FHIR API `x1` — these move when
-dbGaP re-versions a study, so a mismatch is drift to investigate, not a bug:
+The four counter-example assertions, each of which fails silently if the shortcut is
+re-introduced:
+
+- **4a** — `?_id=<versioned accession>` returns HTTP 200 with `"total": 0` and no error.
+  Ask the catalogue with the accession dbGaP prints and the study disappears; in a batch
+  it disappears without shrinking the batch. Split on the first `.` before you ask.
+- **4b** — the FTP tree's newest version for `phs000401` is `v1.p1` while dbGaP declares
+  `v18.p16`, and the two disagree about the consent groups. Trusting the tree here
+  reports a study as general research use when dbGaP now publishes it as
+  health/medical/biomedical only with IRB documentation required. Cross-check the
+  accession or you will never see it.
+- **4c** — `phs000215` publishes **zero** `var_report` files behind an HTTP 200 directory
+  listing, so any per-group subject count that indexes `[0]` raises `IndexError` rather
+  than returning a number. Absence here is a real answer: this study's N is not published.
+- **4d** — `phs000313`'s subject table has 4,718 rows, its one consent group has 2,105,
+  and dbGaP declares 2,105 subjects. The 2,613 difference is the `NRUP` group, which no
+  applicant can ever reach. `sum(groups) == declared` is the invariant;
+  `sum(groups) == whole-study row` is not, and asserting the second one raises a false
+  alarm on every study with un-consented subjects in its pedigree.
+
+Observed 2026-08-18 against `phs000215.v2.p1`, `phs000401`, `phs000313` and dbGaP FHIR
+API `x1` — the version strings and counts move when dbGaP re-versions a study, so a
+mismatch there is drift to investigate; a failure of one of the four assertions above
+means this skill is wrong about the source:
 
 ```
-versions released : ['v1.p1', 'v2.p1']
-newest metadata   : phs000215.v2.p1
+versions on tree  : ['v1.p1', 'v2.p1']
+newest on tree    : phs000215.v2.p1
+declared by dbGaP : phs000215.v2.p1
 study name        : Genome-Wide Association Analysis of Biomarkers in the InCHIANTI and BLSA
 study types       : ['Population', 'Longitudinal']
 DAC               : NIA
@@ -981,6 +1303,13 @@ embargo (months)  : 0
 statement public  : yes
 DUC pdf           : BLSA_and_InCHIANTI_GWAS_Iron_Level_Study_DUC.pdf
 linked PMIDs      : 5 of 6 Publication entries
+
+4a versioned _id  : HTTP 200, total=0, entries=0
+4b phs000401      : tree v1.p1 ['GRU', 'NPU']  ->  dbGaP declares phs000401.v18.p16 ['HMB-IRB-MDS', 'HMB-IRB-NPU-MDS']
+4c var_reports    : 0 in phs000215
+4d phs000313      : whole-study row 4718, groups {'c1': 2105} sum 2105, dbGaP declares 2105 subjects
+
+Metadata only. No individual-level genotype or phenotype data was requested.
 ```
 
 ## When not to use this
