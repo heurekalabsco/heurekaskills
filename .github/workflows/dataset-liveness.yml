@@ -20,6 +20,7 @@ on:
     paths:
       - 'skills/**/SKILL.md'
       - 'scripts/check-datasets.js'
+      - 'scripts/check-published.js'
       - 'scripts/lib.js'
       - '.github/workflows/dataset-liveness.yml'
 
@@ -40,7 +41,9 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Probe every declared dataset
+        id: datasets
         if: inputs.selftest != true
+        continue-on-error: true
         run: node scripts/check-datasets.js
 
       # An alarm nobody has watched fire is not known to work. This points the same script
@@ -54,19 +57,25 @@ jobs:
       # CDN — is invisible from this repo, and when that chain broke for two days nothing here
       # noticed: the dispatch job reported success because sending the dispatch is all it does.
       # This asks the only question that matters to a reader: can they install what we merged.
-      # Runs after the dataset probe so a dead dataset and a stale registry report separately.
+      #
+      # Both probes run to completion before anything fails, so a dead dataset cannot mask a
+      # stale registry. They are independent outages with different owners — one is a skill
+      # pointing at data that moved, the other is a broken deploy in another repo — and
+      # discovering the second only after fixing the first would waste a night.
       - name: Published registry matches this repo
         id: published
         if: inputs.selftest != true
         continue-on-error: true
         run: node scripts/check-published.js
 
-      # Gate separately so the job still fails, while `published.outcome` survives for the
-      # notify job below. Without this the alarm would file a dataset issue for a publish
-      # outage and send somebody to swap a dataset that is perfectly healthy.
-      - name: Fail if the published registry is stale
-        if: steps.published.outcome == 'failure'
-        run: exit 1
+      # One gate for both, so each probe's outcome survives for the notify job to read. Without
+      # this the alarm would file a dataset issue for a publish outage and send somebody to
+      # swap a dataset that is perfectly healthy.
+      - name: Fail if either probe failed
+        if: steps.datasets.outcome == 'failure' || steps.published.outcome == 'failure'
+        run: |
+          echo "datasets: ${{ steps.datasets.outcome }}   published: ${{ steps.published.outcome }}"
+          exit 1
 
   # A red X in the Actions tab is not a notification — logs expire and nobody watches. File
   # it where the backlog already lives. Scheduled runs only: a failing PR check is already

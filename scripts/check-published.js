@@ -7,17 +7,18 @@
 // dispatch IS its job and it did that correctly, and heurekaskills.com kept serving a
 // nine-skill-old registry. Nothing surfaced it. A user reported it.
 //
-// This is the assertion that would have caught it on day one, and it is deliberately the
-// dumbest possible one: does the published set equal the committed set.
+// This is the assertion that would have caught it on day one: does the published content equal
+// the committed content — by checksum, so an edit that fails to publish is caught too.
 //
 //   node scripts/check-published.js            # human-readable
 //   node scripts/check-published.js --json     # machine-readable, for the nightshift
 //
 // Exits non-zero when the two disagree. A stale registry is not a queue, it is a break: the
 // skills exist, review passed, and readers still cannot install them.
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listSkillDirs } from './lib.js';
+import { listSkillDirs, listSkillFiles, sha256, skillChecksum } from './lib.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -44,6 +45,19 @@ async function fetchRegistry() {
   }
 }
 
+// Slugs alone would only catch a skill that never arrived. The outage that actually recurs is
+// an EDIT that fails to publish: the slug set is unchanged, the registry serves yesterday's
+// text, and a slug comparison reports healthy. `checksum` is the registry's own content id over
+// the sorted (path, sha256) pairs, computed by the same helper the site build uses — so
+// recomputing it here compares CONTENT, and catches both shapes with one assertion.
+const localChecksum = (slug) => {
+  const dir = path.join(SKILLS_DIR, slug);
+  const files = listSkillFiles(dir).map((rel) => ({
+    path: rel, sha256: sha256(fs.readFileSync(path.join(dir, rel))),
+  }));
+  return skillChecksum(files);
+};
+
 const local = listSkillDirs(SKILLS_DIR);
 const { body, error } = await fetchRegistry();
 
@@ -54,18 +68,30 @@ if (error) {
   process.exit(1);
 }
 
-const published = body.skills.map((s) => s.slug).sort();
-const missing = local.filter((s) => !published.includes(s));   // merged but not serving
+const bySlug = new Map(body.skills.map((s) => [s.slug, s]));
+const published = [...bySlug.keys()].sort();
+const missing = local.filter((s) => !bySlug.has(s));           // merged but not serving
 const extra = published.filter((s) => !local.includes(s));     // serving but not in the repo
 
+// Present in both, but the published bytes are not the committed bytes.
+const stale = [];
+for (const slug of local) {
+  const entry = bySlug.get(slug);
+  if (!entry) continue;
+  const want = localChecksum(slug);
+  if (!entry.checksum) { stale.push({ slug, published: null, local: want, reason: 'registry entry has no checksum' }); continue; }
+  if (entry.checksum !== want) stale.push({ slug, published: entry.checksum, local: want });
+}
+
 const result = {
-  ok: missing.length === 0 && extra.length === 0,
+  ok: missing.length === 0 && extra.length === 0 && stale.length === 0,
   registryUrl: REGISTRY_URL,
   generatedAt: body.generatedAt ?? null,
   localCount: local.length,
   publishedCount: published.length,
   missing,
   extra,
+  stale: stale.map((s) => s.slug),
 };
 
 if (JSON_OUT) {
@@ -77,6 +103,10 @@ if (JSON_OUT) {
   console.error(`  committed: ${local.length}   published: ${published.length}   generated: ${body.generatedAt ?? 'unknown'}`);
   if (missing.length) console.error(`  merged but NOT published (readers cannot install these): ${missing.join(', ')}`);
   if (extra.length) console.error(`  published but not in this repo: ${extra.join(', ')}`);
+  for (const s of stale) {
+    console.error(`  STALE — readers get an older ${s.slug}: published ${s.published ?? '(none)'}, committed ${s.local}`
+      + (s.reason ? ` (${s.reason})` : ''));
+  }
   console.error(`  the site rebuild is the usual cause — check its deploy, not this repo.`);
 }
 process.exit(result.ok ? 0 : 1);
