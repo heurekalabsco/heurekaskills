@@ -46,8 +46,6 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 - `category` is one of `data`, `models`, `analysis`, `utility`, `communication`, `grants`.
 - Reference paths are relative and safe; no symlinks.
 - Allowed file types only.
-- Output contains nothing the reader must delete — no instructions, notes or placeholders in
-  the artefact; anything they need to know about it goes in a separate summary.
 - Per-file (1 MB) and per-skill (5 MB) size caps; at most 50 files per skill.
 - Every skill with an `attribution` field is credited in `NOTICE`, and every skill
   `NOTICE` credits exists and carries that field.
@@ -73,6 +71,13 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 CI checks shape. A maintainer checks the things a validator cannot, and this is the one most
 often missed:
 
+- **The output is a deliverable, not a worksheet.** Nothing in what the skill produces should
+  need finding and deleting — no instructions to the reader, no `[fill this in]`, no notes
+  interleaved with the artefact, and none of an upstream template's own guidance carried
+  through. What the reader needs to know *about* the output goes in a separate summary: what
+  was proposed, what was inferred, what was decided, and what was left open. A field the skill
+  declines to answer is left genuinely blank and named there — blank plus a summary line is
+  honest, blank plus silence is a gap nobody notices.
 - **The technique was tried on more than the one record in `## Try it`** — a different
   instrument, organism, or era — and the PR says which. One worked example proves the example
   works, not that the method does. A recent skill passed on three records; run against fifteen,
