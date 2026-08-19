@@ -14,7 +14,7 @@ goes live.
    ---
    name: <slug>
    description: One single-line sentence — when should the agent use this skill?
-   category: data | models | analysis | utility | communication
+   category: data | models | analysis | utility | communication | grants
    license: CC-BY-4.0
    author: <your name or org>
    version: 1.0.0
@@ -31,8 +31,8 @@ goes live.
 
 ## What belongs here
 
-Skills that get **data**, run **models**, **analyze** results, or **communicate** them,
-written so any agent can follow them.
+Skills that get **data**, run **models**, **analyze** results, **communicate** them, or
+produce the documents a funder requires (**grants**), written so any agent can follow them.
 
 Skills are documentation the agent reads, not code it runs, so only these file types may
 be published: `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`, `.tsv`, `.bib`.
@@ -43,9 +43,11 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 
 - `SKILL.md` present; `name` / `description` parse as non-empty single-line values.
 - `name` equals the directory name and matches `^[a-z0-9-]+$`.
-- `category` is one of `data`, `models`, `analysis`, `utility`, `communication`.
+- `category` is one of `data`, `models`, `analysis`, `utility`, `communication`, `grants`.
 - Reference paths are relative and safe; no symlinks.
 - Allowed file types only.
+- Output contains nothing the reader must delete — no instructions, notes or placeholders in
+  the artefact; anything they need to know about it goes in a separate summary.
 - Per-file (1 MB) and per-skill (5 MB) size caps; at most 50 files per skill.
 - Every skill with an `attribution` field is credited in `NOTICE`, and every skill
   `NOTICE` credits exists and carries that field.

@@ -8,7 +8,8 @@ operational version of both.
 
 The public source of truth for the skills published at
 **[heurekaskills.com](https://heurekaskills.com)** — a library of agent skills for
-scientific discovery: getting data, running models, analyzing results.
+scientific discovery: getting data, running models, analyzing results, communicating them,
+and producing the documents funders require.
 
 Content only. Skills, their schemas, and the validator that checks them. There is no
 application code here, and none should be added.
@@ -96,9 +97,16 @@ Traps that will fail CI or, worse, fail silently in a client:
 | `analysis` | processing, computing over, or evaluating data you already have |
 | `utility` | file formats, methodology, general-purpose helpers |
 | `communication` | conveying science to a person — figures, posters, plain-language summaries |
+| `grants` | producing a document an agency requires, in the structure that agency mandates — data management plans, biosketches, facilities statements |
 
 `communication` vs `utility`: a communication skill's output is read by a person; a
 utility skill's output feeds another tool or workflow step.
+
+`grants` vs both: the test is **who requires the document**. A **funding agency** requiring a
+specific structure as a condition of applying for or holding an award is `grants`. A journal
+portal, a conference form or a file converter is still `utility` — a publisher is not a funder.
+A figure or summary a person reads to understand the science is still `communication`.
+
 
 When both readings fit, ask **what the skill hands back at the end**:
 
@@ -108,10 +116,23 @@ When both readings fit, ask **what the skill hands back at the end**:
 | Plain-language summary of a result | Prose a non-specialist reads | `communication` |
 | Filling a journal submission portal | A form field file the tool consumes | `utility` |
 | Converting between file formats | A file the next step opens | `utility` |
+| An NIH Data Management and Sharing plan | A document NIH requires to fund the work | `grants` |
 
 The subject matter being publication-adjacent does not make it `communication`.
 Submission, formatting and packaging are plumbing; the manuscript is the artefact a
 person reads, and a skill that does not produce that artefact is `utility`.
+
+### `grants` skills: one per agency, per document type
+
+`nih-dms-plan`, `nih-biosketch`, `nsf-dmp` — never a single cross-agency `dms-plan`. The same
+document has different required elements, limits and deadlines at each funder, and a skill that
+straddles two is wrong for both. This is the `data` one-per-project rule applied to documents:
+split on the thing that owns the requirements.
+
+The agency's own template governs, and it is not always what the policy notice says. When they
+disagree, follow the template — it is what gets submitted — and say so in the skill, with both
+dated. A skill in this category ages on the agency's schedule, not ours, so date every claim
+and name the notice it came from.
 
 ### `data` skills: one per project, one per repository
 
@@ -339,6 +360,25 @@ is needed. Prefer real data over synthetic: real data is what catches the schema
 that breaks the skill. If no lawful public dataset exists — the §3b access test applies to
 data exactly as it does to tools — generate it inline instead, and say why you had to.
 Never `example.com`, never `path/to/your.bam`. A placeholder is not testable.
+
+**And the same rule going the other way — what the skill hands back is a deliverable, not a
+worksheet.** Never emit text the reader has to find and delete: no instructions to the user, no
+`[fill this in]`, no "delete the text in italics", no inline notes, no commentary interleaved
+with the artefact. Where upstream ships a template with its guidance baked in, strip it —
+carrying it through is not fidelity, it is homework.
+
+What the reader needs to know *about* the output goes in a **separate summary**: what the skill
+**proposed** and on what basis, what it **inferred** and from where, what it **decided** on the
+reader's behalf, and what it left **outstanding** and why. A paragraph when the output is small,
+a companion file when it is not.
+
+A field the skill declines to answer is left genuinely blank — an unticked box, an empty cell —
+and named in the summary. Blank plus a summary line is honest. Blank plus silence is a gap the
+reader will not notice, and a bracketed placeholder is the worksheet problem again.
+
+The summary is the point, not a courtesy: it is the tl;dr, and it is where a reader corrects
+something the skill misread. That turns a single shot the reader has to clean up into an
+exchange they can steer.
 
 **Run.** One self-contained block that goes from the data to a result, runnable by copy
 and paste with nothing else set up. Where the tool has a trap, route the example through

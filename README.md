@@ -20,7 +20,7 @@ skills/<slug>/
 ---
 name: my-skill            # must equal the directory name; [a-z0-9-]+
 description: One single-line sentence describing when to use this skill.
-category: analysis        # data | models | analysis | utility | communication
+category: analysis        # data | models | analysis | utility | communication | grants
 license: CC-BY-4.0
 author: Your Name
 version: 1.0.0
@@ -66,9 +66,16 @@ Skills are documentation, not programs. Only `.md`, `.txt`, `.json`, `.yaml`, `.
 | `analysis` | processing, computing over, or evaluating data you already have |
 | `utility` | file formats, methodology, general-purpose helpers |
 | `communication` | conveying science to a person — figures, graphical abstracts, posters, talks, plain-language summaries |
+| `grants` | producing a document an agency requires, in the structure that agency mandates — data management plans, biosketches, facilities statements |
 
 `communication` vs `utility`: a communication skill's output is read or viewed by a
 person; a utility skill's output feeds another tool or workflow step.
+
+`grants` vs both: the test is **who requires the document**. A **funding agency** requiring a
+specific structure as a condition of applying for or holding an award is `grants`. A journal
+portal, a conference form or a file converter is still `utility` — a publisher is not a funder.
+A figure or summary a person reads to understand the science is still `communication`.
+
 
 ## Installing a skill
 
