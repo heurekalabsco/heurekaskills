@@ -369,6 +369,25 @@ fragments that cannot run standalone count neither way; the number is about bloc
 could actually execute. `biopython` is the worked example, at 84 executed against 43
 unverified. Skills predating the rule carry `verified: pending`.
 
+**One example is not a test — run the technique across several.** `## Try it` proves the skill
+works on the study you chose. It does not prove the *method* generalises, and that is the claim
+a reader relies on. Before shipping, apply the skill's own approach to a handful of other
+records — different instrument, different organism, oldest and newest identifiers — and see
+where it breaks.
+
+This is not theoretical. `metabolights` was written and verified against three studies and
+passed everything. Run against fifteen, its file-reading function turned out to return **12 of
+84 samples** for a study with three metabolite files, because it read the first and mentioned
+the others in a printed note. It would have shipped, looked right, and quietly handed readers
+one seventh of a dataset. The same pass also found that a repeated file type can appear four
+times rather than twice, and that `401` means *embargoed*, not *your credentials are wrong*.
+
+Budget ten minutes for it. Pick records that differ along the axes the source actually varies
+on, and prefer the awkward ones — the largest, the oldest, the one with two assays. When the
+method does hold everywhere, say so in the PR with the sample you tried; when it does not, the
+fix belongs in the skill and the counter-example belongs in `## Try it` as an assertion, so
+nobody re-introduces the simplification later.
+
 **Run it before you ship it.** The block goes in the skill only after it has executed
 verbatim and produced the output written under Expect. This is `## 7` applied to the one
 block a reader is most likely to run first.

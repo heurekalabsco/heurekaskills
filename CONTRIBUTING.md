@@ -66,6 +66,16 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
   checked for "see/use/refer to the … skill" and for names under a "Related skills"
   heading.
 
+## What review looks for, beyond CI
+
+CI checks shape. A maintainer checks the things a validator cannot, and this is the one most
+often missed:
+
+- **The technique was tried on more than the one record in `## Try it`** — a different
+  instrument, organism, or era — and the PR says which. One worked example proves the example
+  works, not that the method does. A recent skill passed on three records; run against fifteen,
+  its file-reading returned 12 of 84 samples for a study whose data spanned several files.
+
 ## License
 
 By contributing **original** skill content you agree it is released under **CC-BY-4.0**,

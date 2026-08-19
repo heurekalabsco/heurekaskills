@@ -2,3 +2,9 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Agent working trees. Tooling creates git worktrees here, INSIDE the repo, so `git add -A`
+# stages them as embedded repositories and a routine commit can drag another session's whole
+# checkout into a public, permanent history. Caught three times by the pre-push scrub; ignored
+# now so the scrub is not the only thing standing between a worktree and a publish.
+.claude/
