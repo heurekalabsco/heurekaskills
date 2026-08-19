@@ -580,7 +580,10 @@ independent count. Diff the two:
 import json, urllib.parse, urllib.request
 
 V3 = "https://www.ebi.ac.uk/pride/ws/archive/v3"
-HOUSEKEEPING = {"submission.px", "README.txt", "checksum.txt"}   # never indexed, by design
+# Excluded from the gap count because their absence is not a data loss. Only
+# `submission.px` is reliably unindexed — `checksum.txt` IS in `/files/all` on modern
+# projects, so a manifest count printed against this set can run one low.
+HOUSEKEEPING = {"submission.px", "README.txt", "checksum.txt"}
 
 def list_files(accession, name_filter=None):
     q = f"?filenameFilter={urllib.parse.quote(name_filter)}" if name_filter else ""
@@ -599,16 +602,25 @@ def manifest(accession):
     return out
 
 def audit_listing(accession):
-    """Does the file index cover the project directory? Sometimes it does not."""
+    """Does the file index cover the project directory? Sometimes it does not.
+
+    Refuses an accession with no project, because `/files/all` answers 200 with `[]`
+    for one and `/files/checksum/` answers 200 with an empty body — so without this
+    guard the function reports `index and manifest agree` for a typo, which is the
+    same shape of wrong answer it exists to catch.
+    """
     listed = {f["fileName"] for f in list_files(accession)}
     disk = manifest(accession)
     with urllib.request.urlopen(f"{V3}/projects/{accession}/files/count", timeout=120) as r:
         declared = int(r.read())
-    unlisted = sorted((set(disk) - listed) - HOUSEKEEPING)   # on disk, never indexed
+    if not listed and not disk:
+        raise LookupError(f"{accession}: no indexed files and no manifest — check the "
+                          f"accession with where_is() before trusting an empty result")
+    unlisted = sorted((set(disk) - listed) - HOUSEKEEPING)   # on disk, not in the index
     no_md5 = sorted(listed - set(disk))                      # indexed, unverifiable
     assert len(listed) == declared, (len(listed), declared)
     print(f"{accession}: indexed {len(listed)} (= /files/count {declared}) · "
-          f"manifest {len(set(disk) - HOUSEKEEPING)}")
+          f"manifest {len(set(disk) - HOUSEKEEPING)} (housekeeping excluded)")
     if unlisted:
         extra = sum(disk[n][1] for n in unlisted)
         print(f"  ON DISK, NOT INDEXED : {len(unlisted)} files, {extra/1e6:.1f} MB  {unlisted[:3]}")
@@ -624,19 +636,19 @@ for acc in ("PXD074038", "PXD055605", "PXD000561",
 ```
 
 ```
-PXD074038: indexed 27 (= /files/count 27) · manifest 26
+PXD074038: indexed 27 (= /files/count 27) · manifest 26 (housekeeping excluded)
   index and manifest agree
-PXD055605: indexed 8741 (= /files/count 8741) · manifest 8740
+PXD055605: indexed 8741 (= /files/count 8741) · manifest 8740 (housekeeping excluded)
   index and manifest agree
-PXD000561: indexed 2384 (= /files/count 2384) · manifest 2384
+PXD000561: indexed 2384 (= /files/count 2384) · manifest 2384 (housekeeping excluded)
   index and manifest agree
-PXD000001: indexed 8 (= /files/count 8) · manifest 10
+PXD000001: indexed 8 (= /files/count 8) · manifest 10 (housekeeping excluded)
   ON DISK, NOT INDEXED : 4 files, 933.1 MB  ['PRIDE_Exp_mzData_Ac_22134.xml.gz', 'PXD000001_mztab.txt', 'TMT_Erwinia_1uLSike_Top10HCD_isol2_45stepped_60min_01-20141210.mzML']
   INDEXED, NO MD5      : 2 files  ['PRIDE_Exp_Complete_Ac_22134.pride.mgf.gz', 'PRIDE_Exp_Complete_Ac_22134.pride.mztab.gz']
-PXD000004: indexed 30 (= /files/count 30) · manifest 25
+PXD000004: indexed 30 (= /files/count 30) · manifest 25 (housekeeping excluded)
   ON DISK, NOT INDEXED : 5 files, 1063.0 MB  ['PRIDE_Exp_mzData_Ac_26881.xml.gz', 'PRIDE_Exp_mzData_Ac_26882.xml.gz', 'PRIDE_Exp_mzData_Ac_26883.xml.gz']
   INDEXED, NO MD5      : 10 files  ['PRIDE_Exp_Complete_Ac_26881.pride.mgf.gz', 'PRIDE_Exp_Complete_Ac_26881.pride.mztab.gz', 'PRIDE_Exp_Complete_Ac_26882.pride.mgf.gz']
-PXD010154: indexed 1938 (= /files/count 1938) · manifest 1941
+PXD010154: indexed 1938 (= /files/count 1938) · manifest 1941 (housekeeping excluded)
   ON DISK, NOT INDEXED : 3 files, 125.7 MB  ['Synthetic_pepitdes.xlsx', 'Tissues_Rawfilie_list.xlsx', 'spectra_comparison_table_and_plots.zip']
 ```
 
