@@ -14,7 +14,7 @@ goes live.
    ---
    name: <slug>
    description: One single-line sentence — when should the agent use this skill?
-   category: data | models | analysis | utility | communication
+   category: data | models | analysis | utility | communication | grants
    license: CC-BY-4.0
    author: <your name or org>
    version: 1.0.0
@@ -31,8 +31,8 @@ goes live.
 
 ## What belongs here
 
-Skills that get **data**, run **models**, **analyze** results, or **communicate** them,
-written so any agent can follow them.
+Skills that get **data**, run **models**, **analyze** results, **communicate** them, or
+produce the documents a funder requires (**grants**), written so any agent can follow them.
 
 Skills are documentation the agent reads, not code it runs, so only these file types may
 be published: `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`, `.tsv`, `.bib`.
@@ -43,7 +43,7 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 
 - `SKILL.md` present; `name` / `description` parse as non-empty single-line values.
 - `name` equals the directory name and matches `^[a-z0-9-]+$`.
-- `category` is one of `data`, `models`, `analysis`, `utility`, `communication`.
+- `category` is one of `data`, `models`, `analysis`, `utility`, `communication`, `grants`.
 - Reference paths are relative and safe; no symlinks.
 - Allowed file types only.
 - Per-file (1 MB) and per-skill (5 MB) size caps; at most 50 files per skill.
@@ -71,6 +71,13 @@ Run `npm run validate` before opening a PR. CI runs the same checks:
 CI checks shape. A maintainer checks the things a validator cannot, and this is the one most
 often missed:
 
+- **The output is a deliverable, not a worksheet.** Nothing in what the skill produces should
+  need finding and deleting — no instructions to the reader, no `[fill this in]`, no notes
+  interleaved with the artefact, and none of an upstream template's own guidance carried
+  through. What the reader needs to know *about* the output goes in a separate summary: what
+  was proposed, what was inferred, what was decided, and what was left open. A field the skill
+  declines to answer is left genuinely blank and named there — blank plus a summary line is
+  honest, blank plus silence is a gap nobody notices.
 - **The technique was tried on more than the one record in `## Try it`** — a different
   instrument, organism, or era — and the PR says which. One worked example proves the example
   works, not that the method does. A recent skill passed on three records; run against fifteen,
