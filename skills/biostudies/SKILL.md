@@ -6,16 +6,18 @@ license: CC-BY-4.0
 author: Heureka Labs
 version: 1.0.0
 tags: [arrayexpress, rna-seq, transcriptomics, public-data, microarray]
-covers: [arrayexpress, biostudies, E-MTAB, rna-seq, scRNA-seq, single cell, microarray, functional genomics, transcriptomics, gene expression, differential expression, MAGE-TAB, SDRF, h5ad, ENA, fastq, EMBL-EBI, bioimages, heart, lymphatic endothelial cells, dermis, skin, human, mouse, aging, cardiac inflammation, cancer, immune cells, EFO]
+covers: [arrayexpress, biostudies, E-MTAB, E-GEOD, E-MEXP, S-BIAD, S-BSST, EMPIAR, rna-seq, scRNA-seq, single cell, microarray, functional genomics, transcriptomics, gene expression, differential expression, MAGE-TAB, SDRF, h5ad, ENA, fastq, EMBL-EBI, bioimages, cryo-EM, heart, lymphatic endothelial cells, human, mouse, cardiac inflammation, EFO]
 papers: [PMID:33211879, PMID:42167442, PMID:29069414, PMID:26700850, PMID:30357387, PMID:25361974, PMID:12519949, PMID:17087822]
 access: [open]
-datasets: [https://www.ebi.ac.uk/biostudies/api/v1/studies/E-MTAB-17485]
+datasets: [https://www.ebi.ac.uk/biostudies/api/v1/studies/E-MTAB-17485, https://www.ebi.ac.uk/biostudies/api/v1/studies/S-BIAD1500]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
+  date: 2026-08-19
   against: BioStudies API v1 / ENA Portal API / Python 3.12.8 / curl 8.7.1
   executed: 7
   unverified: 0
+  records: 20 accessions across ArrayExpress, BioImages, BioImages-EMPIAR, JCB,
+    SourceData, BioModels, EuropePMC and uncollected S-BSST deposits
 ---
 # EBI BioStudies and the ArrayExpress collection
 
@@ -26,9 +28,14 @@ methods section is the ArrayExpress equivalent of a `GSE*`, and this is the endp
 that resolves it.
 
 Other collections in the same archive answer to the same API — BioImages (`S-BIAD*`),
-EuropePMC supplementary data (`S-EPMC*`), BioModels (`MODEL*`), SourceData
-(`S-SCDT-*`), JCB (`S-JCBD-*`), plus direct submissions with no collection at all
-(`S-BSST*`). Scoping to the right one is a large part of using this well.
+BioImages-EMPIAR (`EMPIAR-*`), EuropePMC supplementary data (`S-EPMC*`), BioModels
+(`MODEL*`), SourceData (`S-SCDT-*`), JCB (`S-JCBD-*`), plus direct submissions with no
+collection at all (`S-BSST*`). Scoping to the right one is a large part of using this
+well — and **an accession prefix does not name a collection**. `EMPIAR-*` and `S-JCBD-*`
+records come back from a `bioimages` scope because those are sub-collections of it, and
+192 of the 1,746 `S-BSST*` deposits are attached to BioImages rather than to nothing —
+none to any other collection. Read `AttachTo` off the record; do not infer it from the
+prefix.
 
 No account, no key, no licence click-through. Everything below is anonymous HTTP.
 
@@ -55,11 +62,13 @@ curl -s "https://www.ebi.ac.uk/biostudies/api/v1/studies/E-MTAB-17485/info" \
 
 # One file to disk. Note /biostudies/files/ — NOT /api/v1/ — and -L, because this
 # path 302s to the FTP mirror. Without -L you get a 0-byte file and exit code 0.
-curl -sSL -o E-MTAB-17485.sdrf.txt -w 'http=%{http_code} redirects=%{num_redirects} bytes=%{size_download}\n' \
+# -f matters as much: this path serves a 14 KB HTML page on 404, and without -f
+# curl writes it into the destination and exits 0.
+curl -fsSL -o E-MTAB-17485.sdrf.txt -w 'http=%{http_code} redirects=%{num_redirects} bytes=%{size_download}\n' \
   "https://www.ebi.ac.uk/biostudies/files/E-MTAB-17485/E-MTAB-17485.sdrf.txt"
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-19:
 
 ```
 {
@@ -84,18 +93,26 @@ The four routes worth memorising:
 | file count, FTP and Globus mirrors | `/api/v1/studies/{accession}/info` |
 | the bytes of one file | `/biostudies/files/{accession}/{path}` — no `/api/v1` |
 
-Failure modes, all checked 2026-08-17:
+Failure modes, all checked 2026-08-19. **Only `/studies` 404s.** The other two routes
+answer 200 for an accession that does not exist:
 
-| request | result |
-|---|---|
-| `E-MTAB-17485` | 200 |
-| `e-mtab-17485` | **404** — accession lookup is case-sensitive |
-| `GSE12345` | 404 — GEO identifiers are not accessions here |
-| `E-MTAB-99999999` | 404 `{"errorMessage":"Study not found"}` |
+| request | `/studies/{acc}` | `/studies/{acc}/info` | `/studies/{acc}/files` |
+|---|---|---|---|
+| `E-MTAB-17485` | 200 | 200, `files: 3` | 200, `total: 3` |
+| `e-mtab-17485` | **404** — lookup is case-sensitive | **200, `{}`** | **200, `total: 0`** |
+| `GSE12345` | 404 — GEO ids are not accessions here | 200, `{}` | 200, `total: 0` |
+| `E-MTAB-99999999` | 404 `{"errorMessage":"Study not found"}` | 200, `{}` | 200, `total: 0` |
 
-A 404 conflates *never existed*, *not yet released*, and *withdrawn*. Since embargoed
-studies also 404, an accession printed in a paper that does not resolve is usually an
-unreleased deposit rather than a typo — worth saying so instead of reporting "no data".
+That asymmetry is the trap. A pipeline that starts from `/files` reports a typo'd or
+embargoed accession as **a released study holding no data**, which is also exactly what
+`EMPIAR-13332` and `S-EPMC285135` legitimately are. Resolve through `/studies` or
+`/info` first and treat a missing `files` key as "no such study" — `/info` returning
+`{}` is the only signal either of those routes gives you.
+
+A 404 itself conflates *never existed*, *not yet released*, and *withdrawn*. Since
+embargoed studies also 404, an accession printed in a paper that does not resolve is
+usually an unreleased deposit rather than a typo — worth saying so instead of reporting
+"no data".
 
 ## The section tree
 
@@ -180,7 +197,10 @@ print()
 
 print(f"protocols ({len(sections(root, 'Protocols'))})")
 for p in sections(root, "Protocols"):
-    print(f"  {p['accno']:16} {one(p, 'Type')}")
+    # `accno` is optional on a section — absent on Author, Funding, Publication and
+    # on the Study root of several collections. Index it and you get a KeyError the
+    # moment you point this at anything but an ArrayExpress deposit.
+    print(f"  {p.get('accno', '-'):16} {one(p, 'Type')}")
 print()
 
 print("sample characteristics")
@@ -197,7 +217,7 @@ for ef in sections(root, "Experimental Factors"):
 for t in sections(root, "Factors Table"):
     a = attrs(t)
     n = a.pop("No. of Samples", ["?"])[0]
-    print(f"  {t['accno']:12} {a} n={n}")
+    print(f"  {t.get('accno', '-'):12} {a} n={n}")
 print()
 
 print("ontology terms ride on the attribute, in valqual")
@@ -214,7 +234,7 @@ for l in flatten(root.get("links")):
     print(f"  {t.get('Type'):12} {l['url']}")
 ```
 
-Run 2026-08-17 against `E-MTAB-17485`, abridged:
+Run 2026-08-19 against `E-MTAB-17485`, abridged:
 
 ```
 accession : E-MTAB-17485 | envelope type: submission
@@ -279,7 +299,8 @@ Where things actually live, for an ArrayExpress record:
 | you want | where it is |
 |---|---|
 | collection, release date | **top-level** `attributes`, names `AttachTo` and `ReleaseDate` |
-| title, description, organism, assay type | `section.attributes` |
+| title | **either place** — see below |
+| description, organism, assay type | `section.attributes` |
 | wet-lab and analysis protocols | `section.subsections` of type `Protocols`, one per step |
 | organism part, cell type, disease, genotype | section `Source Characteristics` |
 | factor levels and group sizes | sections `Experimental Factors` and `Factors Table` |
@@ -287,8 +308,27 @@ Where things actually live, for an ArrayExpress record:
 | pointers to raw reads | `section.links`, `Type` of `ENA` |
 | the per-sample table | not in the JSON at all — the SDRF file |
 
-Two details that bite. `Organism` on the Study section is a **summary**; a study with
-several organisms lists several, and the authoritative per-sample assignment is the
+**`Title` is on the envelope for some collections and in the Study section for others,
+and `ReleaseDate` is not guaranteed at all.** Checked 2026-08-19: `E-MTAB-17485`,
+`S-BIAD2193`, `S-EPMC285135` and `S-SCDT-EMBOJ-2018-99599` carry it in both places;
+`S-BSST1` carries it **only** at top level and its Study section holds nothing but
+`Description`; `MODEL6614879888` and `EMPIAR-13332` carry it **only** in the section.
+`S-SCDT-EMBOJ-2018-99599` has no `ReleaseDate` anywhere. Reading one place and calling
+the other absent is how a harvest writes `"title": null` for a whole collection:
+
+```python
+def attr(node, name):
+    """Try the envelope and the Study section. Neither alone is reliable."""
+    for a in node.get("attributes") or []:
+        if a["name"] == name:
+            return a.get("value")
+    return None
+
+title = attr(study, "Title") or attr(study["section"], "Title")
+```
+
+Two more details that bite. `Organism` on the Study section is a **summary**; a study
+with several organisms lists several, and the authoritative per-sample assignment is the
 SDRF. And `Factors Table` carries the group sizes, but `valqual` on `No. of Samples`
 holds an ENA browser URL enumerating that group's sample accessions, which is the
 cheapest way to get a group-to-sample mapping without parsing the SDRF.
@@ -316,16 +356,23 @@ def search(query, collection=None, page=1, page_size=100, **params):
         return json.loads(r.read())
 
 
-def search_all(query, collection=None, limit=20000, **params):
-    """`totalHits` can be an estimate. Page to exhaustion for a real count."""
+def search_all(query, collection=None, limit=None, **params):
+    """`totalHits` can be an estimate. Page to exhaustion for a real count.
+
+    No default ceiling, and the second return value says whether you got the
+    whole set. A ceiling that stops short and returns a bare list is how a
+    caller reports 20,000 records as the whole of an 80,763-record collection.
+    Search itself has no deep-page cap — page 3,303 of EuropePMC works.
+    """
     out, page = [], 1
-    while len(out) < limit:
+    while True:
         hits = search(query, collection, page=page, page_size=1000, **params)["hits"]
         if not hits:
-            return out
+            return out, True
         out += hits
+        if limit and len(out) >= limit:
+            return out[:limit], False
         page += 1
-    return out
 
 
 print("space-separated terms are OR, not AND — ranking hides it")
@@ -344,8 +391,8 @@ for coll in (None, "arrayexpress"):
 
 print()
 print("two ways to express the collection filter — same result set")
-by_path = search_all("cardiac lymphatic", collection="arrayexpress")
-by_param = search_all("cardiac lymphatic", **{"collection": "ArrayExpress"})
+by_path, _ = search_all("cardiac lymphatic", collection="arrayexpress")
+by_param, _ = search_all("cardiac lymphatic", **{"collection": "ArrayExpress"})
 print(f"  /arrayexpress/search        {len(by_path)} records")
 print(f"  /search?collection=…        {len(by_param)} records")
 print("  symmetric difference       "
@@ -358,6 +405,25 @@ print("an unknown collection is HTTP 200 with zero hits, never an error")
 for c in ("arrayexpress", "ArrayExpress", "array-express", "biostudies", "pride"):
     d = search("cardiac AND lymphatic", collection=c, page_size=1)
     print(f"  /{c:14} {d['totalHits']:>5} hits")
+
+print()
+print("collections NEST — a scope returns its sub-collections too")
+
+
+def exact(query, collection):
+    d = search(query, collection=collection, page_size=1)
+    assert d["isTotalHitsExact"], query
+    return d["totalHits"]
+
+
+whole = exact("*:*", "bioimages")
+parts = {p: exact(f"accession:{p}*", "bioimages")
+         for p in ("S-BIAD", "EMPIAR", "S-JCBD", "S-BSST")}
+print(f"  /bioimages/search?query=*:*   {whole} records = {parts}")
+print(f"  /BioImages-EMPIAR/search      {exact('*:*', 'BioImages-EMPIAR')}"
+      "   <- addressable on its own")
+print(f"  /JCB/search                   {exact('*:*', 'JCB')}"
+      "   <- and counted inside bioimages as well")
 
 print()
 print("field-scoped queries, which also make the count exact")
@@ -385,11 +451,11 @@ for gse in ("GSE16908", "GSE115989", "GSE250000"):
     print(f"  {gse:12} -> {[x['accession'] for x in h] or 'not imported'}")
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-19:
 
 ```
 space-separated terms are OR, not AND — ranking hides it
-  cardiac                    1225  exact=False top=['E-GEOD-64403', 'E-GEOD-50221', 'E-GEOD-30076']
+  cardiac                    1224  exact=False top=['E-GEOD-64403', 'E-GEOD-50221', 'E-GEOD-30076']
   lymphatic                   139  exact=True  top=['E-GEOD-16908', 'E-GEOD-6257', 'E-GEOD-84551']
   cardiac lymphatic          1386  exact=False top=['E-MTAB-17485', 'E-MTAB-17510', 'E-GEOD-16908']
   cardiac OR lymphatic       1386  exact=False top=['E-MTAB-17485', 'E-MTAB-17510', 'E-GEOD-16908']
@@ -401,10 +467,10 @@ scope — the same query, whole archive vs one collection
   arrayexpress         10  ['E-MTAB-17485', 'E-MTAB-17510', 'E-MTAB-12742', 'E-GEOD-26328']
 
 two ways to express the collection filter — same result set
-  /arrayexpress/search        1389 records
-  /search?collection=…        1389 records
+  /arrayexpress/search        1390 records
+  /search?collection=…        1390 records
   symmetric difference       0
-  reported totalHits         1386  <- estimate, under the truth
+  reported totalHits         1385  <- estimate, under the truth
 
 an unknown collection is HTTP 200 with zero hits, never an error
   /arrayexpress      10 hits
@@ -413,12 +479,17 @@ an unknown collection is HTTP 200 with zero hits, never an error
   /biostudies         0 hits
   /pride              0 hits
 
+collections NEST — a scope returns its sub-collections too
+  /bioimages/search?query=*:*   5007 records = {'S-BIAD': 1384, 'EMPIAR': 3003, 'S-JCBD': 424, 'S-BSST': 192}
+  /BioImages-EMPIAR/search      3003   <- addressable on its own
+  /JCB/search                   424   <- and counted inside bioimages as well
+
 field-scoped queries, which also make the count exact
   accession:E-MTAB-17485                                     1 exact=True  ['E-MTAB-17485']
   organism:"Mus musculus" AND cardiac AND lymphatic          2 exact=True  ['E-MTAB-17510', 'E-MTAB-62']
   accession:E-MTAB* AND lymphatic                           29 exact=True  ['E-MTAB-17485', 'E-MTAB-8950', 'E-MTAB-17510']
   accession:E-GEOD* AND lymphatic                           97 exact=True  ['E-GEOD-16908', 'E-GEOD-6257', 'E-GEOD-84551']
-  study_type:"RNA-seq of coding RNA from single cells" A      8 exact=True  ['E-MTAB-17510', 'E-MTAB-11524', 'E-MTAB-10434']
+  study_type:"RNA-seq of coding RNA from single cells" A     8 exact=True  ['E-MTAB-17510', 'E-MTAB-11524', 'E-MTAB-10434']
   author:"David John" AND lymphatic                          2 exact=True  ['E-MTAB-17485', 'E-MTAB-17510']
 
 newest first
@@ -432,33 +503,46 @@ a GEO series number resolves to its ArrayExpress import, if there was one
   GSE250000    -> not imported
 ```
 
-Four things that determine whether a search is usable:
+Five things that determine whether a search is usable:
 
 **Space is OR, and ranking disguises it.** `cardiac lymphatic` returns byte-identical
-counts to `cardiac OR lymphatic` — 1,386 apparent, 1,389 real. It *looks* like AND
+counts to `cardiac OR lymphatic` — 1,386 apparent, 1,390 real. It *looks* like AND
 because relevance ranking floats the both-terms records to the top, so a caller reading
 only page one never notices, and a caller counting hits reports a number two orders of
 magnitude too large. Write `AND` explicitly, or quote the phrase. `cardiac AND
 lymphatic` is 10; `"cardiac lymphatic"` is 2.
 
 **`totalHits` is an estimate unless `isTotalHitsExact` is true.** Multi-term free-text
-queries return an approximation that *under*-reports and drifts with `pageSize` — 1,386
-at `pageSize=1`, 1,387 at 1,000, 1,389 when paged out. Single-term and field-scoped
-queries come back exact. Never report `totalHits` as "N studies exist" without checking
-the flag; page to exhaustion when the number matters.
+queries return an approximation that *under*-reports and climbs with `pageSize` — for
+`cardiac lymphatic` inside ArrayExpress on 2026-08-19: 1,385 at `pageSize=1`, 1,386 at
+100, 1,388 at 1,000, and 1,390 when paged out. Single-term and field-scoped queries come
+back exact. Never report `totalHits` as "N studies exist" without checking the flag;
+page to exhaustion when the number matters, and note that `search_all` above returns a
+completeness flag alongside the hits for exactly that reason.
 
 **Both collection-filter forms work and agree.** The path prefix
 `/api/v1/arrayexpress/search?query=…` and the query parameter
-`/api/v1/search?query=…&collection=ArrayExpress` returned the identical 1,389
-accessions when each was paged to exhaustion — symmetric difference zero. Their
-*estimates* differ badly (1,386 vs 1,040 for the same set), which is the estimate
-problem above and not two different filters. The path prefix is the better default
-because it also gives the more honest estimate. Collection names are case-insensitive.
+`/api/v1/search?query=…&collection=ArrayExpress` returned the identical 1,390
+accessions when each was paged to exhaustion — symmetric difference zero — and on
+2026-08-19 the same estimates at every `pageSize` tried. An earlier check on 2026-08-17
+saw the parameter form estimate 1,040 against the prefix form's 1,386 for that same set;
+that gap has closed, which is one more reason not to compare estimates. Collection names
+are case-insensitive.
 
 **A wrong collection name is a silent zero.** `/array-express/search` and
 `/pride/search` both return HTTP 200 with `totalHits: 0` — no 404, no error message.
 Any pipeline that scopes by collection needs a positive control, or a typo becomes
 "there is no public data for this".
+
+**A right collection name returns more than you asked for, because collections nest.**
+`/bioimages/search?query=*:*` is 5,007 records: 1,384 `S-BIAD*` image deposits, **3,003
+`EMPIAR-*`** cryo-EM entries in the `BioImages-EMPIAR` sub-collection, 424 `S-JCBD-*`
+in `JCB`, and 192 `S-BSST*` attached to BioImages. Every one of the 3,003 EMPIAR records
+declares **zero files** — their data lives in EMPIAR's own archive, and BioStudies holds
+only the metadata stub — so "BioImages has 5,007 studies" and "BioImages has 5,007
+studies with images in it" differ by a factor of three. `BioImages-EMPIAR` and `JCB` are
+addressable on their own, and the same records are counted under both scopes. Filter on
+`accession:S-BIAD*` when you mean the image deposits.
 
 Query fields confirmed working inside a collection: `accession` (with `*` wildcard),
 `organism`, `title`, `study_type`, `author`, `type`, boolean `AND`/`OR`/`NOT`, quoted
@@ -466,25 +550,36 @@ phrases. Useful parameters alongside `query`: `pageSize` (caps at 1000), `page`,
 `sortBy=release_date`, `sortOrder=descending`, and top-level filters such as
 `organism=Mus musculus` and `release_date=[2026-01-01 TO 2026-12-31]`. The `facet.*`
 parameters match the metadata value **literally and case-sensitively** —
-`facet.organism=Mus musculus` returns 33 hits, `facet.organism=mus musculus` returns
-zero. Prefer `organism:"…"` inside `query`, which is not case-fragile.
+on `query=cardiac lymphatic` inside ArrayExpress, `facet.organism=Mus musculus` returns
+725 hits and `facet.organism=mus musculus` returns zero. Prefer `organism:"…"` inside
+`query`, which is not case-fragile.
 
 `query=*` returns zero. Use `query=*:*` for a whole-collection sweep. Measured
-2026-08-17 with `*:*`: ArrayExpress 80,759 records, EuropePMC 3,302,748, BioImages
-4,997, SourceData 3,711, BioModels 3,578, JCB 424.
+2026-08-19 with `*:*`, and these do **not** partition the archive — BioImages contains
+the other two: ArrayExpress 80,763, EuropePMC 3,302,748, BioImages 5,007 (of which
+`BioImages-EMPIAR` 3,003 and `JCB` 424, leaving 1,384 `S-BIAD*`), SourceData 3,719,
+BioModels 3,578.
 
 ## How much of ArrayExpress is not in GEO
 
 The point of this archive for a "is there public data for X" question is the part GEO
 does not have, so be precise about the overlap. Exact counts inside the ArrayExpress
-collection, 2026-08-17:
+collection, 2026-08-19:
 
-| family | records | what it is |
-|---|---|---|
-| `E-GEOD-*` | 59,378 | historic imports of GEO series |
-| `E-MTAB-*` | 15,123 | direct submissions to ArrayExpress |
-| `E-ERAD-*` | 304 | ENA/Sanger-routed submissions |
-| `E-PROT-*` | 5 | proteomics |
+| family | records | released | what it is |
+|---|---|---|---|
+| `E-GEOD-*` | 59,378 | 2001–2023 | historic imports of GEO series |
+| `E-MTAB-*` | 15,127 | 2008–today | direct submissions to ArrayExpress |
+| `E-MEXP-*` | 3,665 | 2002–2024 | MIAMExpress-era direct submissions |
+| `E-TABM-*` | 1,128 | 2004–2022 | early MAGE-TAB direct submissions |
+| `E-SMDB-*` | 338 | 2003–2013 | Stanford Microarray Database imports |
+| `E-ERAD-*` | 304 | 2011–2026 | ENA/Sanger-routed submissions |
+| ~34 more | 823 | 2002–2025 | `E-TIGR-` 125, `E-BUGS-` 111, `E-CAGE-` 60, `E-NASC-` 59, `E-PROT-` 5, … |
+
+**`E-GEOD` + `E-MTAB` is 74,505 of 80,763 — 6,258 records sit in families neither name
+covers**, and `E-MEXP-*` and `E-TABM-*` in particular are direct deposits, not GEO
+mirrors. Each of those counts is an exact `accession:{family}*` field query, and the
+`E-MTAB-*` figure moves within a day.
 
 So most of the collection *is* GEO, mirrored years ago — and a bare `GSE16908` free-text
 search still resolves to `E-GEOD-16908`, whose record links back to the GEO accession.
@@ -492,16 +587,23 @@ But that mirroring has stopped: the newest `E-GEOD-*` release dates observed wer
 with a single 2023 outlier, while `E-MTAB-*` accessions were released on the day of
 checking. `GSE250000` has no ArrayExpress import.
 
-The consequence for triage: the ~15k `E-MTAB-*` records are the genuinely
-non-overlapping half, and they are also the actively growing half. Searching
-`accession:E-MTAB* AND <your terms>` inside the collection is the query that answers
-"what is here that GEO does not have" — 29 records for `lymphatic`, against 97 for the
-`E-GEOD-*` imports.
+The consequence for triage: everything that is not `E-GEOD-*` is the genuinely
+non-overlapping part — 21,385 records, of which `E-MTAB-*` is the actively growing
+three quarters. `accession:E-MTAB* AND <your terms>` is the query for what GEO does not
+have *and is still receiving* — 29 records for `lymphatic`, against 97 for the
+`E-GEOD-*` imports — while `*:* NOT accession:E-GEOD*` is the query for the whole of
+it. Note the `*:*`: a bare `NOT accession:E-GEOD*` returns **zero**, because the parser
+needs a positive clause to subtract from and does not say so. The older families are
+microarray-era and small, which is why they are easy to forget and also why forgetting
+them costs little for recent work.
 
 ## Listing files
 
-`/files` is a flat, denormalised list, so the tree above is not needed to find data. Two
-defaults will silently lose files.
+`/files` is a flat, denormalised list, so the tree above is not needed to find data — it
+expands the separate `File List` JSONs that BioImages deposits reference, and it reaches
+subsections the study record only summarises. Checked against 17 records across seven
+collections, its count equalled `/info`'s `files` every time. Four defaults around it
+will silently lose data.
 
 ```python
 import json, urllib.request
@@ -516,74 +618,107 @@ def file_page(accession, offset=0, limit=PAGE, timeout=120):
         return json.loads(r.read())
 
 
-def file_list(accession, cap=100_000):
-    """The endpoint defaults to limit=25 and silently truncates. Page it."""
-    first = file_page(accession)
-    total = first["pagination"]["total"]
-    items = list(first["items"])
-    while len(items) < min(total, cap):
-        nxt = file_page(accession, offset=len(items))["items"]
-        if not nxt:
+def study_info(accession, timeout=60):
+    """`/info` answers 200 with `{}` for an accession that does not exist."""
+    with urllib.request.urlopen(f"{API}/studies/{accession}/info", timeout=timeout) as r:
+        info = json.loads(r.read())
+    if "files" not in info:
+        raise LookupError(f"{accession}: no such released study — /info returned {{}}")
+    return info
+
+
+def file_list(accession, cap=None):
+    """Page against the declared count. Three defaults lose data silently.
+
+    /files answers 200 with total 0 for an accession that does not exist, so a
+    typo or an embargo reads as a study with no files — go through /info, which
+    at least returns {}. The default page is 25. And an offset past the end
+    returns the LAST page again rather than an empty one, so a loop that stops
+    on an empty page never stops.
+    """
+    total = study_info(accession)["files"]
+    items, seen = [], set()
+    while len(items) < (min(total, cap) if cap else total):
+        page = file_page(accession, offset=len(items))["items"]
+        fresh = [i for i in page if i["path"] not in seen]
+        if not fresh:
             break
-        items += nxt
+        seen.update(i["path"] for i in fresh)
+        items += fresh
+    if cap is None and len(items) != total:
+        raise RuntimeError(f"{accession}: listed {len(items)} of {total} declared")
     return items, total
 
 
-def study_info(accession, timeout=60):
-    with urllib.request.urlopen(f"{API}/studies/{accession}/info", timeout=timeout) as r:
-        return json.loads(r.read())
-
-
 print("the default is 25 items — always check pagination.total")
-d = file_page("S-BIAD2193", limit=25)
-print(f"  limit=25   -> {len(d['items'])} of {d['pagination']['total']}")
-d = file_page("S-BIAD2193", limit=1000)
-print(f"  limit=1000 -> {len(d['items'])} of {d['pagination']['total']}")
-d = file_page("S-BIAD2193", limit=2000)
-print(f"  limit=2000 -> {len(d['items'])} items, total reported {d['pagination']['total']}"
-      "   <- over the cap, silently empty")
+for limit in (25, 1000, 2000):
+    d = file_page("S-BIAD2193", limit=limit)
+    note = "   <- over the cap, silently empty" if limit > PAGE else ""
+    print(f"  limit={limit:<5} -> {len(d['items'])} of {d['pagination']['total']}{note}")
+d = file_page("S-BIAD1069", offset=4_715_142)
+print(f"  offset past the end -> {len(d['items'])} items, not 0"
+      "   <- the last page, repeated")
 print()
 
-for acc in ("E-MTAB-17485", "E-MTAB-17510", "S-BIAD2193"):
+print("a nonexistent accession is 200 and an empty list, not a 404")
+for acc in ("E-MTAB-17485", "E-MTAB-99999999", "e-mtab-17485"):
+    d = file_page(acc)
+    try:
+        declared = study_info(acc)["files"]
+    except LookupError:
+        declared = "LookupError"
+    print(f"  {acc:18} /files total={d['pagination']['total']:<4} /info -> {declared}")
+print()
+
+for acc in ("E-MTAB-17485", "S-BIAD2193", "S-BIAD1500", "EMPIAR-13332", "S-BIAD4"):
     items, total = file_list(acc)
     info = study_info(acc)
-    files = [i for i in items if i.get("isDirectory") == "false"]
-    size = sum(i["Size"] for i in files)
-    print(f"{acc}  info.files={info['files']}  listed={len(items)}/{total}  {size / 1e9:.2f} GB")
-    for i in files[:3]:
-        print(f"    {i['Size']:>14,} B  {i.get('Type') or i.get('Description') or '-':<15} {i['path']}")
-    if len(files) > 3:
-        print(f"    … {len(files) - 3} more")
+    zipped = [i for i in items if i.get("isDirectory") == "true"]
+    size = sum(i["Size"] for i in items)
+    print(f"{acc:14} info.files={info['files']:<6} listed={len(items)}/{total:<6} "
+          f"{size / 1e9:.2f} GB  zipped-folder entries={len(zipped)}")
+    for i in items[:2]:
+        print(f"    {i['Size']:>14,} B  dir={i.get('isDirectory'):5} "
+              f"{i.get('Type') or i.get('Description') or '-':<15} {i['path'][:44]}")
+    if len(items) > 2:
+        print(f"    … {len(items) - 2} more")
     print(f"    mirror {info['httpLink']}")
-    print()
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-19:
 
 ```
 the default is 25 items — always check pagination.total
-  limit=25   -> 25 of 549
-  limit=1000 -> 549 of 549
-  limit=2000 -> 0 items, total reported 0   <- over the cap, silently empty
+  limit=25    -> 25 of 549
+  limit=1000  -> 549 of 549
+  limit=2000  -> 0 of 0   <- over the cap, silently empty
+  offset past the end -> 142 items, not 0   <- the last page, repeated
 
-E-MTAB-17485  info.files=3  listed=3/3  0.00 GB
-         2,480,580 B  Processed Data  DESeq2_DEG_analysis_filter50Reads.tsv
-             6,964 B  IDF File        E-MTAB-17485.idf.txt
-            16,885 B  SDRF File       E-MTAB-17485.sdrf.txt
+a nonexistent accession is 200 and an empty list, not a 404
+  E-MTAB-17485       /files total=3    /info -> 3
+  E-MTAB-99999999    /files total=0    /info -> LookupError
+  e-mtab-17485       /files total=0    /info -> LookupError
+
+E-MTAB-17485   info.files=3      listed=3/3      0.00 GB  zipped-folder entries=0
+         2,480,580 B  dir=false Processed Data  DESeq2_DEG_analysis_filter50Reads.tsv
+             6,964 B  dir=false IDF File        E-MTAB-17485.idf.txt
+    … 1 more
     mirror https://ftp.ebi.ac.uk/pub/databases/biostudies/E-MTAB-/485/E-MTAB-17485
-
-E-MTAB-17510  info.files=3  listed=3/3  2.21 GB
-     2,208,060,569 B  Processed Data  scRNA_HamzaLukas_detailedAnnotation_300425.h5ad
-             9,499 B  IDF File        E-MTAB-17510.idf.txt
-            41,107 B  SDRF File       E-MTAB-17510.sdrf.txt
-    mirror https://ftp.ebi.ac.uk/pub/databases/biostudies/E-MTAB-/510/E-MTAB-17510
-
-S-BIAD2193  info.files=549  listed=549/549  2.02 GB
-         3,690,492 B  -               img_training/mtec12/7.tif
-         3,690,492 B  -               img_training/mtec12/1.tif
-         3,690,492 B  -               img_training/mtec12/27.tif
-    … 546 more
+S-BIAD2193     info.files=549    listed=549/549    2.02 GB  zipped-folder entries=0
+         3,690,492 B  dir=false -               img_training/mtec12/7.tif
+         3,690,492 B  dir=false -               img_training/mtec12/1.tif
+    … 547 more
     mirror https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/193/S-BIAD2193
+S-BIAD1500     info.files=1      listed=1/1      0.00 GB  zipped-folder entries=1
+           329,519 B  dir=true  -               README.zip
+    mirror https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/500/S-BIAD1500
+EMPIAR-13332   info.files=0      listed=0/0      0.00 GB  zipped-folder entries=0
+    mirror https://ftp.ebi.ac.uk/biostudies/fire/EMPIAR-/332/EMPIAR-13332
+S-BIAD4        info.files=19988  listed=19988/19988  1.78 GB  zipped-folder entries=0
+         2,651,128 B  dir=false -               S-BIAD4/MappedOPT/ADM.nii
+         5,828,214 B  dir=false -               S-BIAD4/MappedOPT/DRAXIN.nii
+    … 19986 more
+    mirror https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/S-BIAD0-99/S-BIAD4
 ```
 
 - **The default page size is 25**, and the parameter is `limit`/`offset` — *not* the
@@ -591,11 +726,37 @@ S-BIAD2193  info.files=549  listed=549/549  2.02 GB
   and returns 25 items with no warning. `S-BIAD2193` declares 549 files; the naive
   request returns 25 of them.
 - **`limit` caps at 1000, and exceeding it returns an empty list with `total: 0`** rather
-  than an error. Some deposits are enormous — BioImages studies with 11 million files
-  exist — so paging by `offset` against `pagination.total` is the only correct approach.
+  than an error — which for a study that genuinely has no files is the same response, so
+  the cap and an empty deposit are indistinguishable from the reply alone.
+- **`offset` is a page index in disguise — it is floored to a multiple of `limit`.**
+  `limit=1000&offset=500` on `S-BIAD2193` returns 549 items *starting at global index 0*,
+  not at 500. Any window that is not page-aligned silently returns a different slice than
+  you asked for, with HTTP 200. This skill's pagers always step by a full `limit`, so they
+  are safe; resuming from a partial count is not.
+- **An offset past the end returns the last page again, not an empty page.** `S-BIAD1069`
+  declares 4,715,142 files, and `offset=4715142` answers with 142 items — the same tail
+  `offset=4715000` returns. That is the flooring rule at the boundary.
+  A naive `while True: ... if not page: break` pager does **not** hang here: advancing by
+  `len(page)` walks off the aligned grid and it terminates after 8 extra requests, having
+  appended 994 duplicate rows. The damage is silent duplication, not a hang — and the
+  pathological case is the *smallest* deposits, not the largest: `S-BIAD1500` holds one
+  file and that pager issues roughly a thousand requests before stopping. Terminate on
+  `pagination.total`, not on an empty response, and dedupe on `path`.
+- **A suppressed record answers 403 on `/studies` and `/info` while `/files` still answers
+  200.** `S-BIAD1499` is one. The helpers special-case 404 only, so a 403 propagates as a
+  raw `HTTPError` and kills a loop over a list of accessions instead of raising the
+  `LookupError` the rest of the skill promises. Catch both.
+- **`isDirectory: "true"` is a zipped folder, and it is often the whole deposit.** It
+  carries a real `Size` and is usually fetchable. Sampled across 60 BioImages and S-BSST
+  studies, three had such entries — `S-BIAD1500`, `S-BSST1197`, `S-BSST225` — and in each
+  *every* entry was one, so a filter of `isDirectory == "false"` returns nothing at all
+  for them. **Do not read that as the shape: mixed deposits exist and are common** —
+  `S-BIAD617` is 65 of 67 and `S-BIAD662` is 1 of 114 — so filtering on the flag drops an
+  arbitrary fraction rather than everything, which is harder to notice. Do not treat the
+  flag as "skip this" in either case.
 - `Size` in the listing is the declared size. Read it *before* fetching: the mouse
-  companion study `E-MTAB-17510` is one 2.2 GB `.h5ad`, which is not something to start
-  downloading by accident.
+  companion study `E-MTAB-17510` is one 2.2 GB `.h5ad`, and `S-BSST3223` is four zips
+  totalling 33 GB — neither is something to start downloading by accident.
 - `path` may contain subdirectories (`img_training/mtec12/7.tif`), so percent-encode it
   and recreate the directories locally.
 
@@ -606,13 +767,10 @@ release they are, because BioStudies deposits are versioned by re-release and a 
 directory of TSVs cannot be compared against a later fetch.
 
 ```python
-import json, os, urllib.parse, urllib.request
+import json, os, urllib.error, urllib.parse, urllib.request
 
 API = "https://www.ebi.ac.uk/biostudies/api/v1"
 FILES = "https://www.ebi.ac.uk/biostudies/files"     # NOT under /api/v1/
-
-ACC = "E-MTAB-17485"
-OUT = f"Data/biostudies/{ACC}"
 MAX_BYTES = 500_000_000            # per file; raise deliberately, not by accident
 
 
@@ -621,94 +779,147 @@ def get_json(url, timeout=120):
         return json.loads(r.read())
 
 
+def study_info(accession):
+    """200 with `{}` is this endpoint's answer for an accession that isn't there."""
+    info = get_json(f"{API}/studies/{accession}/info")
+    if "files" not in info:
+        raise LookupError(f"{accession}: no such released study — /info returned {{}}")
+    return info
+
+
 def all_files(accession):
-    """limit caps at 1000 and defaults to 25 — page against pagination.total."""
-    items, total = [], None
-    while total is None or len(items) < total:
-        d = get_json(f"{API}/studies/{accession}/files?limit=1000&offset={len(items)}")
-        total = d["pagination"]["total"]
-        if not d["items"]:
+    """Page against the declared count. An offset past the end repeats the LAST
+    page instead of returning nothing, so dedupe on path and stop on `total`."""
+    total = study_info(accession)["files"]
+    items, seen = [], set()
+    while len(items) < total:
+        page = get_json(f"{API}/studies/{accession}/files"
+                        f"?limit=1000&offset={len(items)}")["items"]
+        fresh = [i for i in page if i["path"] not in seen]
+        if not fresh:
             break
-        items += d["items"]
+        seen.update(i["path"] for i in fresh)
+        items += fresh
+    if len(items) != total:
+        raise RuntimeError(f"{accession}: listed {len(items)} of {total} declared")
     return items
 
 
-os.makedirs(OUT, exist_ok=True)
-study = get_json(f"{API}/studies/{ACC}")
-info = get_json(f"{API}/studies/{ACC}/info")
-top = {a["name"]: a["value"] for a in study.get("attributes") or []}
+def attr(node, name):
+    """Title sits on the envelope for some collections and in the Study section
+    for others; ReleaseDate is absent from a few. Try both, expect neither."""
+    return next((a.get("value") for a in node.get("attributes") or []
+                 if a["name"] == name), None)
 
-manifest, skipped = [], []
-for it in all_files(ACC):
-    if it.get("isDirectory") == "true":
-        continue
-    if it["Size"] > MAX_BYTES:
-        skipped.append(it)
-        print(f"  skip {it['Size']:>15,} B  {it['path']}  (over MAX_BYTES)")
-        continue
-    # Quote the path: subdirectories and spaces both occur in real deposits.
-    url = f"{FILES}/{ACC}/{urllib.parse.quote(it['path'])}"
-    dest = os.path.join(OUT, it["path"])
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    urllib.request.urlretrieve(url, dest)          # follows the 302 to the mirror
-    got = os.path.getsize(dest)
-    manifest.append({"path": it["path"], "url": url, "bytes": got,
-                     "declared": it["Size"], "size_ok": got == it["Size"],
-                     "section": it.get("Section"), "type": it.get("Type"),
-                     "format": it.get("Format")})
-    print(f"  {'ok  ' if got == it['Size'] else 'SIZE'} {got:>15,} B  "
-          f"{it.get('Type') or it.get('Description') or '-':<15} {dest}")
 
-meta = {"accession": ACC,
-        "collection": top.get("AttachTo"),
-        "release_date": top.get("ReleaseDate"),
-        "title": next((a["value"] for a in study["section"]["attributes"]
-                       if a["name"] == "Title"), None),
-        "record": f"{API}/studies/{ACC}",
-        "mirror": info["httpLink"],
-        "files_declared": info["files"],
-        "files_downloaded": len(manifest),
-        "files_skipped": [s["path"] for s in skipped]}
-meta["files"] = manifest
-with open(os.path.join(OUT, "manifest.json"), "w") as fh:
-    json.dump(meta, fh, indent=2)
+def fetch(accession, path, dest, mirror):
+    """`/biostudies/files/` 404s on paths with non-ASCII characters, under every
+    encoding. The FTP mirror serves the same bytes. Try it before giving up."""
+    quoted = urllib.parse.quote(path)     # subdirectories and spaces both occur
+    last = None
+    for url in (f"{FILES}/{accession}/{quoted}", f"{mirror}/Files/{quoted}"):
+        try:
+            urllib.request.urlretrieve(url, dest)   # follows the 302 to the mirror
+            return url
+        except urllib.error.HTTPError as e:
+            last = f"HTTP {e.code} on {url}"
+    raise RuntimeError(f"{accession}: {path} unfetchable — {last}")
 
-print()
-print(f"{len(manifest)} files, {sum(m['bytes'] for m in manifest):,} B, "
-      f"all sizes match declared = {all(m['size_ok'] for m in manifest)}")
-print(f"collection {meta['collection']} · released {meta['release_date']}")
-print(f"manifest -> {OUT}/manifest.json")
-print()
-print("on disk:")
-for root, _, names in os.walk(OUT):
-    for n in sorted(names):
-        p = os.path.join(root, n)
-        print(f"  {os.path.getsize(p):>12,} B  {p}")
+
+def harvest(ACC, OUT=None):
+    OUT = OUT or f"Data/biostudies/{ACC}"
+    os.makedirs(OUT, exist_ok=True)
+    study = get_json(f"{API}/studies/{ACC}")
+    info = study_info(ACC)
+
+    manifest, skipped, failed = [], [], []
+    for it in all_files(ACC):
+        # NOTE there is no isDirectory filter here. `isDirectory: "true"` marks a
+        # ZIPPED FOLDER holding real bytes, and on some deposits it is every entry
+        # — skipping it is how a harvest returns nothing and prints success.
+        if it["Size"] > MAX_BYTES:
+            skipped.append(it)
+            print(f"  skip {it['Size']:>15,} B  {it['path']}  (over MAX_BYTES)")
+            continue
+        dest = os.path.join(OUT, it["path"])
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        try:
+            url = fetch(ACC, it["path"], dest, info["httpLink"])
+        except RuntimeError as e:
+            failed.append(it["path"])
+            print(f"  FAIL {it['Size']:>15,} B  {e}")
+            continue
+        got = os.path.getsize(dest)
+        manifest.append({"path": it["path"], "url": url, "bytes": got,
+                         "declared": it["Size"], "size_ok": got == it["Size"],
+                         "zipped_folder": it.get("isDirectory") == "true",
+                         "section": it.get("Section"), "type": it.get("Type")})
+        print(f"  {'ok  ' if got == it['Size'] else 'SIZE'} {got:>15,} B  "
+              f"{it.get('Type') or it.get('Description') or '-':<15} {dest}")
+
+    meta = {"accession": ACC,
+            "collection": attr(study, "AttachTo"),
+            "release_date": (attr(study, "ReleaseDate")
+                             or attr(study["section"], "ReleaseDate")),
+            "title": attr(study, "Title") or attr(study["section"], "Title"),
+            "record": f"{API}/studies/{ACC}",
+            "mirror": info["httpLink"],
+            "files_declared": info["files"],
+            "files_downloaded": len(manifest),
+            "files_skipped": [s["path"] for s in skipped],
+            "files_failed": failed}
+    meta["files"] = manifest
+    with open(os.path.join(OUT, "manifest.json"), "w") as fh:
+        json.dump(meta, fh, indent=2)
+    # Every declared file is accounted for as fetched, skipped or failed. Without
+    # this the summary below reads "all sizes match declared = True" on zero files.
+    assert len(manifest) + len(skipped) + len(failed) == info["files"]
+    return meta, manifest
+
+
+for ACC in ("E-MTAB-17485", "S-BSST717", "S-BIAD1500"):
+    meta, manifest = harvest(ACC)
+    print(f"{ACC}: {len(manifest)} of {meta['files_declared']} declared, "
+          f"{sum(m['bytes'] for m in manifest):,} B, "
+          f"sizes match = {all(m['size_ok'] for m in manifest)}, "
+          f"failed = {meta['files_failed']}")
+    print(f"  collection {meta['collection']} · released {meta['release_date']}")
+    print(f"  title  {str(meta['title'])[:66]}")
+    print(f"  via    {[m['url'].split('/')[2] for m in manifest]}")
+    print()
 ```
 
-Run 2026-08-17:
+Run 2026-08-19, two long paths wrapped:
 
 ```
   ok         2,480,580 B  Processed Data  Data/biostudies/E-MTAB-17485/DESeq2_DEG_analysis_filter50Reads.tsv
   ok             6,964 B  IDF File        Data/biostudies/E-MTAB-17485/E-MTAB-17485.idf.txt
   ok            16,885 B  SDRF File       Data/biostudies/E-MTAB-17485/E-MTAB-17485.sdrf.txt
+E-MTAB-17485: 3 of 3 declared, 2,504,429 B, sizes match = True, failed = []
+  collection ArrayExpress · released 2026-08-03
+  title  Age-Associated Loss of Lymphatic Vessels Promotes Cardiac Inflamma
+  via    ['www.ebi.ac.uk', 'www.ebi.ac.uk', 'www.ebi.ac.uk']
 
-3 files, 2,504,429 B, all sizes match declared = True
-collection ArrayExpress · released 2026-08-03
-manifest -> Data/biostudies/E-MTAB-17485/manifest.json
+  ok         1,531,202 B  Dados do experimento Data/biostudies/S-BSST717/PEREIRA,
+    Ricardo Aparecido. Efeitos do tratamento do extrato metanólico de …pdf
+S-BSST717: 1 of 1 declared, 1,531,202 B, sizes match = True, failed = []
+  collection None · released 2014-01-01
+  title  Efeitos do tratamento do extrato metanólico de Baccharis dracuncul
+  via    ['ftp.ebi.ac.uk']
 
-on disk:
-     2,480,580 B  Data/biostudies/E-MTAB-17485/DESeq2_DEG_analysis_filter50Reads.tsv
-         6,964 B  Data/biostudies/E-MTAB-17485/E-MTAB-17485.idf.txt
-        16,885 B  Data/biostudies/E-MTAB-17485/E-MTAB-17485.sdrf.txt
-         1,391 B  Data/biostudies/E-MTAB-17485/manifest.json
+  FAIL         329,519 B  S-BIAD1500: README.zip unfetchable — HTTP 404 on
+    https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/500/S-BIAD1500/Files/README.zip
+S-BIAD1500: 0 of 1 declared, 0 B, sizes match = True, failed = ['README.zip']
+  collection BioImages · released 2024-12-03
+  title  Cell-autonomous timing drives the vertebrate segmentation clock’s
+  via    []
 ```
 
 What `E-MTAB-17485` actually exposes, in full: one 2.4 MB processed table
 (`DESeq2_DEG_analysis_filter50Reads.tsv`) and the two MAGE-TAB files. That is 2.5 MB
 total. The 18 GB of FASTQ is not here — see below.
 
-Read the processed file before believing its name. Inspected 2026-08-17, that table is
+Read the processed file before believing its name. Inspected 2026-08-19, that table is
 11,689 rows by 16 columns — an unnamed Ensembl gene ID index, **eight** normalised count
 columns (`Stuffer_Control_1_S1` … `cMAF_OE_8_S8`), then `gene_id`, `gene_name`, `chr`,
 `start`, `end`, `strand`, `gene_biotype`. Despite `DESeq2_DEG_analysis` in the filename
@@ -726,6 +937,16 @@ FTP mirror, and a redirect not followed writes a plausible-looking short file. T
 bytes are also at `{httpLink}/Files/{path}` on `ftp.ebi.ac.uk`, which is the route to
 prefer for bulk work; note the `/Files/` segment, which `httpLink` itself omits.
 
+**The two routes are not interchangeable, and the API one is the weaker.** Checked on
+the smallest file of each of 13 studies, they returned identical byte counts everywhere
+except `S-BSST717`, whose only file is a PDF with a Portuguese title — accents and a
+comma. `https://www.ebi.ac.uk/biostudies/files/S-BSST717/…` answers **404 with a 14 KB
+HTML page** under every encoding tried (`quote`, `quote_plus`, NFC, NFD, raw), while
+`{httpLink}/Files/…` serves the 1,531,202 bytes correctly from NFC plus
+percent-encoding. Two consequences: `urlretrieve` raises and takes the whole harvest
+with it unless you catch it and fall through to the mirror, and `curl -sSL -o` without
+`-f` writes that HTML page into a file named like the data. Use `curl -fsSL`.
+
 ## The MAGE-TAB pair, and where the raw reads are
 
 Every ArrayExpress deposit carries two tab-delimited files. The **IDF** is the
@@ -733,144 +954,188 @@ investigation header — title, contacts, protocol text, publication references.
 **SDRF** is the sample and data relationship table, and it is the only place the
 per-sample design exists in full. The JSON `Samples` section is a summary of it.
 
-```python
-import csv, json, urllib.error, urllib.request
+**Nothing about the column names is stable, and most of the collection has no runs.**
+`Comment[ENA_RUN]` in one deposit is `Comment [ENA_RUN]` in the next, `Factor Value[x]`
+is `FactorValue [x]`, `Characteristics[organism]` is `Characteristics [Organism]` — and
+`E-GEOD-129166` uses `Comment[Sample_title]` and `Comment [ArrayExpress FTP file]` in
+the same header row. Normalise before matching. Then remember that 59,378 of the 80,763
+records are microarray-era: there is no run column at all, and no ENA link.
 
-ACC = "E-MTAB-17485"
-SDRF = f"Data/biostudies/{ACC}/{ACC}.sdrf.txt"
+```python
+import csv, json, re, urllib.parse, urllib.request
+
+BS = "https://www.ebi.ac.uk/biostudies"
 ENA = "https://www.ebi.ac.uk/ena/portal/api/filereport"
 
-with open(SDRF) as fh:
-    rows = list(csv.DictReader(fh, delimiter="\t"))
 
-# One row per data FILE, not per sample: paired-end gives two rows per run.
-runs = {}
-for r in rows:
-    runs.setdefault(r["Comment[ENA_RUN]"], r)
-print(f"{len(rows)} SDRF rows -> {len(runs)} sequencing runs")
-print()
+def key(c):
+    """MAGE-TAB column names are NOT stable. Normalise before matching."""
+    return re.sub(r"\s+", "", c).lower()
 
-factor = [c for c in rows[0] if c.startswith("Factor Value")]
-chars = [c for c in rows[0] if c.startswith("Characteristics")]
-print("the design table the study section only summarises")
-print(f"  {'run':14} {'sample':10} {'factor':10} {'organism':13} part")
-for run, r in sorted(runs.items())[:6]:
-    print(f"  {run:14} {r['Source Name']:10} {r[factor[0]]:10} "
-          f"{r['Characteristics[organism]']:13} {r['Characteristics[organism part]']}")
-print(f"  … {len(runs) - 6} more")
-print()
-print("factor column :", factor)
-print("characteristics:", [c[16:-1] for c in chars])
-print()
 
-# Do NOT trust Comment[FASTQ_URI]. Resolve the runs through ENA instead.
-bad = 0
-for run, r in list(runs.items())[:3]:
-    uri = r.get("Comment[FASTQ_URI]", "")
-    https = "https://" + uri.split("://", 1)[1] if "://" in uri else uri
-    try:
-        code = urllib.request.urlopen(
-            urllib.request.Request(https, method="HEAD"), timeout=45).status
-    except urllib.error.HTTPError as e:
-        code = e.code
-        bad += 1
-    print(f"  SDRF Comment[FASTQ_URI] -> HTTP {code}  {uri}")
-print(f"  {bad} of 3 sampled URIs did not resolve")
-print()
+def col(row, *wanted):
+    want = {key(w) for w in wanted}
+    return next((c for c in row if key(c) in want), None)
 
-# The study section's links entry is the authoritative pointer to raw reads.
-study = json.loads(urllib.request.urlopen(
-    f"https://www.ebi.ac.uk/biostudies/api/v1/studies/{ACC}", timeout=60).read())
-links = []
-for item in study["section"].get("links") or []:
-    links.extend(item if isinstance(item, list) else [item])
-ena = [l["url"] for l in links
-       if any(a["name"] == "Type" and a["value"] == "ENA" for a in l.get("attributes") or [])]
-print("ENA study accession from the record's links:", ena)
 
-fields = "run_accession,sample_title,library_layout,read_count,fastq_ftp,fastq_bytes,fastq_md5"
-url = f"{ENA}?accession={ena[0]}&result=read_run&format=tsv&fields={fields}"
-tsv = urllib.request.urlopen(url, timeout=90).read().decode()
-# ENA does not promise a row order — sort, or "the first run" differs between calls.
-ena_rows = sorted(csv.DictReader(tsv.splitlines(), delimiter="\t"),
-                  key=lambda r: r["run_accession"])
-print(f"{len(ena_rows)} runs in {ena[0]}")
-total = 0
-for r in ena_rows[:3]:
-    urls = ["https://" + u for u in r["fastq_ftp"].split(";")]
-    sizes = [int(b) for b in r["fastq_bytes"].split(";")]
-    total += sum(sizes)
-    print(f"  {r['run_accession']:13} {r['sample_title']:10} {r['library_layout']:7} "
-          f"{int(r['read_count']):>11,} reads  {sum(sizes) / 1e9:.2f} GB")
-    print(f"    {urls[0]}")
-allsize = sum(sum(int(b) for b in r["fastq_bytes"].split(";")) for r in ena_rows)
-print(f"  … {len(ena_rows) - 3} more · {allsize / 1e9:.1f} GB of FASTQ in total")
+def cols_like(row, prefix):
+    return [c for c in row if key(c).startswith(key(prefix))]
 
-head = urllib.request.urlopen(urllib.request.Request(
-    "https://" + ena_rows[0]["fastq_ftp"].split(";")[0], method="HEAD"), timeout=60)
-print(f"\n  HEAD first FASTQ -> HTTP {head.status}, "
-      f"{int(head.headers['Content-Length']):,} bytes")
+
+def sdrf(acc):
+    url = f"{BS}/files/{acc}/{urllib.parse.quote(acc)}.sdrf.txt"
+    with urllib.request.urlopen(url, timeout=90) as r:
+        return list(csv.DictReader(r.read().decode("utf-8", "replace").splitlines(),
+                                   delimiter="\t"))
+
+
+def ena_link(acc):
+    with urllib.request.urlopen(f"{BS}/api/v1/studies/{acc}", timeout=60) as r:
+        study = json.loads(r.read())
+    links = []
+    for item in study["section"].get("links") or []:
+        links.extend(item if isinstance(item, list) else [item])
+    return next((l["url"] for l in links
+                 if any(a["name"] == "Type" and a["value"] == "ENA"
+                        for a in l.get("attributes") or [])), None)
+
+
+def ena_runs(study_acc):
+    """200 with a header row and nothing under it is ENA's answer for a study with
+    no runs. It is an empty result, not an error, and `rows[0]` is an IndexError."""
+    fields = ("run_accession,sample_title,library_layout,read_count,"
+              "fastq_ftp,fastq_bytes,fastq_md5,submitted_ftp,submitted_bytes")
+    url = f"{ENA}?accession={study_acc}&result=read_run&format=tsv&fields={fields}"
+    with urllib.request.urlopen(url, timeout=90) as r:
+        tsv = r.read().decode()
+    # ENA does not promise a row order — sort, or "the first run" moves between calls.
+    return sorted(csv.DictReader(tsv.splitlines(), delimiter="\t"),
+                  key=lambda x: x["run_accession"])
+
+
+def reads(run):
+    """`fastq_*` is empty when ENA never normalised the submission; the bytes are
+    then only under `submitted_*`. int("") is a ValueError that kills the budget."""
+    for f, b in (("fastq_ftp", "fastq_bytes"), ("submitted_ftp", "submitted_bytes")):
+        if run.get(f) and run.get(b):
+            return ([f"https://{u}" for u in run[f].split(";")],
+                    [int(x) for x in run[b].split(";")], f.split("_")[0])
+    return [], [], None
+
+
+for ACC in ("E-MTAB-17485", "E-MTAB-17510", "E-ERAD-0", "E-GEOD-129166"):
+    rows = sdrf(ACC)
+    run_col = col(rows[0], "Comment[ENA_RUN]")
+    org_col = col(rows[0], "Characteristics[organism]")
+    factors = cols_like(rows[0], "FactorValue")
+    runs = {r[run_col] for r in rows} if run_col else set()
+
+    print(f"{ACC}  {len(rows)} SDRF rows")
+    print(f"  run column     {run_col!r}")
+    print(f"  organism col   {org_col!r}")
+    print(f"  factor columns {[c for c in factors]}")
+    print(f"  runs in SDRF   {len(runs)}"
+          + ("" if run_col else "   <- array study: no sequencing runs at all"))
+
+    study = ena_link(ACC)
+    if not study:
+        arr = col(rows[0], "Array Design REF")
+        print(f"  no ENA link — hybridisations, not runs; array {rows[0].get(arr)}\n")
+        continue
+
+    got = ena_runs(study)
+    print(f"  ENA {study:12} {len(got)} runs")
+    if not got:
+        print("    ENA returned an empty table for a study the record links to\n")
+        continue
+    missing = runs - {r["run_accession"] for r in got}
+    if missing:
+        print(f"    in SDRF but NOT in ENA: {sorted(missing)}")
+    urls, sizes, src = reads(got[0])
+    total = sum(sum(reads(r)[1]) for r in got)
+    print(f"    first run {got[0]['run_accession']}  {got[0]['library_layout']}  "
+          f"reads via {src}  {sum(sizes) / 1e9:.2f} GB")
+    print(f"    {urls[0] if urls else '-'}")
+    print(f"    {total / 1e9:.1f} GB across {len(got)} runs\n")
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-19:
 
 ```
-24 SDRF rows -> 12 sequencing runs
-
-the design table the study section only summarises
-  run            sample     factor     organism      part
-  ERR17675096    Sample 1   cMAF_OE    Homo sapiens  dermis
-  ERR17675097    Sample 10  Control    Homo sapiens  dermis
-  ERR17675098    Sample 11  Control    Homo sapiens  dermis
-  ERR17675099    Sample 12  Control    Homo sapiens  dermis
-  ERR17675100    Sample 2   cMAF_OE    Homo sapiens  dermis
-  ERR17675101    Sample 3   cMAF_OE    Homo sapiens  dermis
-  … 6 more
-
-factor column : ['Factor Value[rna interference]']
-characteristics: ['organism', 'developmental stage', 'genotype', 'organism part', 'cell type', 'cultured cell', 'disease']
-
-  SDRF Comment[FASTQ_URI] -> HTTP 403  ftp://ftp.sra.ebi.ac.uk/vol1/fastqERR176/096/ERR17675096/ERR17675096_1.fastq.gz
-  SDRF Comment[FASTQ_URI] -> HTTP 404  ftp://ftp.sra.ebi.ac.uk/vol1/fastqERR176/097/ERR17675097/ERR17675097_1.fastq.gz
-  SDRF Comment[FASTQ_URI] -> HTTP 404  ftp://ftp.sra.ebi.ac.uk/vol1/fastqERR176/098/ERR17675098/ERR17675098_1.fastq.gz
-  3 of 3 sampled URIs did not resolve
-
-ENA study accession from the record's links: ['ERP203237']
-12 runs in ERP203237
-  ERR17675096   Sample 1   PAIRED   47,291,696 reads  1.40 GB
+E-MTAB-17485  24 SDRF rows
+  run column     'Comment[ENA_RUN]'
+  organism col   'Characteristics[organism]'
+  factor columns ['Factor Value[rna interference]']
+  runs in SDRF   12
+  ENA ERP203237    12 runs
+    first run ERR17675096  PAIRED  reads via fastq  1.40 GB
     https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR176/096/ERR17675096/ERR17675096_1.fastq.gz
-  ERR17675097   Sample 10  PAIRED   58,843,700 reads  1.75 GB
-    https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR176/097/ERR17675097/ERR17675097_1.fastq.gz
-  ERR17675098   Sample 11  PAIRED   55,781,260 reads  1.65 GB
-    https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR176/098/ERR17675098/ERR17675098_1.fastq.gz
-  … 9 more · 18.3 GB of FASTQ in total
+    18.3 GB across 12 runs
 
-  HEAD first FASTQ -> HTTP 200, 701,849,491 bytes
+E-MTAB-17510  55 SDRF rows
+  run column     'Comment[ENA_RUN]'
+  organism col   'Characteristics[organism]'
+  factor columns ['Factor Value[age]']
+  runs in SDRF   15
+  ENA ERP203682    14 runs
+    in SDRF but NOT in ENA: ['ERR17716994']
+    first run ERR17716992  PAIRED  reads via submitted  0.00 GB
+    https://ftp.sra.ebi.ac.uk/vol1/run/ERR177/ERR17716992/105488-007-006_S19_L003_I1_001.fastq.gz
+    405.8 GB across 14 runs
+
+E-ERAD-0  12 SDRF rows
+  run column     'Comment [ENA_RUN]'
+  organism col   'Characteristics[Organism]'
+  factor columns ['FactorValue [phenotype]']
+  runs in SDRF   6
+  ENA ERP000486    0 runs
+    ENA returned an empty table for a study the record links to
+
+E-GEOD-129166  212 SDRF rows
+  run column     None
+  organism col   'Characteristics[organism]'
+  factor columns ['Factor Value[organism part]', 'Factor Value[clinical information]', 'Factor Value[clinical history]']
+  runs in SDRF   0   <- array study: no sequencing runs at all
+  no ENA link — hybridisations, not runs; array A-AFFY-44
 ```
 
-Three things this establishes.
+Five things this establishes. The first four are why the four accessions are there:
+each breaks a step that works on `E-MTAB-17485`.
 
 **BioStudies holds metadata and processed files. Raw reads are in ENA.** The record's
 `section.links` entry with `Type` of `ENA` carries the study accession — `ERP203237`
 here — and the ENA Portal API turns that into per-run FASTQ URLs with byte counts, read
 counts and MD5s. `E-MTAB-17485` is 2.5 MB in BioStudies and 18.3 GB of FASTQ in ENA.
-Budget from `fastq_bytes` before fetching anything.
+Budget before fetching anything — but budget from whichever of `fastq_bytes` and
+`submitted_bytes` is populated.
 
-**`Comment[FASTQ_URI]` in the SDRF is not reliable.** All three sampled URIs for this
-study are missing the path separator after `fastq`, and the FTP host answers 404 or 403
-depending on how far up the bad path it gets. Checked across five
-ArrayExpress studies on 2026-08-17: two of five had first URIs that 404'd
-(`E-MTAB-17485`, `E-MTAB-17510`), three resolved (`E-MTAB-14722`, `E-MTAB-13907`,
-`E-MTAB-11524`), and the working ones use two different ENA layouts
-(`/vol1/fastq/` for ENA-normalised reads, `/vol1/run/` for submitted filenames). Treat
-the column as a hint, verify with a HEAD request, and resolve through the ENA Portal API
-when it fails. `Comment[ENA_RUN]` — the run accession itself — was correct in every case.
+**`fastq_*` is empty whenever ENA never normalised the submission.** Every one of the
+14 runs in `ERP203682` — the mouse companion `E-MTAB-17510`, named two paragraphs down
+— has empty `fastq_ftp`, `fastq_bytes` and `fastq_md5` and `read_count` of `0`. Its
+405.8 GB sits under `submitted_ftp`/`submitted_bytes` in the submitter's own filenames.
+`[int(b) for b in r["fastq_bytes"].split(";")]` raises `ValueError: invalid literal for
+int() with base 10: ''` on it, and a study cited alongside `E-MTAB-17485` in the same
+paper is where that happens.
 
-**The SDRF has one row per data file, not per sample.** 24 rows describe 12 paired-end
-runs. Deduplicate on `Comment[ENA_RUN]` before counting samples or you double every
-group size. Columns follow the MAGE-TAB convention — `Characteristics[...]` for sample
-annotation, `Factor Value[...]` for the experimental variable, `Comment[...]` for
-identifiers and library details.
+**An ENA link in the record does not mean ENA has the runs.** `E-ERAD-0` links to
+`ERP000486`; the Portal API answers HTTP 200 with a header row and no data, for
+`result=read_run`, `result=analysis`, and the `search` endpoint alike. And the reverse
+gap exists too: `E-MTAB-17510`'s SDRF names 15 runs, ENA returns 14, and `ERR17716994`
+is in neither ENA's study listing nor its own run query. Reconcile the two lists and
+say which one you are counting.
+
+**`Comment[FASTQ_URI]` in the SDRF is not reliable.** Checked across five ArrayExpress
+studies on 2026-08-17: two of five had first URIs that 404'd (`E-MTAB-17485`,
+`E-MTAB-17510` — both missing the path separator after `fastq`), three resolved
+(`E-MTAB-14722`, `E-MTAB-13907`, `E-MTAB-11524`), and the working ones use two different
+ENA layouts (`/vol1/fastq/` for ENA-normalised reads, `/vol1/run/` for submitted
+filenames). Treat the column as a hint, verify with a HEAD request, and resolve through
+the ENA Portal API when it fails. The run accession itself was correct in every case.
+
+**The SDRF has one row per data file, not per sample — but not two rows per run.**
+`E-MTAB-17485` is 24 rows over 12 paired-end runs, and it is tempting to read that as
+"paired-end, so double". `E-MTAB-17510` is 55 rows over 15 runs — three or four rows
+each — from 10 `Source Name` values. Deduplicate on the run column; do not divide.
 
 The `E-MTAB-17485` design read off the SDRF: 12 human dermal lymphatic endothelial cell
 samples, paired-end, three arms of four (`Control`, `cMAF_OE`, `IL33_OE`) under a single
@@ -883,14 +1148,19 @@ both accessions.
 
 - **Submitting data.** Deposition goes through the BioStudies submission tool and needs
   an account. This skill is read-only.
-- **Embargoed studies.** A private deposit 404s exactly like a nonexistent one, so this
-  skill cannot distinguish "no such accession" from "not released yet", and there is no
-  anonymous route to an unreleased record. If a paper cites an accession that 404s, ask
-  the authors rather than concluding the data does not exist.
+- **Embargoed studies.** A private deposit 404s on `/studies` exactly like a nonexistent
+  one, so this skill cannot distinguish "no such accession" from "not released yet", and
+  there is no anonymous route to an unreleased record. If a paper cites an accession that
+  404s, ask the authors rather than concluding the data does not exist. What it must not
+  do is ask `/files`, which answers 200 with an empty list for both cases.
 - **Cross-archive resolution.** A `GSE*` that was never mirrored is not here and never
-  will be; go to GEO. Proteomics goes to PRIDE, metabolomics to MetaboLights, EM maps to
-  EMPIAR — none of those are BioStudies collections, and asking for them by that name
-  returns a silent zero.
+  will be; go to GEO. Proteomics goes to PRIDE and metabolomics to MetaboLights —
+  neither is a BioStudies collection, and asking for them by that name returns a silent
+  zero. EM is the exception that looks like the rule: `BioImages-EMPIAR` *is* a
+  collection here and its 3,003 `EMPIAR-*` records resolve, but every one of them
+  declares **zero files**, because it is a metadata stub and the image stacks live in
+  EMPIAR proper. The `/empiar/search` path returns zero — the collection is spelled
+  `BioImages-EMPIAR`.
 - **Reanalysis.** What you get is what the submitter uploaded. Processed files use the
   submitter's pipeline, genome build and normalisation, none of which are harmonised
   across studies, and a study's processed table may not cover its whole design.
@@ -905,14 +1175,19 @@ resolved by the BioStudies study endpoint:
 
     https://www.ebi.ac.uk/biostudies/api/v1/studies/E-MTAB-17485
 
+plus `S-BIAD1500`, a BioImages deposit whose single declared file is a zipped folder:
+
+    https://www.ebi.ac.uk/biostudies/api/v1/studies/S-BIAD1500
+
 BioStudies records are openly available from EMBL-EBI with no account or licence
-acceptance; individual submissions carry the submitter's terms, and this one is public.
-Chosen because it exercises every structural trap at once — nested subsection lists, a
-repeated attribute name, protocols as sibling sections, and raw data held in ENA rather
-than here. Last confirmed reachable 2026-08-17.
+acceptance; individual submissions carry the submitter's terms, and both of these are
+public. `E-MTAB-17485` is here because it exercises every structural trap at once —
+nested subsection lists, a repeated attribute name, protocols as sibling sections, and
+raw data held in ENA rather than here. The rest of the accessions below are here because
+each one broke a technique that worked on it. Last confirmed reachable 2026-08-19.
 
 ```python
-import json, urllib.parse, urllib.request
+import csv, json, re, urllib.error, urllib.parse, urllib.request
 
 API = "https://www.ebi.ac.uk/biostudies/api/v1"
 ACC = "E-MTAB-17485"
@@ -942,6 +1217,10 @@ def walk(sec, path=()):
     yield here, sec
     for child in flatten(sec.get("subsections")):
         yield from walk(child, here)
+
+
+def key(c):
+    return re.sub(r"\s+", "", c).lower()
 
 
 study = j(f"{API}/studies/{ACC}")
@@ -974,12 +1253,72 @@ fl = j(f"{API}/studies/{ACC}/files?limit=1000")
 assert fl["pagination"]["total"] == info["files"] == len(fl["items"])
 assert {i["path"] for i in fl["items"]} >= {f"{ACC}.idf.txt", f"{ACC}.sdrf.txt"}
 
-# 6. Space-separated terms are OR. Confirm AND is a strict subset.
-#    Page to exhaustion -- totalHits under-reports on multi-term queries, so a
-#    single page of the OR result is not the whole set to compare against.
+# --- counter-examples: every one of these broke a technique that worked on ACC ---
+
+# 6. Title is on the ENVELOPE for a bare S-BSST deposit and in the SECTION for a
+#    BioModels one. Reading only `section.attributes` writes a null title.
+bsst = j(f"{API}/studies/S-BSST1")
+assert attrs(bsst).get("Title"), "S-BSST1 carries Title at top level"
+assert "Title" not in attrs(bsst["section"]), "S-BSST1 has no section Title"
+model = j(f"{API}/studies/MODEL6614879888")
+assert "Title" not in attrs(model) and attrs(model["section"])["Title"]
+# ReleaseDate is not guaranteed at all.
+assert "ReleaseDate" not in attrs(j(f"{API}/studies/S-SCDT-EMBOJ-2018-99599"))
+
+# 7. /info and /files answer 200 for an accession that does not exist. Only
+#    /studies 404s, so a typo reads as a released study holding no data.
+for dead in ("E-MTAB-99999999", "e-mtab-17485"):
+    try:
+        j(f"{API}/studies/{dead}")
+        raise AssertionError(f"{dead} should 404")
+    except urllib.error.HTTPError as e:
+        assert e.code == 404
+    assert j(f"{API}/studies/{dead}/info") == {}, "/info no longer returns {}"
+    assert j(f"{API}/studies/{dead}/files")["pagination"]["total"] == 0
+
+# 8. isDirectory "true" is a ZIPPED FOLDER holding the deposit's data, not a
+#    listing artefact. S-BIAD1500 declares one file and it is exactly that, so
+#    `if isDirectory == "true": continue` harvests the study down to nothing.
+one = j(f"{API}/studies/S-BIAD1500/files?limit=1000")
+assert one["pagination"]["total"] == 1
+assert one["items"][0]["isDirectory"] == "true" and one["items"][0]["Size"] > 0
+assert [i for i in one["items"] if i["isDirectory"] == "false"] == []
+
+# 9. An offset past the end repeats the LAST page. A pager that stops on an
+#    empty page never stops.
+big = j(f"{API}/studies/S-BIAD1069/info")["files"]
+assert big > 1_000_000
+assert j(f"{API}/studies/S-BIAD1069/files?limit=1000&offset={big}")["items"]
+
+# 10. MAGE-TAB column names are not stable, and most of ArrayExpress has no runs.
+def sdrf(acc):
+    url = f"https://www.ebi.ac.uk/biostudies/files/{acc}/{acc}.sdrf.txt"
+    with urllib.request.urlopen(url, timeout=90) as r:
+        return list(csv.DictReader(r.read().decode("utf-8", "replace").splitlines(),
+                                   delimiter="\t"))
+
+erad, geod = sdrf("E-ERAD-0")[0], sdrf("E-GEOD-129166")[0]
+assert "Comment[ENA_RUN]" not in erad and "Comment [ENA_RUN]" in erad
+assert "FactorValue [phenotype]" in erad and "Characteristics[Organism]" in erad
+assert not [c for c in geod if key(c) == key("Comment[ENA_RUN]")], "array study"
+assert any(key(c) == key("Comment[ENA_RUN]") for c in sdrf(ACC)[0])
+
+# 11. ENA's fastq_* columns are empty when the submission was never normalised;
+#     the bytes are only under submitted_*. int("") kills a byte budget.
+ENA = "https://www.ebi.ac.uk/ena/portal/api/filereport"
+def runs(study_acc):
+    url = (f"{ENA}?accession={study_acc}&result=read_run&format=tsv&fields="
+           "run_accession,fastq_bytes,submitted_bytes")
+    with urllib.request.urlopen(url, timeout=90) as r:
+        return list(csv.DictReader(r.read().decode().splitlines(), delimiter="\t"))
+
+mouse = runs("ERP203682")
+assert mouse and all(not r["fastq_bytes"] for r in mouse), "fastq_* filled in upstream"
+assert all(r["submitted_bytes"] for r in mouse)
+assert runs("ERP000486") == [], "ENA: 200 and a header row is an empty result"
+
+# 12. Collections nest. /bioimages is a strict superset of the S-BIAD deposits.
 def hits(q, coll="arrayexpress"):
-    # Returns the past-the-end response, by which point totalHits has settled
-    # on an exact figure, plus the accession set actually retrieved.
     got, page = [], 1
     while True:
         qs = urllib.parse.urlencode({"query": q, "pageSize": 1000, "page": page})
@@ -989,6 +1328,18 @@ def hits(q, coll="arrayexpress"):
         got += d["hits"]
         page += 1
 
+def total(q, coll):
+    d = j(f"{API}/{coll}/search?" + urllib.parse.urlencode({"query": q, "pageSize": 1}))
+    assert d["isTotalHitsExact"], q
+    return d["totalHits"]
+
+bioimages = total("*:*", "bioimages")
+biad = total("accession:S-BIAD*", "bioimages")
+empiar = total("*:*", "BioImages-EMPIAR")
+assert 0 < biad < bioimages and empiar > biad, "EMPIAR outnumbers the S-BIAD deposits"
+assert total("*:*", "JCB") == total("accession:S-JCBD*", "bioimages")
+
+# 13. Space-separated terms are OR. Confirm AND is a strict subset.
 d_or, s_or = hits("cardiac lymphatic")
 d_and, s_and = hits("cardiac AND lymphatic")
 d_ph, s_ph = hits('"cardiac lymphatic"')
@@ -996,7 +1347,7 @@ assert s_ph <= s_and <= s_or, "phrase ⊆ AND ⊆ OR no longer holds"
 assert len(s_and) < len(s_or)
 assert ACC in s_and and ACC in s_ph
 
-# 7. An unknown collection is a silent zero, never an error.
+# 14. An unknown collection is a silent zero, never an error.
 _, s_bad = hits("cardiac AND lymphatic", coll="array-express")
 assert s_bad == set()
 
@@ -1011,6 +1362,21 @@ print("files          :", info["files"], "|", sorted(i["path"] for i in fl["item
 print("bytes          :", f'{sum(i["Size"] for i in fl["items"]):,}')
 print("ena link       :", [l["url"] for l in flatten(root["links"])])
 print()
+print("S-BSST1 title on envelope    :", attrs(bsst)["Title"][0][:44])
+print("dead accession /files total  :", j(f"{API}/studies/E-MTAB-99999999/files")["pagination"]["total"],
+      "with /info", j(f"{API}/studies/E-MTAB-99999999/info"))
+print("S-BIAD1500 declares          :", one["pagination"]["total"], "file, isDirectory =",
+      one["items"][0]["isDirectory"], f'({one["items"][0]["Size"]:,} B)')
+print("S-BIAD1069 files             :", f"{big:,}", "| offset past the end returns",
+      len(j(f"{API}/studies/S-BIAD1069/files?limit=1000&offset={big}")["items"]), "items")
+print("E-ERAD-0 run column          : 'Comment [ENA_RUN]'  (spaced, and no bare form)")
+print("E-GEOD-129166 run column     : absent — array study, no ENA link")
+print("ERP203682 fastq_bytes        :", {r["fastq_bytes"] for r in mouse},
+      "-> reads only under submitted_*")
+print("ERP000486 runs               :", len(runs("ERP000486")), "(200, header row only)")
+print()
+print("bioimages scope              :", bioimages, "=", biad, "S-BIAD +", empiar,
+      "EMPIAR +", total("*:*", "JCB"), "JCB + others")
 print("search 'cardiac lymphatic'   :", len(s_or), "records (OR); totalHits said",
       d_or["totalHits"], "exact =", d_or["isTotalHitsExact"])
 print("search 'cardiac AND …'       :", len(s_and), "records; totalHits said",
@@ -1040,7 +1406,31 @@ skill is wrong rather than stale:
   `cardiac lymphatic`, with the AND set strictly smaller.
 - An unknown collection name returns HTTP 200 and zero hits, not an error.
 
-Observed 2026-08-17 — these move as studies are released, so a mismatch is drift to
+Counter-examples, added 2026-08-19 after each of them broke a step that `E-MTAB-17485`
+passes. They are assertions so the simplification cannot come back:
+
+- **`Title` moves between the envelope and the Study section.** `S-BSST1` has it only on
+  the envelope; `MODEL6614879888` only in the section; `S-SCDT-EMBOJ-2018-99599` has no
+  `ReleaseDate` at all. Reading one place writes `"title": null` for a whole collection.
+- **`/info` and `/files` answer 200 for an accession that does not exist** — `{}` and an
+  empty list with `total: 0`. Only `/studies` 404s. A file-count pipeline reports a typo
+  as a released study with no data.
+- **`isDirectory: "true"` is a zipped folder holding the deposit.** `S-BIAD1500` declares
+  one file and that file is one, so filtering the flag out harvests the study to nothing
+  and reports success.
+- **An offset past the end repeats the last page.** `S-BIAD1069` declares 4,715,142
+  files and `offset=4715142` returns 142 of them. A pager that stops on an empty page
+  does not stop.
+- **MAGE-TAB column names are not stable and most of ArrayExpress has no runs.**
+  `E-ERAD-0` spells it `Comment [ENA_RUN]`, `FactorValue [phenotype]` and
+  `Characteristics[Organism]`; `E-GEOD-129166` has no run column and no ENA link.
+- **ENA's `fastq_*` columns are empty when the submission was never normalised**
+  (`ERP203682`), and an ENA link in the record does not mean ENA has runs (`ERP000486`
+  answers 200 with a header row and nothing else).
+- **Collections nest.** `/bioimages` is a strict superset of the `S-BIAD*` deposits, and
+  the `EMPIAR-*` sub-collection alone outnumbers them.
+
+Observed 2026-08-19 — these move as studies are released, so a mismatch is drift to
 investigate, not a bug:
 
 ```
@@ -1055,7 +1445,17 @@ files          : 3 | ['DESeq2_DEG_analysis_filter50Reads.tsv', 'E-MTAB-17485.idf
 bytes          : 2,504,429
 ena link       : ['ERP203237']
 
-search 'cardiac lymphatic'   : 1389 records (OR); totalHits said 1389 exact = True
+S-BSST1 title on envelope    : Longitudinal assessment of sputum microbiome
+dead accession /files total  : 0 with /info {}
+S-BIAD1500 declares          : 1 file, isDirectory = true (329,519 B)
+S-BIAD1069 files             : 4,715,142 | offset past the end returns 142 items
+E-ERAD-0 run column          : 'Comment [ENA_RUN]'  (spaced, and no bare form)
+E-GEOD-129166 run column     : absent — array study, no ENA link
+ERP203682 fastq_bytes        : {''} -> reads only under submitted_*
+ERP000486 runs               : 0 (200, header row only)
+
+bioimages scope              : 5007 = 1384 S-BIAD + 3003 EMPIAR + 424 JCB + others
+search 'cardiac lymphatic'   : 1390 records (OR); totalHits said 1390 exact = True
 search 'cardiac AND …'       : 10 records; totalHits said 10 exact = True
 search '"cardiac lymphatic"' : 2 records -> ['E-MTAB-17485', 'E-MTAB-17510']
 bad collection name          : 0 records, HTTP 200
