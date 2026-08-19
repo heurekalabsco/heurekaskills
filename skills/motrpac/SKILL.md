@@ -10,14 +10,14 @@ covers: [exercise, endurance training, treadmill, multi-omics, transcriptomics, 
 papers: [PMID:38693412, PMID:32589957, PMID:38701776, PMID:38693320, PMID:38984994, doi:10.5281/zenodo.7877121]
 access: [open]
 platform: motrpac
-datasets: [https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PHENO.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PROT_HEART_DA.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/TRAINING_REGULATED_FEATURES.rda, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/PROT/pass1b-06_t58-heart_prot-pr_training-dea-fdr.txt]
+datasets: [https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PHENO.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PROT_HEART_DA.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_HEART_DA.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_NORM_DATA_FLAT.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/TRAINING_REGULATED_FEATURES.rda, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/PROT/pass1b-06_t58-heart_prot-pr_training-dea-fdr.txt, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/METAB/redundant/pass1b-06_t58-heart_metab_training-dea-fdr.txt, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/IMMUNO/pass1b-06_immunoassay_training-dea-fdr.txt]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
-  against: MotrpacRatTraining6moData git tag v2.1.0 (its DESCRIPTION still reads 2.0.0) / motrpac-rat-training-6mo-extdata bucket / Python 3.12.8 / pyreadr 0.5.3 / pandas 2.3.2 / R 4.4.1
+  date: 2026-08-18
+  against: MotrpacRatTraining6moData git tag v2.1.0 (its DESCRIPTION still reads 2.0.0) / motrpac-rat-training-6mo-extdata bucket / GEO GSE242358 and its three subseries / Python 3.12.8 / pyreadr 0.5.3 / pandas 2.3.2 / numpy 2.3.3 / R 4.4.1. Techniques re-run across 16 assay-by-tissue combinations spanning all nine assays, both sexes, single-sex tissues, an incomplete design cell, an empty selection and four combinations that do not exist
   executed: 8
   unverified: 1
-  unverified_reason: the whole-package R install block could not be run to completion — GitHub's tarball endpoint answers HTTP 504 for this repository (reproduced twice on 2026-08-17), which is the failure the block routes around, and the codeload archive it uses instead answered 200 but had transferred only 215 MB of roughly 400 MB after 420 s. Every other block, including all downloads and both conversion routes, was executed verbatim.
+  unverified_reason: the whole-package R install block could not be run to completion — the roughly 400 MB archive is the obstacle, not the URL. GitHub's tarball endpoint answered HTTP 504 twice on 2026-08-17 and 200 on 2026-08-18, so the failure the block routes around is intermittent; the codeload archive it uses instead answered 200 on both days but had transferred only 215 MB after 420 s, and install.packages() on the result was never reached. Every other block, including all downloads and both conversion routes, was executed verbatim.
 ---
 # MoTrPAC — rat endurance exercise training multi-omics
 
@@ -35,13 +35,13 @@ data** — because the obvious one does not.
 ## The open release is young adult, not aged
 
 Every openly available omics object comes from **PASS1B-06 — 6-month-old rats**. Not a
-guess from the package name: `PHENO` carries the design columns, and on 2026-08-17 all
+guess from the package name: `PHENO` carries the design columns, and on 2026-08-18 all
 6,156 of its rows read `key.agegroup == "6 months"` and `key.protocol == "phase 1b"`.
 The `## Try it` block at the end asserts exactly this, so the claim re-checks itself.
 
 The consortium did run an **18-month aged arm**, and it is public — but only as
 physiology. In `MotrpacRatTrainingPhysiologyData`, `VO2MAX$age` and `BODY_MASSES$age`
-both take the values `6M` and `18M` (verified 2026-08-17): body composition, VO2max, run
+both take the values `6M` and `18M` (verified 2026-08-18): body composition, VO2max, run
 speed, muscle mass, fibre typing and plasma clinical analytes. **No aged omics has been
 released on any open route.** Checked, same date:
 
@@ -60,6 +60,14 @@ control group that was held for 8 weeks and serves as the reference for every
 timepoint** — there is no per-timepoint control. Differential-analysis tables therefore
 carry `comparison_group` in `1w 2w 4w 8w` and are computed **separately per sex**.
 
+**That grid is not filled in every tissue, and the holes are silent.** Ovary and testes
+are one sex, so their tables carry four contrasts per feature, not eight. **Vena cava has
+no female 1-week or 2-week samples at all**: `TRNSCRPT_VENACV_DA` is 16,338 features × 6
+contrasts, and `METAB_VENACV_DA` has 1,278 rows, which is not divisible by eight. Brown
+adipose metabolomics is ragged feature by feature — 47 features are missing female 1w and
+47 are missing male 8w. All four measured at `v2.1.0`. Count the contrasts you have per
+feature; do not compute them from the design.
+
 ## Do not route through the Data Hub API
 
 The portal at motrpac-data.org is a single-page app, so its endpoints are invisible in
@@ -73,7 +81,7 @@ curl -s -o /dev/null -w "search/api  -> HTTP %{http_code}\n" "https://search.mot
 curl -s "https://search.motrpac-data.org/search/api" | grep -o "Not authenticated"
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
 data_files  -> HTTP 401
@@ -203,7 +211,7 @@ for a in ASSAYS:
 print("\nDA = differential analysis present · N = matrix only · . = assay not run there")
 ```
 
-Run 2026-08-17 at tag `v2.1.0`:
+Run 2026-08-18 at tag `v2.1.0`:
 
 ```
 206 data objects at v2.1.0
@@ -223,9 +231,13 @@ UBIQ             .      .      .      .      .     DA      .      .      .     D
 DA = differential analysis present · N = matrix only · . = assay not run there
 ```
 
-Metabolomics is the only assay on all twenty tissues; transcriptomics covers nineteen
-(no plasma). The `N` row for `ATAC` and `METHYL` is not "matrix only" by accident — see
-*Epigenomics in the package is an excerpt*.
+**No assay covers all twenty tissues.** Metabolomics is the widest at nineteen — there is
+no metabolomics on blood, which was profiled by RNA-seq instead, and the bucket returns
+404 for `t30-blood-rna` metab. Transcriptomics is also nineteen (no plasma), the
+immunoassay seventeen (no blood, hypothalamus or vena cava), proteomics and
+phosphoproteomics seven, ATAC and RRBS eight, acetylation and ubiquitylation two. The `N`
+row for `ATAC` and `METHYL` is not "matrix only" by accident — see *Epigenomics in the
+package is an excerpt*.
 
 Use the **contents** API, not the recursive **tree** API, for this repository. The tree
 endpoint answered twice and then returned HTTP 504 repeatedly on 2026-08-17 — the
@@ -293,7 +305,7 @@ with open(os.path.join(OUT, "manifest.json"), "w") as fh:
 print(f"\n{len(manifest)} tables written; {sum(m['csv_bytes'] for m in manifest):,} bytes of CSV")
 ```
 
-Run 2026-08-17 at `v2.1.0`:
+Run 2026-08-18 at `v2.1.0`:
 
 ```
   TRNSCRPT_HEART_DA            115,560 x 22  -> Data/motrpac/TRNSCRPT_HEART_DA.csv.gz
@@ -332,16 +344,29 @@ https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/
     {ASSAY}/pass1b-06_{tissue_code}_{assay_code}_training-dea-fdr.txt
 ```
 
-- **`METAB`** sits one level deeper, and the two sub-paths are different analyses.
-  `METAB/meta-regression/…_metab-meta-reg_…` collapses a metabolite measured on several
-  platforms into one row — 1,234 rows for heart. `METAB/redundant/…_metab_…` keeps one row
-  per feature **per platform**, with `dataset`, `is_targeted` and `site` columns — 1,430
-  rows for heart, so a metabolite can appear more than once and a naive count of
-  significant hits double-counts. The plain `METAB/…_metab_…` path does not exist and
-  returns 404.
+- **`METAB`** sits one level deeper, and the two sub-paths are different analyses **that
+  pair with different package objects**. `METAB/meta-regression/…_metab-meta-reg_…`
+  collapses a metabolite measured on several platforms into one row — 1,234 rows for
+  heart — and is the file that matches `METAB_HEART_DA_METAREG`.
+  `METAB/redundant/…_metab_…` keeps one row per feature **per platform**, with `dataset`,
+  `is_targeted` and `site` columns — 1,430 rows for heart — and is the file that matches
+  plain `METAB_HEART_DA`. Crossing the pair is the easy mistake: `METAB_HEART_DA` against
+  the meta-regression file agrees on neither the row count nor the FDR. A metabolite can
+  appear more than once in the redundant file, so a naive count of significant hits
+  double-counts. The plain `METAB/…_metab_…` path does not exist and returns 404.
 - **`UBIQ`** uses `prot-ub-protein-corrected`, not the `prot-ub` from the code table.
 - **`IMMUNO`** is one pooled file for every tissue, with no tissue in the filename;
-  filter it on `tissue_abbreviation`.
+  filter it on `tissue_abbreviation`. **That request answers 200 for a tissue the
+  immunoassay never ran on** — `VENACV`, `HYPOTH` and `BLOOD` are simply absent from the
+  file, and the filter returns an empty frame that a loop will happily write to disk.
+  Every other assay answers 404 for a combination that does not exist. Check the row
+  count, not the status code.
+
+The `TISSUE` map below is the whole of `TISSUE_ABBREV_TO_CODE`. Carrying a handful of
+entries is a trap of its own — with the five obvious ones, three of the seven proteomics
+tissues and fourteen of the nineteen metabolomics tissues raise `KeyError` rather than
+fetching anything, and nothing about `VENACV` suggests `t65-aorta` or `OVARY` suggests
+`t64-ovaries`.
 
 ```python
 import io, os, urllib.error, urllib.request, gzip
@@ -351,8 +376,16 @@ DA   = "https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training
 OUT  = "Data/motrpac/tsv"
 os.makedirs(OUT, exist_ok=True)
 
-TISSUE = {"HEART": "t58-heart", "SKM-GN": "t55-gastrocnemius", "LIVER": "t68-liver",
-          "WAT-SC": "t70-white-adipose", "VENACV": "t65-aorta"}   # note: VENACV -> t65-aorta
+# TISSUE_ABBREV_TO_CODE in full — five entries is not enough, and there is no way to guess
+# t65-aorta from VENACV or t64-ovaries from OVARY
+TISSUE = {"ADRNL": "t60-adrenal",   "BAT": "t69-brown-adipose", "BLOOD": "t30-blood-rna",
+          "COLON": "t61-colon",     "CORTEX": "t53-cortex",     "HEART": "t58-heart",
+          "HIPPOC": "t52-hippocampus", "HYPOTH": "t54-hypothalamus", "KIDNEY": "t59-kidney",
+          "LIVER": "t68-liver",     "LUNG": "t66-lung",         "OVARY": "t64-ovaries",
+          "PLASMA": "t31-plasma",   "SKM-GN": "t55-gastrocnemius",
+          "SKM-VL": "t56-vastus-lateralis", "SMLINT": "t67-small-intestine",
+          "SPLEEN": "t62-spleen",   "TESTES": "t63-testes",     "VENACV": "t65-aorta",
+          "WAT-SC": "t70-white-adipose"}
 ASSAY  = {"ACETYL": "prot-ac", "ATAC": "epigen-atac-seq", "IMMUNO": "immunoassay",
           "METAB": "metab", "METHYL": "epigen-rrbs", "PHOSPHO": "prot-ph",
           "PROT": "prot-pr", "TRNSCRPT": "transcript-rna-seq", "UBIQ": "prot-ub"}
@@ -362,47 +395,61 @@ def da_url(assay, tissue, metareg=True):
     if assay == "IMMUNO":                       # one pooled file, all tissues
         return f"{DA}/IMMUNO/pass1b-06_immunoassay_training-dea-fdr.txt"
     if assay == "METAB":
+        # metareg pairs with METAB_*_DA_METAREG; redundant pairs with plain METAB_*_DA
         sub, code = ("meta-regression", "metab-meta-reg") if metareg else ("redundant", "metab")
         return f"{DA}/METAB/{sub}/pass1b-06_{TISSUE[tissue]}_{code}_training-dea-fdr.txt"
     if assay == "UBIQ":
         code = "prot-ub-protein-corrected"
     return f"{DA}/{assay}/pass1b-06_{TISSUE[tissue]}_{code}_training-dea-fdr.txt"
 
-want = [("PROT", "HEART"), ("TRNSCRPT", "HEART"), ("PHOSPHO", "HEART"),
-        ("ACETYL", "HEART"), ("UBIQ", "HEART"), ("METAB", "HEART"),
-        ("PROT", "SKM-GN"), ("TRNSCRPT", "LIVER"), ("PROT", "WAT-SC"),
-        ("IMMUNO", "HEART")]
+want = [("PROT", "HEART"), ("PROT", "CORTEX"), ("PHOSPHO", "KIDNEY"), ("ACETYL", "LIVER"),
+        ("UBIQ", "LIVER"), ("TRNSCRPT", "OVARY"), ("TRNSCRPT", "VENACV"),
+        ("METAB", "HEART"), ("METAB", "VENACV"),
+        ("IMMUNO", "HEART"), ("IMMUNO", "VENACV"), ("PROT", "ADRNL")]
 
 for assay, tissue in want:
     url = da_url(assay, tissue)
     try:
-        raw = urllib.request.urlopen(url, timeout=120).read()
+        raw = urllib.request.urlopen(url, timeout=180).read()
     except urllib.error.HTTPError as e:
         print(f"  {assay:9} {tissue:7} HTTP {e.code}  {url.rsplit('/', 1)[1]}")
         continue
     df = pd.read_csv(io.BytesIO(raw), sep="\t")
     if assay == "IMMUNO":
         df = df[df["tissue_abbreviation"] == tissue]
+        if df.empty:                            # 200 + zero rows is the failure mode here
+            print(f"  {assay:9} {tissue:7} HTTP 200 but 0 rows — IMMUNO was not run on this "
+                  f"tissue. Check the count, not the status")
+            continue
+    key = ["feature_ID", "panel"] if assay == "IMMUNO" else \
+          ["feature_ID", "dataset"] if assay == "METAB" else ["feature_ID"]
     dest = os.path.join(OUT, f"{assay}_{tissue.replace('-', '')}_training-dea-fdr.tsv.gz")
     with gzip.open(dest, "wt") as fh:
         df.to_csv(fh, sep="\t", index=False)
-    print(f"  {assay:9} {tissue:7} {len(df):>8,} rows x {df.shape[1]:<3} -> {os.path.basename(dest)}")
+    print(f"  {assay:9} {tissue:7} {len(df):>8,} rows x {df.shape[1]:<3} "
+          f"key {'+'.join(key):18} unique {df.drop_duplicates(key).shape[0]:>8,} -> {os.path.basename(dest)}")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
-  PROT      HEART      9,184 rows x 12  -> PROT_HEART_training-dea-fdr.tsv.gz
-  TRNSCRPT  HEART     14,445 rows x 18  -> TRNSCRPT_HEART_training-dea-fdr.tsv.gz
-  PHOSPHO   HEART     40,208 rows x 12  -> PHOSPHO_HEART_training-dea-fdr.tsv.gz
-  ACETYL    HEART      5,213 rows x 12  -> ACETYL_HEART_training-dea-fdr.tsv.gz
-  UBIQ      HEART      7,078 rows x 12  -> UBIQ_HEART_training-dea-fdr.tsv.gz
-  METAB     HEART      1,234 rows x 26  -> METAB_HEART_training-dea-fdr.tsv.gz
-  PROT      SKM-GN     5,999 rows x 12  -> PROT_SKMGN_training-dea-fdr.tsv.gz
-  TRNSCRPT  LIVER     14,437 rows x 18  -> TRNSCRPT_LIVER_training-dea-fdr.tsv.gz
-  PROT      WAT-SC     9,964 rows x 12  -> PROT_WATSC_training-dea-fdr.tsv.gz
-  IMMUNO    HEART         39 rows x 18  -> IMMUNO_HEART_training-dea-fdr.tsv.gz
+  PROT      HEART      9,184 rows x 12  key feature_ID         unique    9,184 -> PROT_HEART_training-dea-fdr.tsv.gz
+  PROT      CORTEX    11,108 rows x 12  key feature_ID         unique   11,108 -> PROT_CORTEX_training-dea-fdr.tsv.gz
+  PHOSPHO   KIDNEY    30,144 rows x 12  key feature_ID         unique   30,144 -> PHOSPHO_KIDNEY_training-dea-fdr.tsv.gz
+  ACETYL    LIVER      9,750 rows x 12  key feature_ID         unique    9,750 -> ACETYL_LIVER_training-dea-fdr.tsv.gz
+  UBIQ      LIVER      9,344 rows x 12  key feature_ID         unique    9,344 -> UBIQ_LIVER_training-dea-fdr.tsv.gz
+  TRNSCRPT  OVARY     17,035 rows x 18  key feature_ID         unique   17,035 -> TRNSCRPT_OVARY_training-dea-fdr.tsv.gz
+  TRNSCRPT  VENACV    16,338 rows x 18  key feature_ID         unique   16,338 -> TRNSCRPT_VENACV_training-dea-fdr.tsv.gz
+  METAB     HEART      1,234 rows x 26  key feature_ID+dataset unique    1,234 -> METAB_HEART_training-dea-fdr.tsv.gz
+  METAB     VENACV       213 rows x 26  key feature_ID+dataset unique      213 -> METAB_VENACV_training-dea-fdr.tsv.gz
+  IMMUNO    HEART         39 rows x 18  key feature_ID+panel   unique       39 -> IMMUNO_HEART_training-dea-fdr.tsv.gz
+  IMMUNO    VENACV  HTTP 200 but 0 rows — IMMUNO was not run on this tissue. Check the count, not the status
+  PROT      ADRNL   HTTP 404  pass1b-06_t60-adrenal_prot-pr_training-dea-fdr.txt
 ```
+
+The last two lines are the two ways a combination can be absent, and they do not look
+alike: a 404 carrying a GCS `NoSuchKey` body for every assay served as its own per-tissue
+file, and a 200 carrying nothing for the immunoassay.
 
 This route is plain text and needs nothing but a HTTP client — but it is **unversioned**.
 There is no tag, no checksum and no release note on the bucket. Use the package route
@@ -428,19 +475,69 @@ the adjusted p for that one sex-by-timepoint contrast. Selecting training-regula
 features on it, rather than on `selection_fdr`, is a different and much weaker analysis
 than the one the consortium published.
 
+### `feature_ID` is the key for seven assays out of nine
+
+The arithmetic above holds for `PROT`, `PHOSPHO`, `ACETYL`, `UBIQ` and `TRNSCRPT`, where a
+feature is measured once, and for the two epigenomic tables on the bucket (heart ATAC:
+728,326 regions × 2 sexes × 4 timepoints). **It does not hold for `METAB` or `IMMUNO`**,
+where the same metabolite or analyte is measured on several platforms and the row key is
+`feature_ID` **plus the platform column**. The bucket calls that column
+`dataset` in the metabolomics files and `panel` in the immunoassay file; the package calls
+it `dataset` in both.
+
+Measured at `v2.1.0`, heart:
+
+| table | rows | unique `feature_ID` | unique `feature_ID` + platform |
+|---|---|---|---|
+| `PROT_HEART_DA` | 73,472 | 9,184 | — |
+| `METAB_HEART_DA` | 11,440 | 1,309 | **1,430** |
+| `IMMUNO_HEART_DA` | 312 | 37 | **39** |
+
+11,440 = 1,430 × 2 × 4 and 312 = 39 × 2 × 4; neither works from the `feature_ID` count.
+And the join to the bucket does not merely lose rows, it **invents** them — merging
+`METAB_HEART_DA` to `METAB/redundant/…` on `feature_ID` alone returns **1,724 rows out of
+a 1,430-row table**, with the wrong FDR attached to the cross-platform ones (max |Δ| 0.88).
+On `["feature_ID", "dataset"]` it returns 1,430, one-to-one, max |Δ| 9.9e-17. Verified the
+same way on plasma, vena cava and hypothalamus metabolomics and on heart and plasma
+immunoassay, and asserted in `## Try it`.
+
+### `TRAINING_REGULATED_FEATURES` is per feature **and platform**, and not always eight rows
+
 `TRAINING_REGULATED_FEATURES` is the consortium's selection at **5% FDR**, expanded back
-to eight rows per feature. For heart proteomics that is 693 features and 5,544 rows,
-which is exactly the count of `adj_p_value < 0.05` in the text table — verified, and
-asserted in `## Try it`.
+to one row per sex per timepoint. Three things about it that a heart-proteomics example
+hides — all measured across its 88 assay-by-tissue cells at `v2.1.0`:
+
+- **The unit is `(feature_ID, platform)`**, with `platform` `NA` for the seven
+  single-platform assays, a `metab-*` or panel name for the others, and `meta-reg` for a
+  metabolite pooled across platforms. Heart metabolomics is 561 distinct `feature_ID` but
+  **568** feature-platform pairs.
+- **The row count per unit is `n_sexes × n_timepoints present`**, so 8 in most cells, **4**
+  in ovary and testes, **6** in vena cava, and **both 6 and 8 inside one cell** in brown
+  adipose metabolomics. Never derive it from a constant.
+- **For metabolomics the reference table is the meta-regression file, not the redundant
+  one.** Heart: 568 pairs in the selection, 568 rows at `adj_p_value < 0.05` in
+  `METAB/meta-regression/…`, and 603 in `METAB/redundant/…`. Check against the wrong file
+  and 35 features look like a discrepancy in the consortium's selection.
+
+For heart proteomics — one platform, both sexes, all four timepoints — it collapses to the
+simple case: 693 features, 5,544 rows, exactly the count of `adj_p_value < 0.05` in the
+text table. That cell is the exception that reads like the rule.
+
+A cell can also be legitimately empty. The immunoassay measured 46 analytes in ovary and
+none reached 5% FDR, so `TRAINING_REGULATED_FEATURES` has **no rows** for `IMMUNO`/`OVARY`
+— an empty selection there is the right answer, not a failed download.
 
 ## Epigenomics in the package is an excerpt
 
 `ATAC` and `METHYL` ship only `_NORM_DATA_05FDR` objects, and the suffix is doing more
 work than it looks. `ATAC_HEART_NORM_DATA_05FDR` has **75 rows**. The full heart ATAC
 differential analysis, which lives only on the bucket, has 5,826,608 rows — **728,326
-regions** × 2 sexes × 4 timepoints — of which exactly 75 pass 5% FDR. Both numbers
-measured 2026-08-17, and they agree, which is what confirms the suffix means "the
-training-regulated selection" and not "a convenience subset".
+regions** × 2 sexes × 4 timepoints — of which exactly 75 pass 5% FDR. The `.rda` was
+parsed on 2026-08-17; the equivalent `training-dea-fdr.txt` was streamed again on
+2026-08-18 and holds 728,326 rows with exactly 75 at `adj_p_value < 0.05`, and
+728,326 × 8 = 5,826,608. The two agree, which is what confirms the suffix means "the
+training-regulated selection" and not "a convenience subset" — and 75 is also the number
+of `ATAC`/`HEART` features in `TRAINING_REGULATED_FEATURES`, at eight rows each.
 
 So any epigenome-wide question — your own multiple-testing correction, a background set,
 an enrichment against all accessible regions — needs the bucket. Objects are readable
@@ -478,7 +575,7 @@ except urllib.error.HTTPError as e:
           "so the naming convention above is the only index")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
   ATAC_HEART_DA              250,595,765 bytes
@@ -505,7 +602,7 @@ Two findings in that output worth carrying:
   problem.
 - **Some `.rda` feature-annotation URLs printed in the package's own documentation are
   dead, and the extension is split by assay.** All seven were probed both ways on
-  2026-08-17: `ATAC` and `METHYL` exist **only as `.rda`** (29 MB and 160 MB); `PROT`,
+  2026-08-18: `ATAC` and `METHYL` exist **only as `.rda`** (29 MB and 160 MB); `PROT`,
   `PHOSPHO`, `UBIQ`, `ACETYL` and `TRNSCRPT` exist **only as `.txt`** (158 MB, 108 MB,
   3.9 MB, 3.2 MB, 3.1 MB) and 404 as `.rda` — which is the extension the package
   documentation prints for them. Change the extension before concluding a file is gone.
@@ -513,7 +610,7 @@ Two findings in that output worth carrying:
 ## Objects pyreadr cannot read
 
 Most of the 206 objects are data frames or character vectors and convert cleanly. These do
-not, checked one by one on 2026-08-17 with pyreadr 0.5.3:
+not, checked one by one on 2026-08-18 with pyreadr 0.5.3:
 
 | object | how it fails |
 |---|---|
@@ -527,7 +624,9 @@ not, checked one by one on 2026-08-17 with pyreadr 0.5.3:
 
 `METAB_NORM_DATA_NESTED` is 13 metabolomics platforms, each a list of tissues, each a data
 frame — a shape a pandas dict cannot express. Flat equivalents exist for two of them
-(`METAB_NORM_DATA_FLAT`, `IMMUNO_NORM_DATA_FLAT`); reach for those first. Note that
+(`METAB_NORM_DATA_FLAT`, `IMMUNO_NORM_DATA_FLAT`); reach for those first, but read
+*Joining a matrix to the animals* before you do — they are keyed on `pid`, not
+`viallabel`, and the nested originals are not. Note that
 `GRAPH_STATES` **does** read fine (34,244 × 10), so do not assume everything with `GRAPH`
 in the name needs R. When there is no flat version, export once from R and work in
 whatever you like afterwards:
@@ -559,7 +658,7 @@ cat(sprintf("%d platforms, %d tables written to %s\n", length(obj), n, out))
 cat("platforms:", paste(names(obj), collapse = ", "), "\n")
 ```
 
-Run 2026-08-17 under R 4.4.1:
+Run 2026-08-18 under R 4.4.1:
 
 ```
 13 platforms, 113 tables written to Data/motrpac/nested
@@ -577,12 +676,24 @@ Per-tissue `_NORM_DATA` objects are wide: the four identifier columns `feature`,
 `feature_ID`, `tissue`, `assay`, then **one column per sample**, headed by `viallabel`.
 That is the key into `PHENO`, and it is what makes cross-assay and cross-tissue
 integration possible at all — the same animal's `pid` appears under a different vial label
-in every assay. The two flat tables, `METAB_NORM_DATA_FLAT` and `IMMUNO_NORM_DATA_FLAT`,
-add a fifth identifier column `dataset`, so add it to `id_vars` before melting them or the
-platform label becomes a sample.
+in every assay.
+
+**The two flat tables are keyed differently, and merging them on `viallabel` fails
+silently.** `METAB_NORM_DATA_FLAT` and `IMMUNO_NORM_DATA_FLAT` hold every tissue in one
+object, so their sample columns cannot be vial labels — they are **8-digit `pid`**, the
+animal, where the per-tissue matrices carry 11-digit vial labels. Measured at `v2.1.0`:
+none of the 54 metabolomics column names appears in `PHENO$viallabel` and all 54 appear in
+`PHENO$pid`. Merge them on `viallabel` and every phenotype column comes back `NA` for all
+778,626 rows, with no error — the shape is right and the content is empty. They also add a
+fifth identifier column `dataset`, which has to go into `id_vars` or the platform label
+becomes a sample. `METAB_NORM_DATA_NESTED` does not share the problem: its per-platform,
+per-tissue frames are vial-label-headed like everything else.
+
+So decide the key from the header rather than assuming it, and collapse `PHENO` to one row
+per animal when it is `pid` — `PHENO` has 6,156 rows for 147 rats, one per vial.
 
 ```python
-import os, urllib.request
+import os, re, urllib.request
 import pandas as pd, pyreadr
 
 TAG  = "v2.1.0"
@@ -594,39 +705,56 @@ def fetch(name):
     p = os.path.join(OUT, name + ".rda")
     if not os.path.exists(p):
         urllib.request.urlretrieve(f"{BASE}/{name}.rda", p)
-    return list(pyreadr.read_r(p).values())[0]
+    tables = pyreadr.read_r(p)
+    assert tables, f"{name} is not a data.frame — pyreadr returns {{}}, not an error"
+    return list(tables.values())[0]
 
-mat   = fetch("TRNSCRPT_HEART_NORM_DATA")
 pheno = fetch("PHENO")
+WANT  = ["pid", "sex", "key.anirandgroup", "key.agegroup", "key.intervention", "key.sacrificetime"]
 
-ID = ["feature", "feature_ID", "tissue", "assay"]
-long = mat.melt(id_vars=ID, var_name="viallabel", value_name="value")
+def to_long(name):
+    mat  = fetch(name)
+    ids  = [c for c in mat.columns if not re.fullmatch(r"\d+", str(c))]
+    samp = [c for c in mat.columns if re.fullmatch(r"\d+", str(c))]
+    key  = "viallabel" if len(str(samp[0])) == 11 else "pid"      # 11 digits vs 8
+    long = mat.melt(id_vars=ids, var_name=key, value_name="value").astype({key: str})
+    ann  = pheno[[key] + [c for c in WANT if c != key]].astype({key: str}).drop_duplicates(key)
+    out  = long.merge(ann, on=key, how="left")
+    print(f"  {name:26} {mat.shape[0]:>6,} x {mat.shape[1]:<3} | id cols {ids}")
+    print(f"  {'':26} {len(samp):>3} sample columns keyed on {key:9} | long {len(out):>9,} rows "
+          f"| unmatched {int(out['sex'].isna().sum())}")
+    return out
 
-keep = ["viallabel", "pid", "sex", "key.anirandgroup", "key.agegroup",
-        "key.intervention", "key.sacrificetime"]
-ann = long.merge(pheno[keep].astype({"viallabel": str}), on="viallabel", how="left")
+heart = to_long("TRNSCRPT_HEART_NORM_DATA")
+to_long("PROT_HEART_NORM_DATA")
+flat  = to_long("METAB_NORM_DATA_FLAT")
+to_long("IMMUNO_NORM_DATA_FLAT")
 
-print("matrix         :", mat.shape, "->", len(mat.columns) - len(ID), "sample columns")
-print("long rows      :", f"{len(ann):,}")
-print("unmatched      :", int(ann['pid'].isna().sum()))
-print("age groups     :", sorted(ann['key.agegroup'].dropna().unique()))
-print("design cells   :")
-print(ann.drop_duplicates('viallabel')
-         .groupby(['key.anirandgroup', 'sex']).size().unstack(fill_value=0))
+print("\nage groups     :", sorted(heart["key.agegroup"].dropna().unique()))
+print("design cells, heart transcriptomics:")
+print(heart.drop_duplicates("viallabel").groupby(["key.anirandgroup", "sex"]).size().unstack(fill_value=0))
+print("\ndesign cells, metabolomics (animal level, all tissues):")
+print(flat.drop_duplicates("pid").groupby(["key.anirandgroup", "sex"]).size().unstack(fill_value=0))
 
 dest = os.path.join(OUT, "TRNSCRPT_HEART_long.csv.gz")
-ann.to_csv(dest, index=False, compression="gzip")
+heart.to_csv(dest, index=False, compression="gzip")
 print("\nwrote", dest, f"{os.path.getsize(dest):,} bytes")
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
-matrix         : (14445, 54) -> 50 sample columns
-long rows      : 722,250
-unmatched      : 0
+  TRNSCRPT_HEART_NORM_DATA   14,445 x 54  | id cols ['feature', 'feature_ID', 'tissue', 'assay']
+                              50 sample columns keyed on viallabel | long   722,250 rows | unmatched 0
+  PROT_HEART_NORM_DATA        9,184 x 64  | id cols ['feature', 'feature_ID', 'tissue', 'assay']
+                              60 sample columns keyed on viallabel | long   551,040 rows | unmatched 0
+  METAB_NORM_DATA_FLAT       14,419 x 59  | id cols ['feature', 'feature_ID', 'tissue', 'assay', 'dataset']
+                              54 sample columns keyed on pid       | long   778,626 rows | unmatched 0
+  IMMUNO_NORM_DATA_FLAT         720 x 64  | id cols ['feature', 'feature_ID', 'tissue', 'assay', 'dataset']
+                              59 sample columns keyed on pid       | long    42,480 rows | unmatched 0
+
 age groups     : ['6 months']
-design cells   :
+design cells, heart transcriptomics:
 sex                                female  male
 key.anirandgroup
 Eight-week program Control Group        5     5
@@ -635,18 +763,29 @@ Four-week program                       5     5
 One-week program                        5     5
 Two-week program                        5     5
 
+design cells, metabolomics (animal level, all tissues):
+sex                                female  male
+key.anirandgroup
+Eight-week program Control Group        6     5
+Eight-week program Training Group       6     5
+Four-week program                       6     6
+One-week program                        5     5
+Two-week program                        5     5
+
 wrote Data/motrpac/TRNSCRPT_HEART_long.csv.gz 5,473,930 bytes
 ```
 
-Five animals per sex per group in heart transcriptomics. **This is a small design**, and
-the number that matters for power is that cell size, not the 14,445 features. Sample
-counts differ by assay on the same tissue — `PROT_HEART_NORM_DATA` is 9,184 × 64, so 60
-sample columns against transcriptomics' 50 — so count them per object rather than carrying
-one number across a manuscript.
+Five animals per sex per group in heart transcriptomics — six in some metabolomics cells.
+**This is a small design**, and the number that matters for power is that cell size, not
+the 14,445 features. Sample counts differ by assay on the same tissue —
+`PROT_HEART_NORM_DATA` is 9,184 × 64, so 60 sample columns against transcriptomics' 50 —
+so count them per object rather than carrying one number across a manuscript. The `0` in
+the `unmatched` column is the check that matters; it is what the `viallabel` assumption
+turns into 778,626.
 
 **Check `OUTLIERS` yourself; the matrices are not consistently cleaned.** It lists 79
 sample-level exclusions with reasons, across all eight assays that have any. Verified
-2026-08-17: the flagged liver transcriptomics sample (reason `PC2`) is **still a column**
+2026-08-18: the flagged liver transcriptomics sample (reason `PC2`) is **still a column**
 in `TRNSCRPT_LIVER_NORM_DATA`, while the flagged liver proteomics sample — a suspected
 sex mismatch or sample swap — is **not** in `PROT_LIVER_NORM_DATA`. Drop them explicitly
 if you re-derive anything, and prefer
@@ -658,10 +797,11 @@ want the cleaned version of that object.
 If you are working in R and want the packages rather than individual objects, know that
 `remotes::install_github("MoTrPAC/MotrpacRatTraining6moData")` frequently does not work.
 The repository is roughly 400 MB and GitHub's tarball endpoint times out generating the
-archive: `https://api.github.com/repos/MoTrPAC/MotrpacRatTraining6moData/tarball/v2.1.0`
-returned **HTTP 504** on both attempts made 2026-08-17. The package's own README carries
-a troubleshooting section for the same failure. The codeload archive is a different
-endpoint and does answer 200:
+archive — **intermittently**, which is the worst kind:
+`https://api.github.com/repos/MoTrPAC/MotrpacRatTraining6moData/tarball/v2.1.0` returned
+**HTTP 504** on both attempts made 2026-08-17 and **HTTP 200** on 2026-08-18. The
+package's own README calls it intermittent too. The codeload archive is a different
+endpoint and answered 200 on both days:
 
 ```r
 options(timeout = 3600)
@@ -676,9 +816,9 @@ data(PHENO); dim(PHENO)
 ```
 
 **This is the one block in this skill not executed to completion.** The codeload URL was
-confirmed to answer HTTP 200 and had transferred 215 MB after 420 seconds without
-finishing, so the download works and is simply slow; `install.packages()` on the result
-was not reached. Everything else here was run verbatim. The citable alternative is the
+confirmed to answer HTTP 200 on both dates and had transferred 215 MB after 420 seconds
+without finishing, so the download works and is simply slow; `install.packages()` on the
+result was not reached. Everything else here was run verbatim. The citable alternative is the
 Zenodo snapshot of the same tag, DOI `10.5281/zenodo.16851449`, a 399 MB zip.
 
 Either way, prefer the per-object route above unless you specifically want the analysis
@@ -687,7 +827,10 @@ the reason this skill is built the way it is.
 
 ## Limits worth stating in a write-up
 
-- **Rat, not human.** MoTrPAC has a human arm; none of it is in these packages. Map with
+- **Rat, not human.** MoTrPAC has a human arm, and **none of the routes in this skill
+  serve any of it**: the packages are rat-only, the bucket paths are all `pass1b-06`, and
+  the four GEO series are *Rattus norvegicus*. Do not plan around obtaining human MoTrPAC
+  data here. Map with
   `RAT_TO_HUMAN_GENE` — 21,461 rows joining rat symbol, RGD, NCBI, Ensembl and UniProt
   identifiers to a human ortholog symbol — and say in the text that you did, because
   one-to-many and absent orthologs are silent otherwise.
@@ -697,34 +840,47 @@ the reason this skill is built the way it is.
   anything modern.
 - **Sex is a factor, not a nuisance.** Every differential analysis is per-sex by design,
   and the published headline was how much of the response differs between sexes. Pooling
-  the sexes discards the finding.
+  the sexes discards the finding. Two tissues are single-sex by anatomy (ovary, testes)
+  and one — vena cava — is missing its female 1-week and 2-week samples, so a
+  sex-difference statement there rests on 4w and 8w only.
 - **Timepoints are training duration, not time of day.** `comparison_group` counts weeks
   of training. Circadian information is separate, in `PHENO` columns including
   `key.sacrificetime`.
-- **`IMMUNO` is a targeted panel**, tens of analytes, not a discovery assay. Absence of a
-  protein there means it was not on the panel.
+- **`IMMUNO` is a targeted panel**, tens of analytes, not a discovery assay — 720 rows for
+  17 tissues in one pooled file, 26 to 60 per tissue across six panels. Absence of a
+  protein there means it was not on the panel, and absence of a tissue means the assay was
+  not run there, which the file expresses as nothing at all rather than as an error.
 - **One intervention.** Progressive treadmill endurance training. Nothing here speaks to
   resistance training, and the acute-exercise arm is not in this release.
 
 ## Try it
 
-A self-contained check on the two open routes and on the claim that decides whether this
-resource fits an aging question. Public data, no account, no key.
+A self-contained check on the two open routes, on the claim that decides whether this
+resource fits an aging question, and on the four places where a technique that works on
+heart proteomics silently produces a wrong answer somewhere else. Public data, no account,
+no key.
 
-**Data** — four objects from `MotrpacRatTraining6moData` at tag `v2.1.0` (code MIT, data
-CC BY 4.0), plus one plain-text table from the public bucket:
+**Data** — six objects from `MotrpacRatTraining6moData` at tag `v2.1.0` (code MIT, data
+CC BY 4.0), plus four plain-text tables from the public bucket:
 
     https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PHENO.rda
     https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PROT_HEART_DA.rda
+    https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_HEART_DA.rda
+    https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_VENACV_DA.rda
+    https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_NORM_DATA_FLAT.rda
     https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/TRAINING_REGULATED_FEATURES.rda
     https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/PROT/pass1b-06_t58-heart_prot-pr_training-dea-fdr.txt
+    https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/METAB/redundant/pass1b-06_t58-heart_metab_training-dea-fdr.txt
+    https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/METAB/meta-regression/pass1b-06_t58-heart_metab-meta-reg_training-dea-fdr.txt
+    https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/IMMUNO/pass1b-06_immunoassay_training-dea-fdr.txt
 
-About 13 MB in total, no licence acceptance and no account. Heart proteomics is used
-because it is one of the few assays present in both routes at a size that downloads
-quickly. Last confirmed reachable 2026-08-17. Needs `pip install pyreadr pandas`.
+About 20 MB in total, no licence acceptance and no account. Heart proteomics is the
+well-behaved case; heart and vena cava metabolomics and the pooled immunoassay are the
+ones that break a heart-proteomics-shaped pipeline. Last confirmed reachable 2026-08-18.
+Needs `pip install pyreadr pandas`.
 
 ```python
-import io, os, urllib.request
+import io, os, re, urllib.request
 import numpy as np, pandas as pd, pyreadr
 
 TAG  = "v2.1.0"
@@ -740,54 +896,113 @@ def rda(name):
     assert tables, f"{name} is not a data.frame — pyreadr returns {{}}, not an error"
     return list(tables.values())[0]
 
-pheno = rda("PHENO")
-da    = rda("PROT_HEART_DA")
-trf   = rda("TRAINING_REGULATED_FEATURES")
+def txt(path):
+    return pd.read_csv(io.BytesIO(urllib.request.urlopen(f"{BUCK}/{path}", timeout=180).read()), sep="\t")
 
-tsv = pd.read_csv(io.BytesIO(urllib.request.urlopen(
-    f"{BUCK}/PROT/pass1b-06_t58-heart_prot-pr_training-dea-fdr.txt", timeout=120).read()),
-    sep="\t")
+pheno = rda("PHENO")
+trf   = rda("TRAINING_REGULATED_FEATURES")
+trf["platform"] = trf["platform"].fillna("NA")          # NA for the 7 single-platform assays
 
 # 1. what cohort is this? the answer is in PHENO, not in the file names
-ages      = sorted(pheno["key.agegroup"].unique())
-protocols = sorted(pheno["key.protocol"].unique())
-print("PHENO rows / age groups / protocols :", len(pheno), ages, protocols)
+print("PHENO rows / age groups / protocols :", len(pheno),
+      sorted(pheno["key.agegroup"].unique()), sorted(pheno["key.protocol"].unique()))
+assert sorted(pheno["key.agegroup"].unique()) == ["6 months"]
 
-# 2. the DA table is sex x timepoint contrasts, not one row per feature
-nfeat, nsex, ntime = (da["feature_ID"].nunique(), da["sex"].nunique(),
-                      da["comparison_group"].nunique())
-print("PROT_HEART_DA rows                  :", len(da),
+# 2. a _DA table is sex x timepoint contrasts — and feature_ID is the key only for the
+#    seven single-platform assays
+prot = rda("PROT_HEART_DA")
+ptsv = txt("PROT/pass1b-06_t58-heart_prot-pr_training-dea-fdr.txt")
+nfeat, nsex, ntime = (prot["feature_ID"].nunique(), prot["sex"].nunique(),
+                      prot["comparison_group"].nunique())
+print("PROT_HEART_DA rows                  :", len(prot),
       f"= {nfeat} features x {nsex} sexes x {ntime} timepoints")
-print("timepoints / sexes                  :",
-      sorted(da["comparison_group"].unique()), sorted(da["sex"].unique()))
-assert len(da) == nfeat * nsex * ntime
+assert len(prot) == nfeat * nsex * ntime == 73472
+m = prot[["feature_ID", "selection_fdr"]].drop_duplicates().merge(
+        ptsv[["feature_ID", "adj_p_value"]], on="feature_ID")
+print("PROT/HEART matched to bucket TSV    :", len(m),
+      f"| max |Δ FDR| = {float(np.nanmax(np.abs(m.selection_fdr - m.adj_p_value))):.1e}")
+assert len(m) == len(ptsv) == nfeat
 
-# 3. the two open routes agree: selection_fdr is the bucket's training-effect FDR
-m = da[["feature_ID", "selection_fdr"]].drop_duplicates().merge(
-        tsv[["feature_ID", "adj_p_value"]], on="feature_ID")
-delta = float(np.nanmax(np.abs(m["selection_fdr"] - m["adj_p_value"])))
-print("features matched to bucket TSV      :", len(m), f"| max |Δ FDR| = {delta:.1e}")
-assert len(m) == nfeat and delta < 1e-12
+# 3. METAB and IMMUNO break that: the row key is feature_ID + dataset, because the same
+#    metabolite is measured on several platforms. Merging on feature_ID alone INFLATES.
+metab = rda("METAB_HEART_DA")
+red   = txt("METAB/redundant/pass1b-06_t58-heart_metab_training-dea-fdr.txt")
+naive = metab[["feature_ID", "selection_fdr"]].drop_duplicates().merge(
+            red[["feature_ID", "adj_p_value"]], on="feature_ID")
+right = metab[["feature_ID", "dataset", "selection_fdr"]].drop_duplicates().merge(
+            red[["feature_ID", "dataset", "adj_p_value"]], on=["feature_ID", "dataset"])
+print("METAB/HEART bucket rows             :", len(red),
+      f"| merge on feature_ID -> {len(naive)} rows, max |Δ FDR| "
+      f"{float(np.nanmax(np.abs(naive.selection_fdr - naive.adj_p_value))):.1e}"
+      f" | merge on feature_ID+dataset -> {len(right)} rows, max |Δ FDR| "
+      f"{float(np.nanmax(np.abs(right.selection_fdr - right.adj_p_value))):.1e}")
+assert len(naive) > len(red) and len(right) == len(red) == 1430
+assert float(np.nanmax(np.abs(right.selection_fdr - right.adj_p_value))) < 1e-12
+assert metab["feature_ID"].nunique() == 1309 < 1430
+assert len(metab) == 1430 * nsex * ntime
 
-# 4. TRAINING_REGULATED_FEATURES is the 5% FDR selection, expanded to 8 rows/feature
-sel  = trf[(trf["assay"] == "PROT") & (trf["tissue"] == "HEART")]
-hits = int((tsv["adj_p_value"] < 0.05).sum())
-print("training-regulated PROT/HEART       :", sel["feature_ID"].nunique(),
-      f"features, {len(sel)} rows | FDR<0.05 in TSV = {hits}")
-assert sel["feature_ID"].nunique() == hits
-assert len(sel) == hits * nsex * ntime
+# 4. the design is not a full grid everywhere: female vena cava has no 1w or 2w sample
+ven = rda("METAB_VENACV_DA")
+cells = ven.groupby("sex")["comparison_group"].unique().apply(sorted).to_dict()
+print("METAB_VENACV_DA rows                :", len(ven), "| timepoints per sex:", cells)
+assert len(ven) % (2 * 4) != 0 and cells["female"] == ["4w", "8w"]
 
-print("\nage groups in the open omics release:", ages)
+# 5. IMMUNO is one pooled file for every tissue — HTTP 200 for a tissue it never ran on
+imm = txt("IMMUNO/pass1b-06_immunoassay_training-dea-fdr.txt")
+print("IMMUNO pooled rows / tissues        :", len(imm), imm["tissue_abbreviation"].nunique(),
+      "| VENACV rows:", int((imm["tissue_abbreviation"] == "VENACV").sum()),
+      "| OVARY rows:", int((imm["tissue_abbreviation"] == "OVARY").sum()),
+      "at FDR<0.05:", int((imm[imm.tissue_abbreviation == "OVARY"].adj_p_value < 0.05).sum()))
+assert imm["tissue_abbreviation"].nunique() == 17
+assert (imm["tissue_abbreviation"] == "VENACV").sum() == 0
+
+# 6. the two _FLAT matrices are keyed on pid (8 digits), not viallabel (11)
+flat = rda("METAB_NORM_DATA_FLAT")
+samp = [str(c) for c in flat.columns if re.fullmatch(r"\d+", str(c))]
+print("METAB_NORM_DATA_FLAT sample columns :", len(samp),
+      "| in PHENO.viallabel:", len(set(samp) & set(pheno.viallabel.astype(str))),
+      "| in PHENO.pid:", len(set(samp) & set(pheno.pid.astype(str))))
+assert set(samp) & set(pheno.viallabel.astype(str)) == set()
+assert set(samp) <= set(pheno.pid.astype(str))
+
+# 7. TRAINING_REGULATED_FEATURES: the unit is (feature_ID, platform), and the row count per
+#    unit is n_sexes x n_timepoints present — 8, 6 or 4, not always 8
+mreg = txt("METAB/meta-regression/pass1b-06_t58-heart_metab-meta-reg_training-dea-fdr.txt")
+for assay, tissue, expect in [("PROT", "HEART", 8), ("TRNSCRPT", "OVARY", 4),
+                              ("METAB", "VENACV", 6), ("IMMUNO", "HEART", 8)]:
+    sel = trf[(trf.assay == assay) & (trf.tissue == tissue)]
+    per = sorted(int(x) for x in sel.groupby(["feature_ID", "platform"]).size().unique())
+    print(f"TRF {assay:8} {tissue:6} {sel.feature_ID.nunique():>5} features, "
+          f"{sel.drop_duplicates(['feature_ID','platform']).shape[0]:>5} feature-platform pairs, "
+          f"{len(sel):>6} rows, {per} rows each")
+    assert per == [expect]
+    assert len(sel) == sel.drop_duplicates(["feature_ID", "platform"]).shape[0] * expect
+sel = trf[(trf.assay == "METAB") & (trf.tissue == "HEART")]
+print("METAB/HEART: TRF pairs / meta-reg FDR<0.05 / redundant FDR<0.05 :",
+      sel.drop_duplicates(["feature_ID", "platform"]).shape[0],
+      int((mreg.adj_p_value < 0.05).sum()), int((red.adj_p_value < 0.05).sum()))
+assert sel.drop_duplicates(["feature_ID", "platform"]).shape[0] == int((mreg.adj_p_value < 0.05).sum())
+sel = trf[(trf.assay == "PROT") & (trf.tissue == "HEART")]
+assert sel.feature_ID.nunique() == int((ptsv.adj_p_value < 0.05).sum()) == 693
+
+print("\nage groups in the open omics release:", sorted(pheno["key.agegroup"].unique()))
 ```
 
-What it printed on 2026-08-17:
+What it printed on 2026-08-18:
 
 ```
 PHENO rows / age groups / protocols : 6156 ['6 months'] ['phase 1b']
 PROT_HEART_DA rows                  : 73472 = 9184 features x 2 sexes x 4 timepoints
-timepoints / sexes                  : ['1w', '2w', '4w', '8w'] ['female', 'male']
-features matched to bucket TSV      : 9184 | max |Δ FDR| = 1.1e-16
-training-regulated PROT/HEART       : 693 features, 5544 rows | FDR<0.05 in TSV = 693
+PROT/HEART matched to bucket TSV    : 9184 | max |Δ FDR| = 1.1e-16
+METAB/HEART bucket rows             : 1430 | merge on feature_ID -> 1724 rows, max |Δ FDR| 8.8e-01 | merge on feature_ID+dataset -> 1430 rows, max |Δ FDR| 9.9e-17
+METAB_VENACV_DA rows                : 1278 | timepoints per sex: {'female': ['4w', '8w'], 'male': ['1w', '2w', '4w', '8w']}
+IMMUNO pooled rows / tissues        : 720 17 | VENACV rows: 0 | OVARY rows: 46 at FDR<0.05: 0
+METAB_NORM_DATA_FLAT sample columns : 54 | in PHENO.viallabel: 0 | in PHENO.pid: 54
+TRF PROT     HEART    693 features,   693 feature-platform pairs,   5544 rows, [8] rows each
+TRF TRNSCRPT OVARY    896 features,   896 feature-platform pairs,   3584 rows, [4] rows each
+TRF METAB    VENACV    23 features,    23 feature-platform pairs,    138 rows, [6] rows each
+TRF IMMUNO   HEART      4 features,     5 feature-platform pairs,     40 rows, [8] rows each
+METAB/HEART: TRF pairs / meta-reg FDR<0.05 / redundant FDR<0.05 : 568 568 603
 
 age groups in the open omics release: ['6 months']
 ```
@@ -800,26 +1015,45 @@ not that upstream moved:
 - `PHENO` has exactly **one** age group. Any second value means an aged arm has been
   released into the omics package and every "young adult only" statement above needs
   revisiting — which is a good outcome, not a bug, but it must be noticed.
-- A `_DA` table has `n_features × n_sexes × n_timepoints` rows. Treating it as one row per
-  feature is the most common way to misread these objects.
-- `selection_fdr` in the `_DA` table equals `adj_p_value` in the bucket's
-  `training-dea-fdr.txt` for every feature. This is what proves the two open routes are
-  the same analysis and that `selection_fdr`, not `adj_p_value`, is the training-effect
-  FDR.
-- `TRAINING_REGULATED_FEATURES` for a tissue and assay contains exactly the features at
-  `adj_p_value < 0.05`, at eight rows each. That is the operational definition of
-  "training-regulated" in this resource.
+- A `_DA` table has `n_keys × n_sexes × n_timepoints_present` rows, where the key is
+  `feature_ID` for the single-platform assays and `feature_ID` **+ `dataset`** for `METAB`
+  and `IMMUNO`. Treating it as one row per `feature_ID` is the most common way to misread
+  these objects, and on metabolomics it does not even produce a whole number.
+- `n_timepoints_present` is not always four and `n_sexes` is not always two. Ovary and
+  testes are single-sex; vena cava has no female 1w or 2w. Count them, never assume them.
+- `selection_fdr` in the `_DA` table equals `adj_p_value` in the matching bucket table for
+  every row **when joined on the full key** — and the matching table for plain
+  `METAB_*_DA` is `METAB/redundant/…`, not the meta-regression file. Joined on
+  `feature_ID` alone, metabolomics returns *more* rows than the bucket table has, with
+  max |Δ FDR| near 1 rather than near zero. That inflation is the assertion here.
+- `TRAINING_REGULATED_FEATURES` for a tissue and assay contains exactly the
+  `(feature_ID, platform)` pairs at `adj_p_value < 0.05` in the matching bucket table —
+  the **meta-regression** one for metabolomics — at `n_sexes × n_timepoints` rows each.
+  For heart proteomics that collapses to features at eight rows each; nowhere else is it
+  safe to assume either.
+- The immunoassay's pooled file answers **200 with zero rows** for a tissue it never ran
+  on. Every other assay answers 404. Assert on the row count.
+- Sample columns in `METAB_NORM_DATA_FLAT` and `IMMUNO_NORM_DATA_FLAT` are `pid`, and are
+  **disjoint from `PHENO$viallabel`**. A `viallabel` merge on them returns a full-size
+  frame with every phenotype column `NA`.
 - pyreadr returns a truthy dict for every object here. The assertion inside `rda()` is
   what stops an empty dict from becoming a confusing `IndexError` later.
 
-Observed 2026-08-17 against tag **v2.1.0** — these move when the consortium re-releases,
+Observed 2026-08-18 against tag **v2.1.0** — these move when the consortium re-releases,
 so a mismatch is drift to investigate rather than a failure:
 
 - `PHENO` 6,156 rows · age groups `['6 months']` · protocols `['phase 1b']`
-- `PROT_HEART_DA` 73,472 rows = 9,184 features × 2 sexes × 4 timepoints
-  (`1w 2w 4w 8w`, `female male`)
-- 9,184 features matched to the bucket table, max |Δ FDR| 1.1e-16
-- training-regulated heart proteins 693 features / 5,544 rows, matching 693 at FDR < 0.05
+- `PROT_HEART_DA` 73,472 rows = 9,184 features × 2 sexes × 4 timepoints; 9,184 matched to
+  the bucket table, max |Δ FDR| 1.1e-16
+- `METAB_HEART_DA` 1,430 feature-platform keys, 1,309 distinct `feature_ID`; the naive
+  join returns 1,724 rows against a 1,430-row bucket table
+- `METAB_VENACV_DA` 1,278 rows, female `4w 8w` only
+- immunoassay 720 rows over 17 tissues; ovary 46 analytes, none at 5% FDR
+- `METAB_NORM_DATA_FLAT` 54 `pid` columns, none of them a vial label
+- training-regulated: heart proteins 693 / 5,544 rows · ovary transcripts 896 / 3,584 ·
+  vena cava metabolites 23 / 138 · heart immunoassay 4 features but 5 feature-panel pairs
+  / 40 rows · heart metabolites 568 pairs, matching the 568 at FDR < 0.05 in the
+  meta-regression file and not the 603 in the redundant one
 
 ## Sources
 
