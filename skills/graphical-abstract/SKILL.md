@@ -309,6 +309,226 @@ FIGURE = textwrap.dedent('''\
     ''')
 open("figure.svg", "w").write(FIGURE)
 
+PALETTE_AUDIT = r'''#!/usr/bin/env python3
+"""Audit a figure palette for contrast, greyscale separation and dichromat safety.
+
+Usage:  python3 palette_audit.py BACKGROUND COLOUR [COLOUR ...]
+Example: python3 palette_audit.py '#ffffff' '#1b4965' '#bc4b51' '#5b8e7d'
+Pure standard library. No network, no install.
+"""
+import itertools
+import sys
+
+# --- sRGB / WCAG 2.2 -------------------------------------------------------
+def hex_to_rgb(h):
+    s = h.strip().lstrip("#")
+    if len(s) == 3:
+        s = "".join(c * 2 for c in s)
+    if len(s) != 6 or any(c not in "0123456789abcdefABCDEF" for c in s):
+        raise ValueError(f"not a hex colour: {h!r}")
+    return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
+
+def srgb_to_linear(c):
+    c /= 255.0
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+def luminance(h):
+    r, g, b = (srgb_to_linear(c) for c in hex_to_rgb(h))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+def contrast(a, b):
+    la, lb = luminance(a), luminance(b)
+    lo, hi = sorted((la, lb))
+    return (hi + 0.05) / (lo + 0.05)
+
+# --- dichromat simulation --------------------------------------------------
+# Vienot, Brettel & Mollon (1999), applied in linear sRGB.
+CVD = {
+    "protanopia":   ((0.11238, 0.88762, 0.0), (0.11238, 0.88762, 0.0), (0.00401, -0.00401, 1.0)),
+    "deuteranopia": ((0.29275, 0.70725, 0.0), (0.29275, 0.70725, 0.0), (-0.02234, 0.02234, 1.0)),
+}
+
+def linear_to_srgb(c):
+    c = max(0.0, min(1.0, c))
+    v = c * 12.92 if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
+    return round(max(0.0, min(1.0, v)) * 255)
+
+def simulate(h, kind):
+    lin = [srgb_to_linear(c) for c in hex_to_rgb(h)]
+    m = CVD[kind]
+    return "#{:02x}{:02x}{:02x}".format(
+        *(linear_to_srgb(sum(m[i][j] * lin[j] for j in range(3))) for i in range(3)))
+
+# --- thresholds ------------------------------------------------------------
+TEXT_MIN = 4.5      # WCAG 2.2 SC 1.4.3, normal text
+LARGE_MIN = 3.0     # SC 1.4.3, text >=18pt or >=14pt bold
+NONTEXT_MIN = 3.0   # SC 1.4.11, meaningful graphical objects
+PAIR_MIN = 1.5      # this skill's heuristic for greyscale separability -- NOT a WCAG rule
+
+def main(argv):
+    if len(argv) < 3:
+        print(__doc__.strip())
+        return 2
+    bg, palette = argv[1], argv[2:]
+    try:
+        for c in [bg, *palette]:
+            hex_to_rgb(c)
+    except ValueError as e:
+        print(f"FAIL  {e}")
+        return 2
+
+    failures = 0
+    print(f"background {bg}   luminance {luminance(bg):.4f}\n")
+
+    print("-- vs background (SC 1.4.11 needs 3.0 for shapes, SC 1.4.3 needs 4.5 for body text)")
+    for c in palette:
+        r = contrast(c, bg)
+        tag = "ok  " if r >= NONTEXT_MIN else "FAIL"
+        text = "text ok" if r >= TEXT_MIN else ("large text only" if r >= LARGE_MIN else "not usable for text")
+        if r < NONTEXT_MIN:
+            failures += 1
+        print(f"  {tag}  {c}  {r:5.2f}:1   {text}")
+
+    print(f"\n-- pairwise greyscale separation (heuristic floor {PAIR_MIN}:1)")
+    for a, b in itertools.combinations(palette, 2):
+        r = contrast(a, b)
+        tag = "ok  " if r >= PAIR_MIN else "WARN"
+        if r < PAIR_MIN:
+            failures += 1
+        print(f"  {tag}  {a} / {b}  {r:5.2f}:1")
+
+    print("\n-- dichromat simulation (does the pair survive without hue?)")
+    for kind in ("protanopia", "deuteranopia"):
+        print(f"  {kind}")
+        for a, b in itertools.combinations(palette, 2):
+            sa, sb = simulate(a, kind), simulate(b, kind)
+            r = contrast(sa, sb)
+            tag = "ok  " if r >= PAIR_MIN else "WARN"
+            print(f"    {tag}  {a}->{sa}  {b}->{sb}   {r:5.2f}:1")
+
+    print(f"\n{'PASS' if failures == 0 else f'{failures} problem(s)'}")
+    return 0 if failures == 0 else 1
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
+'''
+
+SVG_LINT = r'''#!/usr/bin/env python3
+"""Lint a graphical abstract SVG for editability, restraint and accessibility.
+
+Usage: python3 svg_lint.py figure.svg
+Pure standard library. No network, no install.
+"""
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+SVG = "{http://www.w3.org/2000/svg}"
+MIN_FONT = 9.0          # user units; below this is unreadable when scaled to column width
+MAX_FONT_SIZES = 4      # heuristic: title, label, annotation, caption
+MAX_STROKE_WIDTHS = 3   # heuristic: emphasis, normal, hairline
+
+def tag(el):
+    return el.tag.split("}")[-1]
+
+def colours_in(el):
+    out = set()
+    for attr in ("fill", "stroke", "stop-color"):
+        v = el.get(attr)
+        if v and v.startswith("#"):
+            out.add(v.lower())
+    style = el.get("style") or ""
+    for m in re.finditer(r"(?:fill|stroke|stop-color)\s*:\s*(#[0-9a-fA-F]{3,6})", style):
+        out.add(m.group(1).lower())
+    return out
+
+def numeric(el, attr):
+    v = el.get(attr)
+    if v is None:
+        style = el.get("style") or ""
+        m = re.search(rf"{attr}\s*:\s*([0-9.]+)", style)
+        v = m.group(1) if m else None
+    if v is None:
+        return None
+    m = re.match(r"^([0-9.]+)", str(v).strip())
+    return float(m.group(1)) if m else None
+
+def main(argv):
+    if len(argv) != 2:
+        print(__doc__.strip())
+        return 2
+    try:
+        tree = ET.parse(argv[1])
+    except ET.ParseError as e:
+        print(f"FAIL  not well-formed XML — {e}")
+        return 1
+    except OSError as e:
+        print(f"FAIL  cannot read file — {e}")
+        return 2
+
+    root = tree.getroot()
+    problems, notes = [], []
+
+    if tag(root) != "svg":
+        print(f"FAIL  root element is <{tag(root)}>, expected <svg>")
+        return 1
+
+    if not root.get("viewBox"):
+        problems.append("no viewBox — the figure will not scale cleanly to a journal column")
+
+    els = list(root.iter())
+    rasters = [e for e in els if tag(e) == "image"]
+    if rasters:
+        problems.append(f"{len(rasters)} <image> element(s) — embedded raster cannot be corrected by the author")
+
+    texts = [e for e in els if tag(e) == "text"]
+    if not texts:
+        problems.append("no <text> elements — labels appear to be outlined paths, so nothing is editable or selectable")
+
+    if root.find(f"{SVG}title") is None and root.find("title") is None:
+        problems.append("no <title> — screen readers announce nothing for this figure")
+
+    sizes, small = set(), []
+    for t in texts:
+        s = numeric(t, "font-size")
+        if s is None:
+            continue
+        sizes.add(s)
+        if s < MIN_FONT:
+            small.append((("".join(t.itertext()) or "").strip()[:24], s))
+    if len(sizes) > MAX_FONT_SIZES:
+        problems.append(f"{len(sizes)} distinct font sizes {sorted(sizes)} — variation should carry meaning; cap is {MAX_FONT_SIZES}")
+    for label, s in small:
+        problems.append(f"font-size {s} on {label!r} is below the {MIN_FONT} floor")
+
+    widths = {w for w in (numeric(e, "stroke-width") for e in els) if w is not None}
+    if len(widths) > MAX_STROKE_WIDTHS:
+        problems.append(f"{len(widths)} distinct stroke widths {sorted(widths)} — cap is {MAX_STROKE_WIDTHS}")
+
+    markers = {e.get(a) for e in els for a in ("marker-end", "marker-start") if e.get(a)}
+    if len(markers) > 2:
+        problems.append(f"{len(markers)} distinct arrowhead styles — each style should mean something different")
+
+    palette = sorted({c for e in els for c in colours_in(e)})
+    notes.append(f"{len(els)} elements, {len(texts)} text nodes, {len(sizes)} font size(s), {len(widths)} stroke width(s)")
+    notes.append("colours: " + (" ".join(palette) if palette else "(none as hex)"))
+    notes.append("-> audit the MEANING-BEARING ones: palette_audit.py BACKGROUND COLOUR [COLOUR ...]")
+    notes.append("   omit the background itself and any de-emphasized scaffolding neutral")
+
+    for n in notes:
+        print(f"note  {n}")
+    for p in problems:
+        print(f"FAIL  {p}")
+    print("\n" + ("PASS" if not problems else f"{len(problems)} problem(s)"))
+    return 0 if not problems else 1
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
+'''
+
+open("palette_audit.py", "w").write(PALETTE_AUDIT)
+open("svg_lint.py", "w").write(SVG_LINT)
+
 def run(*cmd):
     p = subprocess.run([sys.executable, *cmd], capture_output=True, text=True)
     return p.returncode, p.stdout
@@ -343,11 +563,13 @@ assert abs(ratio(out, BASE + "  ") - 9.60) < 0.01
 assert abs(ratio(out, PERT + "  ") - 3.85) < 0.01
 assert abs(min(pairs) - 1.90) < 0.01, "Step 4 claims at least 1.90:1 between every pair"
 
-# 3. The trap. svg_lint prints every hex it finds, including the background and the
-#    exempt scaffolding neutral. Pasting that list straight through fails by
-#    construction -- on a figure that is correct.
+# 3. The trap, and it is a paste error rather than a tool error. svg_lint lists
+#    every hex in the FILE — for this figure that is four inks, and no #ffffff,
+#    because the figure never paints its own background. The easy mistake is to
+#    paste that list into palette_audit and add the page background yourself: the
+#    background is then in the list twice and gets compared against itself.
 code, out = run("palette_audit.py", BG, INK, BASE, PERT, CONTEXT, BG)
-print("\n3. the same figure, audited with svg_lint's raw colour list")
+print("\n3. the same list with the background pasted in twice — the easy mistake")
 print(f"   context {CONTEXT} vs white                 {ratio(out, CONTEXT + '  '):5.2f}:1   (exempt by Step 4)")
 print(f"   background against itself                 {ratio(out, '  ' + BG + '  '):5.2f}:1")
 print(f"   exit {code} -- select the meaning-bearing colours, do not paste the list")
@@ -400,7 +622,7 @@ which is exactly what the section is for.
    perturbation vs white                      3.85:1
    worst pair, greyscale and both simulations  1.90:1
 
-3. the same figure, audited with svg_lint's raw colour list
+3. the same list with the background pasted in twice — the easy mistake
    context #d9d9d9 vs white                  1.41:1   (exempt by Step 4)
    background against itself                  1.00:1
    exit 1 -- select the meaning-bearing colours, do not paste the list
