@@ -211,10 +211,13 @@ from collections import Counter
 
 REPO = "https://repo-prod.prod.sagebase.org/repo/v1"
 
-# Every child type the endpoint knows. It has no default: a type you leave out is
-# a set of children that silently does not exist.
+# The endpoint has no default: a type you leave out is a set of children that silently
+# does not exist. `submissionview` and `recordset` are also accepted (a bogus value 400s
+# with "No enum constant …EntityType"), so probe the enum rather than trusting this list
+# to stay complete.
 CHILD_TYPES = ["project", "folder", "file", "table", "link", "entityview", "dockerrepo",
-               "dataset", "datasetcollection", "materializedview", "virtualtable"]
+               "dataset", "datasetcollection", "materializedview", "virtualtable",
+               "submissionview", "recordset"]
 
 
 def _post(path, body, timeout=60):
@@ -915,7 +918,7 @@ you kept**. Paging on `query.offset` until the two agree recovered all 12,282 ro
 `syn9738945` in 131 s and all 5,166 of `syn20448807` in 54 s. A count you cannot reconcile is
 a truncation you have not noticed yet.
 
-The SQL dialect and the job have four more edges:
+The SQL dialect and the job have five more edges:
 
 - **Multi-value columns need `HAS`, not `=`.** `Species`, `studyFocus` and `DataType_All`
   are `STRING_LIST` columns and come back as JSON-encoded strings such as `["Human"]`.
@@ -1315,8 +1318,10 @@ Invariants — these hold regardless of stack version, and a failure means the s
 - **`includeTypes` of folder-plus-file returns strictly fewer children** than the full type
   list on a portal project, and a `Dataset` reports zero children while declaring thousands
   of items.
-- **A `Link`'s `restrictionLevel` differs from its target's.** Reading the tier off the link
-  is reading the wrong entity.
+- **A `Link` carries its own `restrictionLevel`, sourced independently of its target's.**
+  Reading the tier off the link is reading the wrong entity. Note the invariant is the
+  *independence*, not that the two always differ — about half the links sampled happen to
+  agree. The dated cases where they diverge are below.
 - **`GET /entity/{id}/version` returns 10 rows** and declares a `totalNumberOfResults` smaller
   than the number of versions that actually exist.
 
