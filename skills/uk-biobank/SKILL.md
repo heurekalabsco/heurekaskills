@@ -1,10 +1,10 @@
 ---
 name: uk-biobank
-description: Search UK Biobank's openly published field catalogue — 11,821 measured variables in 410 categories with participant counts, units, and the instanced/arrayed shape that decides how many columns a field becomes — and report what an access application requires. Delivers catalogue metadata as CSV; participant data stays behind an approved application and is never fetched.
+description: Search UK Biobank's openly published field catalogue — 11,821 variables in 410 categories with participant counts, units, the instanced/arrayed shape that decides how many columns a field becomes, and the 172 retired fields the website hides but the download still carries — and report what an access application requires, applications being paused as of August 2026. Never fetches participant data.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [uk-biobank, cohort, epidemiology, controlled-access, public-data]
 covers: [uk biobank, biobank, cohort, nmr metabolomics, plasma proteomics, olink, ukb-ppp, gwas, imaging, brain mri, cardiac mri, abdominal mri, liver fat, dxa, accelerometer, spirometry, blood biochemistry, whole exome sequencing, whole genome sequencing, polygenic risk score, icd10, hospital inpatient records, cancer registry, death registry, type 2 diabetes, dementia, coronary artery disease, breast cancer, aging, data dictionary]
 papers: [PMID:25826379, PMID:30305743, PMID:32457287, PMID:34662886, PMID:36737450, PMID:37794186, PMID:38057571]
@@ -12,8 +12,8 @@ access: [open, controlled]
 datasets: [https://biobank.ndph.ox.ac.uk/showcase/scdown.cgi?fmt=txt&id=1]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
-  against: Showcase schema 1 (field catalogue) max version 2025-09-20, 11,821 fields, 4,164,390 bytes / schema 3 (categories) 410 rows / coding 143 (Olink assays) 2,923 rows / Python 3.12.8, standard library only / curl 8.7.1
+  date: 2026-08-18
+  against: Showcase schema 1 (field catalogue) max version 2025-09-20, 11,821 fields, 4,164,390 bytes / schema 3 (categories) 410 rows / schema 9 (instancing) 12 rows / coding 143 (Olink assays) 2,923 rows / shape arithmetic checked against the Showcase's own declared Instances, Array, Participants and Item count on 19 fields (23400 41270 30069 40000 40006 4079 6138 3166 30098 189 22201 33 1020204 2020204 30900 41001 21015 4229 5990) plus absent id 99999999 / retired-vs-listed checked against label.cgi on all 22 categories holding a retired field / Access Procedures v2.1 July 2022 PDF / fees and apply-for-access pages read 2026-08-18 in a browser, both Cloudflare-blocked to plain HTTP clients / Python 3.12.8, standard library only / curl 8.7.1
   executed: 7
   unverified: 0
 ---
@@ -64,7 +64,7 @@ shasum -a 256 primary.tsv mirror.tsv
 cut -f1,2,13,24 primary.tsv | head -3
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-18:
 
 ```
  4164390 primary.tsv
@@ -80,9 +80,15 @@ field_id	title	units	num_participants
 Same bytes, same digest, so the `crystal` mirror is a drop-in fallback when the primary
 is down. A third path, `biobank.ndph.ox.ac.uk/ukb/scdown.cgi`, served the same file.
 
+**`scdown.cgi` answers HTTP 200 with an HTML error page** when it does not recognise the
+table id — `Content-Type: text/html`, body "Sorry, internal error prevents download of
+schema". Fed to a TSV parser that trusts the status code, it yields ~40 rows whose sole
+column is named `<!DOCTYPE HTML>`, with no exception raised. `codown.cgi` behaves the same
+way. Every loader below checks the first bytes rather than the status.
+
 The tables worth knowing, all at `scdown.cgi?fmt=txt&id=<n>`:
 
-| id | table | rows on 2026-08-17 | why you want it |
+| id | table | rows on 2026-08-18 | why you want it |
 |---|---|---|---|
 | 1 | data field properties | 11,821 | the catalogue itself |
 | 3 | categories | 410 | `main_category` is an integer — this names it |
@@ -124,7 +130,7 @@ code you have never seen appears:
 
 Three of those need more than a lookup:
 
-**`value_type` is the shape of one value.** On the 2026-08-17 snapshot: 4,951 continuous,
+**`value_type` is the shape of one value.** On the 2026-08-18 snapshot: 4,951 continuous,
 3,698 categorical-single, 1,345 date, 1,008 integer, 533 text, 171 categorical-multiple,
 85 time, 30 compound. No `201 blob` field existed, though the code is documented.
 
@@ -145,11 +151,14 @@ assumes every field is a column will mis-size 550 of them.
 
 The last three columns are fee tiers, and only one of them is populated. `cost_do` is
 `0` for all 11,821 fields. `cost_on` — the tier for analysis on the Research Analysis
-Platform — is `1` for 11,266 fields, `2` for 413, `3` for 141, and the showcase page
-renders it as `o1`/`o2`/`o3`. That tracks the published three-tier fee structure: the
-141 tier-3 fields are exome and whole-genome sequencing and their QC metrics, and tier 2
-is dominated by imaging-derived measures, polygenic risk scores and cardiac monitoring.
-So the open catalogue tells you which fee tier your shortlist sits in before you ask.
+Platform — is `1` for 11,266 fields, `2` for 413, `3` for 141, and `0` for exactly one,
+field `33` Date of birth. The showcase page renders those as `o1`/`o2`/`o3` and the lone
+zero as `oX`, so treat `0` as *no tier stated*, not as tier zero — mapping it to an
+integer tier is how a one-field hole becomes a wrong fee. The rest tracks the published
+three-tier fee structure: the 141 tier-3 fields are exome and whole-genome sequencing and
+their QC metrics, and tier 2 is dominated by imaging-derived measures, polygenic risk
+scores and cardiac monitoring. So the open catalogue tells you which fee tier your
+shortlist sits in before you ask.
 `cost_sc` renders as `s<N>` (and as `sX` when it is `0`), and **its definition is not
 published in the schema documentation** — that page still documents a single `tier`
 column where the file now has three. Do not infer a meaning for `cost_sc`; report the
@@ -157,9 +166,11 @@ raw value.
 
 ## Searching and grouping — the triage layer
 
-Match on title *and* category name, group by category, and lead with the participant
-count. Grouping matters because a title search alone scatters related fields, and the
-category is often where the useful name lives.
+Match on title *and* category name, group by category, lead with the participant count,
+and **carry `availability`**. Grouping matters because a title search alone scatters
+related fields, and the category is often where the useful name lives. Carrying
+availability matters for the reason in the next section: the download contains 172
+retired fields that the Showcase website does not show you.
 
 ```python
 import csv, io, re, urllib.request
@@ -169,16 +180,21 @@ SHOWCASE = "https://biobank.ndph.ox.ac.uk/showcase"
 
 def load(sid, encoding):
     raw = urllib.request.urlopen(f"{SHOWCASE}/scdown.cgi?fmt=txt&id={sid}", timeout=300).read()
+    # scdown.cgi answers HTTP 200 with an HTML error page for an unknown table id.
+    if raw.lstrip()[:9].lower().startswith(b"<!doctype"):
+        raise SystemExit(f"schema {sid}: server returned HTML, not TSV — check the table id")
     return list(csv.DictReader(io.StringIO(raw.decode(encoding)),
                               delimiter="\t", quoting=csv.QUOTE_NONE))
 
 fields = load(1, "utf-8")     # data-field properties
 cats   = load(3, "cp1252")    # category id -> title
 cat_name = {c["category_id"]: c["title"] for c in cats}
+MARK = {"4": " RETIRED", "1": " view-only"}   # availability; "0" is full
 
 def triage(query, min_n=0):
-    """Fields whose title or category matches `query`, grouped by category,
-    reporting the participant count that decides whether the study is powered."""
+    """Fields whose title or category matches `query`, grouped by category, reporting the
+    participant count that decides whether the study is powered — and whether the field is
+    still live. Retired fields stay in the download but vanish from the Showcase website."""
     pat = re.compile(query, re.I)
     groups = defaultdict(list)
     for f in fields:
@@ -186,19 +202,23 @@ def triage(query, min_n=0):
         if pat.search(f["title"]) or pat.search(cname):
             n = int(f["num_participants"])
             if n >= min_n:                      # -1 and 0 fall out at min_n=1
-                groups[(f["main_category"], cname)].append((f["field_id"], f["title"], n))
+                groups[(f["main_category"], cname)].append(
+                    (f["field_id"], f["title"], n, f["availability"]))
     print(f"query {query!r}  min_n={min_n}")
     for (cid, cname), hits in sorted(groups.items(), key=lambda kv: -max(h[2] for h in kv[1])):
         ns = [h[2] for h in hits]
+        dead = sum(1 for h in hits if h[3] == "4")
         print(f"  cat {cid:>6}  {cname[:38]:38} {len(hits):>4} fields  "
-              f"n {min(ns):,}-{max(ns):,}")
-        for fid, title, n in sorted(hits, key=lambda h: -h[2])[:3]:
-            print(f"            {fid:>8}  {title[:44]:44} n={n:,}")
+              f"n {min(ns):,}-{max(ns):,}" + (f"  [{dead} retired]" if dead else ""))
+        for fid, title, n, avail in sorted(hits, key=lambda h: -h[2])[:3]:
+            print(f"            {fid:>8}  {title[:44]:44} n={n:,}{MARK.get(avail, '')}")
 
 triage(r"\bliver\b", min_n=10000)
+print()
+triage(r"liver iron|townsend")
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-18:
 
 ```
 query '\\bliver\\b'  min_n=10000
@@ -220,23 +240,76 @@ query '\\bliver\\b'  min_n=10000
   cat   1000  [1000 unknown]                            2 fields  n 15,112-15,116
              1020254  EMBARGOED UNLINKED : Liver imaging - IDEAL p n=15,116
              1020204  EMBARGOED UNLINKED : Liver Imaging - T1 ShMo n=15,112
+
+query 'liver iron|townsend'  min_n=0
+  cat 100094  Baseline characteristics                  2 fields  n 501,315-501,315  [1 retired]
+                 189  Townsend deprivation index at recruitment    n=501,315 RETIRED
+               22189  Townsend deprivation index at recruitment    n=501,315
+  cat    126  Liver MRI                                 4 fields  n 1,110-40,354  [2 retired]
+               40060  Liver iron (Fe)                              n=40,354
+               40062  Liver iron corrected T1 (ct1)                n=34,291
+               22417  Liver iron corrected T1 (ct1)                n=2,812 RETIRED
+  cat    158  Abdominal organ composition               2 fields  n 10,069-30,736
+               21089  Liver iron                                   n=30,736
+               21093  Liver iron (Fe) - gradient echo              n=10,069
 ```
 
-That output is the whole point of the skill, and it also shows why you cannot rank by
+The first output is the whole point of the skill, and it also shows why you cannot rank by
 `num_participants` alone: the largest hit is a food-preference questionnaire item. The
 real answer — quantitative liver fat on ~30,700 people, liver volume on ~39,000, raw
 imaging on ~95,000 — is three lines down. Read the titles.
 
-The last group is the orphan-category trap arriving unannounced: `[1000 unknown]` is a
+The `[1000 unknown]` group is the orphan-category trap arriving unannounced: a
 `main_category` that schema 3 does not define, so an inner join would have deleted those
-two rows silently. All 126 fields in it are `EMBARGOED UNLINKED` bulk items marked
-`private = 1`, so their presence in a hit list is not the same as their being available.
+two rows silently. All 126 fields in it are bulk items marked `private = 1`, so their
+presence in a hit list is not the same as their being available. They split exactly in
+half — **63 titled `EMBARGOED UNLINKED :` and 63 `EMBARGOED LINKED :`** — and that word is
+the whole question for an imaging file, because it says whether the file can be joined to
+a participant at all. Do not read the prefix off one of them and generalise.
 
-Which is the wider point about two columns that are easy to skip. `private = 1` (319
-fields, including `33` Date of birth and parents' months of birth) marks fields carrying
+## Retired fields are in the download and not on the website
+
+This is the trap that survives a careless search, because nothing in the field's own
+numbers looks wrong. `availability = 4` marks 172 fields as **retired**. They are still in
+schema 1, with full titles, full participant counts and a live `field.cgi` page that says
+"Field is currently retired" — but **the Showcase's category pages do not list them at
+all**. So a shortlist built from the download does not match the website, and the
+difference is silent.
+
+The second `triage` output above is the counter-example. `189` and `22189` are both titled
+`Townsend deprivation index at recruitment`, both report n=501,315, and `189` is retired.
+Nothing but `availability` separates them. Eleven retired fields carry the exact title of a
+live replacement, and three of those differ by an order of magnitude in n:
+
+| retired | n | current | n | title |
+|---|---|---|---|---|
+| `22400` | 1,110 | `40060` | 40,354 | Liver iron (Fe) |
+| `22402` | 4,609 | `40061` | 40,746 | Proton density fat fraction (PDFF) |
+| `22417` | 2,812 | `40062` | 34,291 | Liver iron corrected T1 (ct1) |
+| `189` | 501,315 | `22189` | 501,315 | Townsend deprivation index at recruitment |
+
+Whole categories can be dead. Category `2000` "Hospital inpatient" holds 36 fields in
+schema 1, with `num_participants` up to 413,163 — and **all 36 are retired, so its
+Showcase page lists none of them**. A query on `hospital inpatient|episodes containing`
+returns 86 fields of which 86 are retired. Categories `2002`–`2005` are largely the same
+story: the summary-diagnosis and summary-operation fields were superseded by the
+first-occurrence and record-level tables.
+
+The ground truth is one HTTP request away, and it is worth making once for any category
+you plan to build on: `label.cgi?id=<category_id>` lists the live fields, so
+`fields in schema 1 − retired == fields the page lists`. It holds on all 22 categories that
+contain a retired field. Category `126` Liver MRI is the compact case — 11 fields in the
+download, 7 on the page, difference exactly the 4 retired ones.
+
+Note how easily this hides. The `\bliver\b` search above uses `min_n=10000`, and all four
+retired Liver MRI fields have n below 10,000, so they never appear. A threshold chosen for
+a good reason silently suppressed the evidence.
+
+Two more columns are easy to skip for the same kind of reason. `private = 1` (319 fields,
+including `33` Date of birth and parents' months of birth) marks fields carrying
 disclosure risk, not fields you can simply request. `availability = 1` (54 fields,
 including per-chromosome genotype probabilities) is *view-only* — documented on the
-showcase, not handed out. Filter on both before you build a shortlist.
+showcase, not handed out. Filter on all three before you build a shortlist.
 
 Two habits that make this reliable. Search the **category name** as well as the title,
 because UK Biobank names the assay at the category level and the analyte at the field
@@ -251,7 +324,10 @@ independent of each other.
 **`instanced`** means the field was captured more than once per participant, indexed by
 an *instance*. The index does **not** universally mean "visit":
 
-- `instanced = 0` (4,605 fields) — captured once. Still written with instance `0`.
+- `instanced = 0` (4,605 fields) — captured once, almost always at instance `0`. Two
+  exceptions carry `instance_min = instance_max = 3`: `41000` and `41001`, the COVID-19
+  re-imaging fields. Read the index off `instance_min`, not off the `instanced` flag —
+  `field.cgi` calls both of them "Singular" and does not print an index at all.
 - `instanced = 1` (7,198 fields) — a *defined* instancing scheme. `instance_id` points
   into schema 9, which says what the instances are. `instance_id = 2` is the common one:
   initial assessment centre plus later repeat visits.
@@ -274,6 +350,8 @@ SHOWCASE = "https://biobank.ndph.ox.ac.uk/showcase"
 
 def load(sid, encoding):
     raw = urllib.request.urlopen(f"{SHOWCASE}/scdown.cgi?fmt=txt&id={sid}", timeout=300).read()
+    if raw.lstrip()[:9].lower().startswith(b"<!doctype"):   # HTTP 200 + HTML error page
+        raise SystemExit(f"schema {sid}: server returned HTML, not TSV — check the table id")
     return list(csv.DictReader(io.StringIO(raw.decode(encoding)),
                               delimiter="\t", quoting=csv.QUOTE_NONE))
 
@@ -303,7 +381,7 @@ for fid in ["23400", "41270", "40000", "30069"]:
     shape(fid); print()
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-18:
 
 ```
 23400  Total Cholesterol
@@ -339,7 +417,20 @@ columns for 1,124 participants — which is what a wide extract of an arrayed, i
 field looks like, and why you compute the column budget before requesting one.
 
 `item_count / num_participants` is the cheapest sanity check available: near 1.0 means
-one value per person, well above 1 means the field is genuinely multi-valued.
+one value per person, well above 1 means the field is genuinely multi-valued. Both columns
+carry `-1` on the same 270 fields and `0` on the same 12, so the ratio never silently
+divides by a fake count — but neither column can be summed.
+
+The independent check on all of this is the field's own showcase page, which declares the
+shape in its header table: `Instances` reads `Singular`, `Defined (N)` or `Variable (N)`
+and `Array` reads `No` or `Yes (N)`, alongside `Participants` and `Item count`. Those four
+were compared against this arithmetic on nineteen fields spanning every `value_type`, both
+`item_type 20` bulk and `item_type 30` record, `array_min = 1`, the registry-indexed
+instancing schemes and the retired and embargoed ends of the catalogue, and they agreed
+every time. One nuance the arithmetic cannot see: declared slots are not populated slots.
+`30900` declares `Defined (4)`, and its page then breaks out **3** instances, because
+nobody was measured at instance 1. Four is still the right column budget; three is the
+right number of timepoints.
 
 ## Resolving a field to its showcase page
 
@@ -375,7 +466,7 @@ for fid in ["23400", "99999999"]:
           f"'Field is not in database' present: {'Field is not in database' in body}")
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-18:
 
 ```
     23400  Total Cholesterol                            https://biobank.ndph.ox.ac.uk/showcase/field.cgi?id=23400
@@ -386,7 +477,13 @@ Printed 2026-08-17:
   field.cgi?id=99999999  HTTP 200  'Field is not in database' present: True
 ```
 
-Categories resolve the same way at `label.cgi?id=<category_id>`.
+Nor is the body string a test. `field.cgi?id=99999999` does carry "Field is not in
+database", but `field.cgi?id=0` and `field.cgi?id=abc` answer 200 *without* it. The local
+membership check is the only reliable one, which is why it comes first.
+
+Categories resolve the same way at `label.cgi?id=<category_id>` — and that page is also
+the ground truth for which fields in a category are still live, since it omits retired
+ones.
 
 Field and category notes contain the showcase's own cross-reference markup:
 `~F30900~` a field, `~C143~` a **coding** (not a category), `~L100116~` a label,
@@ -397,25 +494,40 @@ assay list, while *category* 143 is "Cannabis use".
 ## Traps confirmed on the live file
 
 - **`num_participants` is a sentinel column, not a count.** 270 fields carry `-1` and
-  12 carry `0` on the 2026-08-17 snapshot. `-1` means the count is not published — it is
-  not "nobody". Summing or averaging the raw column silently subtracts.
+  12 carry `0` on the 2026-08-18 snapshot. `-1` means the count is not published — the
+  showcase page renders those fields' participant count as the word `pending`, so it is
+  not "nobody". `item_count` carries `-1` on exactly the same 270 rows. Summing or
+  averaging either raw column silently subtracts.
+- **172 fields are retired and the website does not show them.** `availability = 4`.
+  They stay in the download with full counts; `label.cgi` omits them. Eleven of them
+  carry the exact title of the live field that replaced them. See *Retired fields are in
+  the download and not on the website* above — this is the single easiest way to size a
+  study on a dead field id.
+- **The download endpoints answer HTTP 200 with an HTML error page.** Both
+  `scdown.cgi?id=<unknown>` and `codown.cgi?id=<unknown>` return status 200 and
+  `Content-Type: text/html`. A TSV parser accepts the HTML without raising and hands back
+  rows whose first column is named `<!DOCTYPE HTML>`. Check the leading bytes, not the
+  status.
 - **The two files disagree on text encoding.** Schema 1 is valid UTF-8. Schema 3
   (categories) is **cp1252** — decoding it as UTF-8 raises `UnicodeDecodeError` on byte
   `0x97` at offset 152,914, an em dash inside a category description. Decode each table
   with the encoding that table actually uses.
 - **126 fields reference a category that does not exist.** Every field's
   `main_category` resolves against schema 3 except `1000`, which is absent from the
-  category table entirely. All 126 are `item_type 20` bulk items with `private = 1`,
-  titled `EMBARGOED UNLINKED : …`. An inner join on category drops them without a word;
-  use an outer join and label the orphan.
+  category table entirely. All 126 are `item_type 20` bulk items with `private = 1`, and
+  they split 63 `EMBARGOED UNLINKED : …` / 63 `EMBARGOED LINKED : …` — the two prefixes
+  are field-id twins (`1020204` / `2020204`), so reading one and generalising gets the
+  linkage backwards for half of them. An inner join on category drops all 126 without a
+  word; use an outer join and label the orphan.
 - **`availability = 7` is undocumented.** Three fields carry it (`12652`, `12663`,
   `12704`, all brain-MRI "reason not performed" fields) and the schema page documents
   only 0, 1 and 4. Pass unknown codes through as raw values rather than mapping them to
   a guess.
 - **`codown.cgi` output has no trailing newline**, while `scdown.cgi` output does. So
   `wc -l` undercounts a coding file by one row. Use `grep -c ''`, or parse it.
-- **Titles contain literal double-quote characters** — 8,756 of them in schema 1. On this
-  snapshot they are all mid-field, so a default CSV parse and `quoting=QUOTE_NONE` give
+- **Titles and notes contain literal double-quote characters** — 8,756 across schema 1,
+  200 of them in titles, spread over 4,083 rows. On this snapshot they are all mid-field,
+  so a default CSV parse and `quoting=QUOTE_NONE` give
   byte-identical results (checked with both `csv` and pandas 2.3.2). Pass `QUOTE_NONE`
   anyway; it costs nothing and removes the failure mode entirely.
 - **The documented column list is stale.** `schema.cgi?id=1` ends its list with
@@ -448,7 +560,7 @@ ids: `23400` Total Cholesterol (n=488,513), `23407` Total Triglycerides (488,513
 (479,247), `23480` Glycoprotein Acetyls (488,514).
 
 Note the number. The published NMR biomarker atlas is titled for 118,461 individuals; the
-catalogue on 2026-08-17 reports ~488,500 for those same fields, roughly four times as
+catalogue on 2026-08-18 reports ~488,500 for those same fields, roughly four times as
 many. **The catalogue is the current answer and a paper is a historical one** — which is
 exactly why you read `num_participants` rather than inheriting an n from the literature.
 Category 221 is the paired QC layer — all 249 titles end `, QC Flag`, all are
@@ -481,7 +593,7 @@ head -3 olink_assays.tsv
 grep -E "^[0-9]+\s(GDF15|LEP|IL6|APOE);" olink_assays.tsv
 ```
 
-Printed 2026-08-17 — 2,924 lines, so 2,923 assays:
+Printed 2026-08-18 — 2,924 lines, so 2,923 assays:
 
 ```
 2924
@@ -530,6 +642,8 @@ manifest = {"source": SHOWCASE, "query": QUERY, "files": [], "downloads": []}
 
 def fetch(url, dest, encoding):
     raw = urllib.request.urlopen(url, timeout=300).read()
+    if raw.lstrip()[:9].lower().startswith(b"<!doctype"):   # HTTP 200 + HTML error page
+        raise SystemExit(f"{url} returned HTML, not TSV — check the table id")
     with open(dest, "wb") as fh:
         fh.write(raw)
     manifest["downloads"].append({"url": url, "path": dest, "bytes": len(raw),
@@ -610,11 +724,13 @@ for cid, cname in sorted({(r['category_id'], r['category']) for r in rows},
     sub = [r for r in rows if r["category_id"] == cid]
     ns = [r["num_participants"] for r in sub if r["num_participants"] != ""]
     cols = sum(r["columns_in_extract"] for r in sub)
+    dead = sum(r["availability"] == "retired" for r in sub)
     print(f"  cat {cid:>5}  {cname[:34]:34} {len(sub):>4} fields  "
-          f"max n {max(ns) if ns else 0:>7,}  {cols:>5} extract columns")
+          f"max n {max(ns) if ns else 0:>7,}  {cols:>5} extract columns"
+          + (f"  {dead} RETIRED" if dead else ""))
 ```
 
-Printed 2026-08-17:
+Printed 2026-08-18:
 
 ```
 downloading:
@@ -642,6 +758,23 @@ for the inputs instead. Conversely `QUERY = r"c-reactive protein"` returns 7 fie
 Blood biochemistry (n up to 469,326) and its processing category, so plenty of names you
 would assume are absent are simply spelled UK Biobank's way.
 
+The query above is a flattering one: all 517 of its fields are `availability = full`, so
+it never exercises the retired path. Run it once on something that does, and read the
+summary rather than the CSV:
+
+```
+86 fields matched /hospital inpatient|episodes containing/
+  cat  2000  Hospital inpatient                   36 fields  max n 413,163     36 extract columns  36 RETIRED
+  cat  2002  Summary Diagnoses                    10 fields  max n 409,809     10 extract columns  10 RETIRED
+  cat  2003  Summary Maternity                    23 fields  max n 195,756     23 extract columns  23 RETIRED
+  cat  2004  Summary Psychiatric                   6 fields  max n 365,945      6 extract columns  6 RETIRED
+  cat  2005  Summary Operations                   11 fields  max n 409,747     11 extract columns  11 RETIRED
+```
+
+Eighty-six for eighty-six, at cohort-scale participant counts, and every one of those
+categories shows an empty field list on the Showcase website. Without the `RETIRED` count
+this reads as the richest result in the skill.
+
 ## Requesting access
 
 **This skill cannot obtain access to UK Biobank data, and nothing in it should be read
@@ -650,11 +783,21 @@ whether to start it. The authoritative documents are the Access Procedures PDF a
 UK Biobank website, linked under *Sources*; where this section and those disagree, they
 are right and this is stale.
 
-**Status on 2026-08-17, from the Access Management System login page**: "We are
-currently not accepting new applications to UK Biobank, as the UKB-RAP remains closed.
-We will share an update via the Researcher Community as soon as new applications
-reopen." Check that page before planning a timeline around an application — this is a
-dated observation of a state that is expected to change.
+**Applications are closed. Do not start this process expecting it to complete.** Two UK
+Biobank pages said so on 2026-08-18, and they are the two a reader would land on:
+
+- Access Management System login page: "We are currently not accepting new applications
+  to UK Biobank, as the UKB-RAP remains closed. We will share an update via the Researcher
+  Community as soon as new applications reopen."
+- *Apply for access* (page's own stamp 1 July 2026): "Applications are currently paused
+  whilst necessary changes are made to the UK Biobank Research Analysis Platform, and our
+  priority is restoring access to compliant researchers on ongoing projects." followed by
+  "**We intend to accept new applications in late 2026.**"
+
+So there is a published intention but no open door and no committed date. Everything below
+describes the route as published, for deciding whether to queue for it — re-read both
+pages before planning a timeline. This is a dated observation of a state expected to
+change, and the catalogue work above is the part you can do today regardless.
 
 **Who may apply.** Any bona fide researcher, for health-related research in the public
 interest, from academia, charity, government or commercial industry, in any country, all
@@ -696,20 +839,28 @@ participants. UK Biobank does not approve publications, and makes no claim over
 inventions developed using the resource.
 
 **Fees.** Cost-recovery only; UK Biobank states it recovers the incremental cost of
-servicing an application, not the cost of building the resource. The structure, as
-published: a fixed charge to initiate review plus a variable charge depending on how much
-data or how many samples are required, organised into **three tiers** broadly by dataset
-size, plus a per-collaborating-institution fee; charged for an initial 3-year period and
-renewable; exclusive of VAT. Sample and re-contact applications are priced case by case.
-As published on the costs page: a reduced access fee of **£500 plus VAT** for data-only
-requests submitted by a student or their supervisor for that student's project only, and
-financial support to cover the same reduced fee for applicants from lower-income
-countries; the reduced-fee route gives access via the Research Analysis Platform only.
-**The three tier amounts themselves are on that costs page and are not in the Access
-Procedures PDF** — read them there rather than trusting a figure quoted anywhere else,
-this section included. The £500 above is the figure that page carried when last read
-(page's own "last updated" stamp October 2024), so verify it before budgeting. The
-`cost_on` column in the catalogue tells you which tier each field you want sits in.
+servicing an application, not the cost of building the resource. The structure is **three
+tiers** by dataset size, charged for an initial 3-year period and renewable, exclusive of
+VAT, plus a per-additional-institution fee. Sample and re-contact applications are priced
+case by case. **The tier amounts are on the fees page, not in the Access Procedures PDF.**
+As that page carried them on 2026-08-18 (its own stamp: 14 April 2026):
+
+| | first 3 years | per year extension | covers |
+|---|---|---|---|
+| Tier 1 | £3,000 | £1,000 | questionnaires, physical measures, health outcomes, linked health data |
+| Tier 2 | £6,000 | £2,000 | plus assays, proteomics, measured and imputed genotypes |
+| Tier 3 | £9,000 | £3,000 | plus imaging, large-scale assays, whole genome and exome sequence |
+| additional institution | £1,000 | £500 | each institution added to an application |
+| student / lower-income country | £500 | £175 | reduced access fee |
+
+Two things that page says which are easy to get wrong from an older reading. **All tiers
+now include access via the UKB-RAP only** — that is not a restriction peculiar to the
+reduced-fee route; downloading fields at all is an exceptional-circumstances request
+charged at the Tier 3 fee. And the tier boundaries are currently discounted: proteomics
+sits under Tier 1 and imaging under Tier 2 "for a limited period", so a field's `cost_on`
+value and the tier you are billed may not be the same thing this year. Read the fees page
+rather than trusting any figure quoted anywhere else, this table included; the `cost_on`
+column tells you which tier each field is *classified* in.
 
 **What this skill will and will not do for you.** It will assemble your field shortlist
 with participant counts and fee tiers, tell you which fields are tabular versus bulk
@@ -733,11 +884,11 @@ account, no application. The Showcase publishes `wget` commands for these schema
 its own schema pages, so retrieving them is what the endpoint is for. **They do not carry
 an open-data licence**: the Showcase footer reserves reuse without a written licence from
 UK Biobank, so treat the downloaded catalogue as reference material for your own planning
-and do not republish or redistribute it. Last confirmed reachable 2026-08-17, together
+and do not republish or redistribute it. Last confirmed reachable 2026-08-18, together
 with schema 3 (categories) from the same host.
 
 ```python
-import csv, io, urllib.request
+import csv, io, re, urllib.request
 from collections import Counter
 
 SHOWCASE = "https://biobank.ndph.ox.ac.uk/showcase"
@@ -745,6 +896,8 @@ SHOWCASE = "https://biobank.ndph.ox.ac.uk/showcase"
 def schema(sid, encoding):
     """Showcase schema tables are TSV. Encoding differs per table — see below."""
     raw = urllib.request.urlopen(f"{SHOWCASE}/scdown.cgi?fmt=txt&id={sid}", timeout=180).read()
+    # scdown.cgi answers HTTP 200 with an HTML error page for a table id it does not know.
+    assert not raw.lstrip()[:9].lower().startswith(b"<!doctype"), f"schema {sid}: HTML, not TSV"
     text = raw.decode(encoding)
     # QUOTE_NONE: 8,756 literal double-quote characters live inside titles and notes.
     return raw, list(csv.DictReader(io.StringIO(text), delimiter="\t", quoting=csv.QUOTE_NONE))
@@ -779,6 +932,44 @@ print("main_category ids used but absent from schema 3:", orphan)
 print("instanced:", dict(sorted(Counter(f["instanced"] for f in fields).items())),
       " arrayed:", dict(sorted(Counter(f["arrayed"] for f in fields).items())))
 
+# The orphan category is half LINKED and half UNLINKED — the distinction that decides
+# whether an imaging file can be joined to a participant at all.
+orphans = [f for f in fields if f["main_category"] == "1000"]
+print("category 1000 titles    :",
+      dict(Counter(f["title"].split(":")[0].strip() for f in orphans)))
+assert len(orphans) == 126 and len(set(Counter(
+    f["title"].split(":")[0].strip() for f in orphans).values())) == 1
+
+# RETIRED FIELDS ARE IN THE DOWNLOAD AND NOT ON THE WEBSITE. A search that ignores
+# `availability` silently offers dead field ids, sometimes under the live field's own title.
+retired = [f for f in fields if f["availability"] == "4"]
+live_titles = {f["title"] for f in fields if f["availability"] != "4"}
+shadowed = sorted((f["field_id"] for f in retired if f["title"] in live_titles), key=int)
+print("availability            :", dict(sorted(Counter(f["availability"] for f in fields).items())))
+print("retired fields          :", len(retired))
+print("retired under a live field's exact title:", len(shadowed), shadowed[:4], "...")
+assert shadowed, "no superseded titles — re-check availability before trusting a shortlist"
+assert "189" in shadowed                       # 189 and 22189 are both 'Townsend deprivation
+assert "22189" not in shadowed                 # index at recruitment', both n=501,315
+
+# Ground truth for that: the Showcase's own category page lists live fields only.
+page = urllib.request.urlopen(f"{SHOWCASE}/label.cgi?id=126", timeout=180).read().decode(
+    "utf-8", "replace")
+listed = {m for m in re.findall(r"field\.cgi\?id=(\d+)", page)}
+in_cat = [f for f in fields if f["main_category"] == "126"]
+dead = [f for f in in_cat if f["availability"] == "4"]
+print(f"category 126 Liver MRI  : schema 1 has {len(in_cat)}, its Showcase page lists "
+      f"{len(listed)}, difference {len(dead)} retired")
+assert len(in_cat) - len(dead) == len(listed), (len(in_cat), len(dead), len(listed))
+
+# scdown.cgi is an HTTP-200-with-an-error-body endpoint. The status code proves nothing.
+bad = urllib.request.urlopen(f"{SHOWCASE}/scdown.cgi?fmt=txt&id=9999", timeout=60)
+body = bad.read()
+header = csv.DictReader(io.StringIO(body.decode()), delimiter="\t").fieldnames
+print(f"scdown.cgi?id=9999      : HTTP {bad.status}, {bad.headers.get('Content-Type')}, "
+      f"parses as {len(header)} column named {header[0]!r}")
+assert bad.status == 200 and body.lstrip()[:9].lower().startswith(b"<!doctype")
+
 # The two deliverables: where NMR metabolomics and Olink proteomics actually live.
 for probe in ("NMR metabolomics", "Protein biomarkers"):
     ids = [cid for cid, t in cat_name.items() if t == probe]
@@ -803,11 +994,25 @@ Invariants — these hold across rebuilds, and a failure means this skill is wro
   schema 3, so a category join must tolerate misses.
 - `instanced` takes values `0`, `1`, `2` and `arrayed` takes `0`, `1` — never anything
   else, and they vary independently.
+- **Category 1000 splits evenly between `EMBARGOED UNLINKED` and `EMBARGOED LINKED`.**
+  The assertion is the test. An earlier version of this skill said all 126 were unlinked,
+  which reversed the linkage claim for 63 imaging fields.
+- **`shadowed` is non-empty, contains `189`, and does not contain `22189`.** Retired
+  fields sit in the download under the live field's own title, and `189`/`22189` are the
+  pair that proves it — same title, same n=501,315, one of them dead. If this list ever
+  empties, do not assume the problem went away; check `availability` before believing it.
+- **Category 126's field count in schema 1 minus its retired fields equals what
+  `label.cgi?id=126` lists.** 11 − 4 = 7. This is the ground truth that the Showcase
+  website hides retired fields and the download does not, and it holds on all 22
+  categories that contain one.
+- **`scdown.cgi?fmt=txt&id=9999` returns HTTP 200 with HTML**, and a TSV parser turns it
+  into a one-column table named `<!DOCTYPE HTML>` without raising. Status codes are not a
+  validity test on this host, for the schema download any more than for `field.cgi`.
 - NMR metabolomics and Protein biomarkers each resolve to exactly one category id, and
   Protein biomarkers holds fewer than 10 fields — the Olink values are a portal record
   table, not per-protein fields.
 
-Observed 2026-08-17 against catalogue version **2025-09-20** — these move whenever UK
+Observed 2026-08-18 against catalogue version **2025-09-20** — these move whenever UK
 Biobank rebuilds, so a mismatch is drift to investigate, not a failure:
 
 ```
@@ -820,6 +1025,12 @@ num_participants ==  0  : 12
 largest num_participants: 501938
 main_category ids used but absent from schema 3: ['1000']
 instanced: {'0': 4605, '1': 7198, '2': 18}  arrayed: {'0': 11271, '1': 550}
+category 1000 titles    : {'EMBARGOED UNLINKED': 63, 'EMBARGOED LINKED': 63}
+availability            : {'0': 11592, '1': 54, '4': 172, '7': 3}
+retired fields          : 172
+retired under a live field's exact title: 11 ['189', '20033', '20034', '20074'] ...
+category 126 Liver MRI  : schema 1 has 11, its Showcase page lists 7, difference 4 retired
+scdown.cgi?id=9999      : HTTP 200, text/html, parses as 1 column named '<!DOCTYPE HTML>'
 NMR metabolomics     category ['220'] |  251 fields | max n = 488,514 (field 23480)
 Protein biomarkers   category ['1839'] |    5 fields | max n = 53,039 (field 30900)
 ```
@@ -831,8 +1042,9 @@ Protein biomarkers   category ['1839'] |    5 fields | max n = 53,039 (field 309
 - Schema 1 column definitions and code meanings — https://biobank.ndph.ox.ac.uk/showcase/schema.cgi?id=1
 - Mirror — https://biobank.ctsu.ox.ac.uk/crystal/
 - Access Procedures v2.1 (July 2022) — https://www.ukbiobank.ac.uk/wp-content/uploads/2026/05/Access-procedures.pdf
-- Apply for access — https://www.ukbiobank.ac.uk/enable-your-research/apply-for-access
-- Costs and financial support — https://www.ukbiobank.ac.uk/enable-your-research/costs
+- Apply for access — https://www.ukbiobank.ac.uk/use-our-data/apply-for-access/
+- Fees — https://www.ukbiobank.ac.uk/use-our-data/fees/
+- Financial support — https://www.ukbiobank.ac.uk/use-our-data/fees/financial-support/
 - Access Management System — https://ams.ukbiobank.ac.uk/ams/
 - Researcher community — https://community.ukbiobank.ac.uk/hc/en-gb
 - Sudlow et al. (2015) *PLoS Medicine* 12, e1001779 — https://doi.org/10.1371/journal.pmed.1001779
