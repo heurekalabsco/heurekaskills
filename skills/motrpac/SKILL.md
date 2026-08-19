@@ -390,7 +390,10 @@ ASSAY  = {"ACETYL": "prot-ac", "ATAC": "epigen-atac-seq", "IMMUNO": "immunoassay
           "METAB": "metab", "METHYL": "epigen-rrbs", "PHOSPHO": "prot-ph",
           "PROT": "prot-pr", "TRNSCRPT": "transcript-rna-seq", "UBIQ": "prot-ub"}
 
-def da_url(assay, tissue, metareg=True):
+def da_url(assay, tissue, metareg=False):
+    """Default is the REDUNDANT table, because that is what METAB_*_DA pairs with.
+    Pass metareg=True only when joining METAB_*_DA_METAREG — the two differ by 196
+    rows for heart, and crossing them drops 314 of 1,430 keys with FDR off by 0.27."""
     code = ASSAY[assay]
     if assay == "IMMUNO":                       # one pooled file, all tissues
         return f"{DA}/IMMUNO/pass1b-06_immunoassay_training-dea-fdr.txt"
@@ -416,14 +419,21 @@ for assay, tissue in want:
         continue
     df = pd.read_csv(io.BytesIO(raw), sep="\t")
     if assay == "IMMUNO":
-        df = df[df["tissue_abbreviation"] == tissue]
+        # The pooled file hyphenates (SKM-GN), the coverage grid above does not (SKMGN).
+        # Matching literally reported SKM-GN, SKM-VL and WAT-SC as never assayed when the
+        # assay ran on all three, at 53, 39 and 53 rows.
+        norm = lambda x: str(x).replace("-", "").upper()
+        df = df[df["tissue_abbreviation"].map(norm) == norm(tissue)]
         if df.empty:                            # 200 + zero rows is the failure mode here
-            print(f"  {assay:9} {tissue:7} HTTP 200 but 0 rows — IMMUNO was not run on this "
-                  f"tissue. Check the count, not the status")
+            print(f"  {assay:9} {tissue:7} HTTP 200 but 0 rows. IMMUNO ran on 14 of the 20 "
+                  f"tissues; confirm against the coverage grid before concluding it did not "
+                  f"run here")
             continue
     key = ["feature_ID", "panel"] if assay == "IMMUNO" else \
           ["feature_ID", "dataset"] if assay == "METAB" else ["feature_ID"]
-    dest = os.path.join(OUT, f"{assay}_{tissue.replace('-', '')}_training-dea-fdr.tsv.gz")
+    # METAB's two sub-paths collide on this filename, so record which one produced it.
+    tag = "_metareg" if assay == "METAB" and "meta-regression" in url else ""
+    dest = os.path.join(OUT, f"{assay}_{tissue.replace('-', '')}{tag}_training-dea-fdr.tsv.gz")
     with gzip.open(dest, "wt") as fh:
         df.to_csv(fh, sep="\t", index=False)
     print(f"  {assay:9} {tissue:7} {len(df):>8,} rows x {df.shape[1]:<3} "
@@ -440,10 +450,10 @@ Run 2026-08-18:
   UBIQ      LIVER      9,344 rows x 12  key feature_ID         unique    9,344 -> UBIQ_LIVER_training-dea-fdr.tsv.gz
   TRNSCRPT  OVARY     17,035 rows x 18  key feature_ID         unique   17,035 -> TRNSCRPT_OVARY_training-dea-fdr.tsv.gz
   TRNSCRPT  VENACV    16,338 rows x 18  key feature_ID         unique   16,338 -> TRNSCRPT_VENACV_training-dea-fdr.tsv.gz
-  METAB     HEART      1,234 rows x 26  key feature_ID+dataset unique    1,234 -> METAB_HEART_training-dea-fdr.tsv.gz
+  METAB     HEART      1,430 rows x 22  key feature_ID+dataset unique    1,430 -> METAB_HEART_training-dea-fdr.tsv.gz
   METAB     VENACV       213 rows x 26  key feature_ID+dataset unique      213 -> METAB_VENACV_training-dea-fdr.tsv.gz
   IMMUNO    HEART         39 rows x 18  key feature_ID+panel   unique       39 -> IMMUNO_HEART_training-dea-fdr.tsv.gz
-  IMMUNO    VENACV  HTTP 200 but 0 rows — IMMUNO was not run on this tissue. Check the count, not the status
+  IMMUNO    VENACV  HTTP 200 but 0 rows. IMMUNO ran on 14 of the 20 tissues; confirm against the coverage grid before concluding it did not run here
   PROT      ADRNL   HTTP 404  pass1b-06_t60-adrenal_prot-pr_training-dea-fdr.txt
 ```
 
