@@ -382,8 +382,9 @@ exchange they can steer.
 
 **Run.** One self-contained block that goes from the data to a result, runnable by copy
 and paste with nothing else set up. Where the tool has a trap, route the example through
-it — the AlphaFold example indexes `rec[0]` precisely because the endpoint returns a list
-and treating it as a dict is the usual mistake.
+it — the AlphaFold example matches the record by `entryId` precisely because the endpoint
+returns a *list*, treating it as a dict is the usual mistake, and taking `records[0]` is the
+subtler one: above 2700 residues that index silently returns a different, shorter protein.
 
 **Expect.** What makes this a test rather than a demo. Two kinds, and both matter:
 
