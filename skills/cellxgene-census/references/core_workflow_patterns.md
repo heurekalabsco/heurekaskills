@@ -27,6 +27,11 @@ with cellxgene_census.open_soma(census_version="2025-11-08") as census:
 - Use context manager (`with` statement) for automatic cleanup
 - Specify `census_version` for reproducible analyses
 - `stable` opens the current LTS Census release; `latest` opens the newest weekly release retained for a shorter period
+- `cellxgene_census.get_census_version_directory()` lists every build and its LTS flag, and
+  `get_census_version_description(v)` resolves one alias without opening it
+- The collections a release has vary. `2023-05-15` has `census_data` (human, mouse) and
+  `census_info` only; `2025-01-30` adds `census_spatial_sequencing`; `2025-11-08` adds marmoset,
+  macaque and chimpanzee to `census_data`. Read `list(census.keys())` rather than assuming.
 
 ### 2. Exploring Census Information
 
@@ -37,16 +42,28 @@ Before querying expression data, explore available datasets and metadata.
 # Get summary statistics as label/value rows
 summary = census["census_info"]["summary"].read().concat().to_pandas()
 summary_values = summary.set_index("label")["value"]
-print(f"Total cells: {int(summary_values['total_cell_count']):,}")
-print(f"Unique cells: {int(summary_values['unique_cell_count']):,}")
+print(f"Total cells: {int(summary_values['total_cell_count']):,}")     # 217,768,036 in 2025-11-08
+print(f"Unique cells: {int(summary_values['unique_cell_count']):,}")   # 125,463,259
 
-# Get all datasets
+# Get all datasets. Columns: soma_joinid, citation, collection_id, collection_name,
+# collection_doi, collection_doi_label, dataset_id, dataset_version_id, dataset_title,
+# dataset_h5ad_path, dataset_total_cell_count. There is no per-dataset disease/tissue/assay
+# column — those live in obs, or in summary_cell_counts as organism-level rollups.
 datasets = census["census_info"]["datasets"].read().concat().to_pandas()
+assert datasets.dataset_total_cell_count.sum() == int(summary_values["total_cell_count"])
 
-# Get precomputed counts by organism, cell type, tissue, disease, and assay
+# Get precomputed counts by organism, cell type, tissue, disease, assay, sex,
+# suspension_type and self_reported_ethnicity. Both counts are given: total_cell_count
+# and unique_cell_count (the `is_primary_data == True` subset).
 summary_counts = census["census_info"]["summary_cell_counts"].read().concat().to_pandas()
 tissue_counts = summary_counts[summary_counts["category"].eq("tissue_general")]
 ```
+
+**These declared counts span both collections.** `summary` and `summary_cell_counts` cover
+`census_data` *and* `census_spatial_sequencing`; every query helper below defaults to
+`census_data` alone. In 2025-11-08 that is 212,080,059 of the declared 217,768,036 cells, and
+the shortfall is concentrated — mouse `tissue_general == 'kidney'` is 398,589 from `census_data`
+against 2,399,190 declared. Pass `modality="census_spatial_sequencing"` for the other half.
 
 **Query cell metadata to understand available data:**
 ```python
@@ -74,7 +91,8 @@ tissue_counts = tissue_metadata["tissue_general"].value_counts()
 
 ### 3. Querying Expression Data (Small to Medium Scale)
 
-For queries returning < 100k cells that fit in memory, use `get_anndata()`:
+For queries returning < 100k cells that fit in memory, use `get_anndata()`. Count first with
+`get_obs` — the filter below is 97,465 cells, and dropping `tissue_general` makes it 1,406,088.
 
 ```python
 # Basic query with cell type and tissue filters
@@ -83,6 +101,15 @@ adata = cellxgene_census.get_anndata(
     organism="Homo sapiens",  # or "Mus musculus"
     obs_value_filter="cell_type == 'B cell' and tissue_general == 'lung' and is_primary_data == True",
     obs_column_names=["assay", "disease", "sex", "donor_id"],
+)
+
+# The same call against the spatial collection. Human lung holds 275,274 spatial cells the
+# default modality never sees; take one dataset at a time unless you want all of them.
+spatial_adata = cellxgene_census.get_anndata(
+    census=census,
+    organism="Homo sapiens",
+    obs_value_filter="dataset_id == '4cceac62-9513-42a4-90e5-2878dbb0192c'",
+    modality="census_spatial_sequencing",          # 4,992 x 43,386
 )
 
 # Query specific genes with multiple filters
@@ -101,7 +128,12 @@ adata = cellxgene_census.get_anndata(
 - Combine conditions with `and`, `or`
 - Use `in` for multiple values: `tissue in ['lung', 'liver']`
 - Select only needed columns with `obs_column_names`
-- In current LTS releases, `disease` and `disease_ontology_term_id` may contain ` || `-delimited multiple values; inspect available values before relying on exact equality filters for disease cohorts
+- Pass `modality="census_spatial_sequencing"` to reach Visium and Slide-seqV2 cells; the default
+  `census_data` never contains them, and returns zero rows rather than an error
+- A value that is not in the release's vocabulary returns an empty frame with no warning; a
+  column that is not in the schema raises `SOMAError`. Only the second is visible
+- In current LTS releases, `disease` and `disease_ontology_term_id` may contain ` || `-delimited multiple values; inspect available values before relying on exact equality filters for disease cohorts. `disease == 'Alzheimer disease'` returns 608,235 of the 2,736,680 primary cells whose label mentions it — enumerate the labels from `summary_cell_counts` and use `in`
+- There is no `organism` column; organism is the collection key
 
 **Getting metadata separately:**
 ```python
@@ -147,27 +179,39 @@ with census["census_data"]["homo_sapiens"].axis_query(
         process_batch(batch)
 ```
 
-**Computing incremental statistics:**
+**Computing incremental statistics — the zeros are not in the iterator.**
+
+`X("raw")` is sparse and `.tables()` yields only *stored non-zero* entries. Dividing the running
+sum by the number of values you saw gives the mean **over expressing cells**, not the mean
+expression, and the two differ by orders of magnitude for any typical gene. Divide by
+`n_obs * n_vars` instead, and take both counts from the query:
+
 ```python
-import tiledbsoma as soma
+import numpy as np, tiledbsoma as soma
 
-# Example: Calculate mean expression
-n_observations = 0
-sum_values = 0.0
-
-with census["census_data"]["homo_sapiens"].axis_query(
+with census["census_data"]["mus_musculus"].axis_query(
     measurement_name="RNA",
-    obs_query=soma.AxisQuery(value_filter="tissue_general == 'brain' and is_primary_data == True"),
-    var_query=soma.AxisQuery(value_filter="feature_name in ['FOXP2', 'TBR1', 'SATB2']"),
+    obs_query=soma.AxisQuery(value_filter="tissue_general == 'optic cup' and is_primary_data == True"),
+    var_query=soma.AxisQuery(value_filter="feature_name in ['Rho', 'Sox2', 'Pax6']"),
 ) as query:
-    iterator = query.X("raw").tables()
-    for batch in iterator:
-        values = batch["soma_data"].to_numpy()
-        n_observations += len(values)
-        sum_values += values.sum()
+    n_obs, n_vars = query.n_obs, query.n_vars
+    gene = query.var(column_names=["soma_joinid", "feature_name"]).concat().to_pandas()
+    pos  = {j: i for i, j in enumerate(sorted(gene.soma_joinid))}   # soma_joinid -> column
+    total, nonzero = np.zeros(n_vars), np.zeros(n_vars, dtype=int)
+    for batch in query.X("raw").tables():
+        cols = np.array([pos[j] for j in batch["soma_dim_1"].to_numpy()])
+        np.add.at(total, cols, batch["soma_data"].to_numpy())
+        np.add.at(nonzero, cols, 1)
 
-mean_expression = sum_values / n_observations
+mean_per_cell = total / n_obs                     # Pax6 0.02055, Sox2 0.0, Rho 0.0 across 146 cells
+fraction_expressing = nonzero / n_obs             # the other statistic people usually want
 ```
+
+Pooled over the three genes here, the wrong formula gives `1.500` and the right one `0.00685` —
+a 219x overstatement, with nothing in the output to signal it. Welford's algorithm over
+`batch["soma_data"]` has the same defect: it computes the variance of the non-zero values.
+Account for the implied zeros explicitly, or read the per-gene `nnz` and `n_measured_obs`
+columns already in `var`.
 
 ### 5. Machine Learning with PyTorch
 
