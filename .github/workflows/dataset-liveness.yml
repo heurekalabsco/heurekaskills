@@ -30,6 +30,8 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    outputs:
+      publish_failed: ${{ steps.published.outcome == 'failure' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,6 +50,24 @@ jobs:
         if: inputs.selftest == true
         run: SKILLS_DIR=.github/fixtures/dataset-selftest/skills node scripts/check-datasets.js
 
+      # Merging is not publishing. Every link after the merge — dispatch, site build, deploy,
+      # CDN — is invisible from this repo, and when that chain broke for two days nothing here
+      # noticed: the dispatch job reported success because sending the dispatch is all it does.
+      # This asks the only question that matters to a reader: can they install what we merged.
+      # Runs after the dataset probe so a dead dataset and a stale registry report separately.
+      - name: Published registry matches this repo
+        id: published
+        if: inputs.selftest != true
+        continue-on-error: true
+        run: node scripts/check-published.js
+
+      # Gate separately so the job still fails, while `published.outcome` survives for the
+      # notify job below. Without this the alarm would file a dataset issue for a publish
+      # outage and send somebody to swap a dataset that is perfectly healthy.
+      - name: Fail if the published registry is stale
+        if: steps.published.outcome == 'failure'
+        run: exit 1
+
   # A red X in the Actions tab is not a notification — logs expire and nobody watches. File
   # it where the backlog already lives. Scheduled runs only: a failing PR check is already
   # visible on the PR itself.
@@ -63,8 +83,23 @@ jobs:
         with:
           script: |
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const title = 'Dataset liveness check is failing';
-            const body = [
+            const publishFailed = '${{ needs.check.outputs.publish_failed }}' === 'true';
+            const title = publishFailed
+              ? 'Merged skills are not reaching the published registry'
+              : 'Dataset liveness check is failing';
+            const body = publishFailed ? [
+              'The published registry does not match this repository. Skills that were reviewed and',
+              'merged are not installable — readers get the old set.',
+              '',
+              `Run: ${url}`,
+              '',
+              'This is almost never a problem in this repo. Merging fires a dispatch, the site rebuilds,',
+              'and the deploy publishes; any link in that chain can break while this repo looks healthy.',
+              'Check the site repository\'s most recent deploy first — that is where it has broken before',
+              '(ten consecutive runs refused at startup, silently, for two days).',
+              '',
+              'Reproduce locally with `npm run check-published`.',
+            ].join('\n') : [
               'The nightly dataset liveness check failed. A skill now points readers at data they cannot fetch.',
               '',
               `Run: ${url}`,
@@ -76,7 +111,7 @@ jobs:
             ].join('\n');
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
-              state: 'open', labels: 'dataset-liveness',
+              state: 'open', labels: publishFailed ? 'publish-liveness' : 'dataset-liveness',
             });
             if (existing.data.length) {
               await github.rest.issues.createComment({
@@ -87,6 +122,6 @@ jobs:
             } else {
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
-                title, body, labels: ['dataset-liveness'],
+                title, body, labels: [publishFailed ? 'publish-liveness' : 'dataset-liveness'],
               });
             }

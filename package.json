@@ -10,7 +10,8 @@
   },
   "scripts": {
     "validate": "node scripts/validate.js",
-    "check-datasets": "node scripts/check-datasets.js"
+    "check-datasets": "node scripts/check-datasets.js",
+    "check-published": "node scripts/check-published.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"
