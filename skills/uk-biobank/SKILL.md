@@ -13,7 +13,7 @@ datasets: [https://biobank.ndph.ox.ac.uk/showcase/scdown.cgi?fmt=txt&id=1]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-18
-  against: Showcase schema 1 (field catalogue) max version 2025-09-20, 11,821 fields, 4,164,390 bytes / schema 3 (categories) 410 rows / schema 9 (instancing) 12 rows / coding 143 (Olink assays) 2,923 rows / shape arithmetic checked against the Showcase's own declared Instances, Array, Participants and Item count on 19 fields (23400 41270 30069 40000 40006 4079 6138 3166 30098 189 22201 33 1020204 2020204 30900 41001 21015 4229 5990) plus absent id 99999999 / retired-vs-listed checked against label.cgi on all 22 categories holding a retired field / Access Procedures v2.1 July 2022 PDF / fees and apply-for-access pages read 2026-08-18 in a browser, both Cloudflare-blocked to plain HTTP clients / Python 3.12.8, standard library only / curl 8.7.1
+  against: Showcase schema 1 (field catalogue) max version 2025-09-20, 11,821 fields, 4,164,390 bytes / schema 3 (categories) 410 rows / schema 9 (instancing) 12 rows / coding 143 (Olink assays) 2,923 rows / shape arithmetic checked against the Showcase's own declared Instances, Array, Participants and Item count on 19 fields (23400 41270 30069 40000 40006 4079 6138 3166 30098 189 22201 33 1020204 2020204 30900 41001 21015 4229 5990) plus absent id 99999999 / retired-vs-listed checked against label.cgi on all 22 categories holding a retired field, by parsing the listing table (a field.cgi link scrape fails on categories 149 and 150) / Access Procedures v2.1 July 2022 PDF / fees and apply-for-access pages read 2026-08-18 in a browser, both Cloudflare-blocked to plain HTTP clients / Python 3.12.8, standard library only / curl 8.7.1
   executed: 7
   unverified: 0
 ---
@@ -298,7 +298,11 @@ first-occurrence and record-level tables.
 The ground truth is one HTTP request away, and it is worth making once for any category
 you plan to build on: `label.cgi?id=<category_id>` lists the live fields, so
 `fields in schema 1 − retired == fields the page lists`. It holds on all 22 categories that
-contain a retired field. Category `126` Liver MRI is the compact case — 11 fields in the
+contain a retired field — **but only if you parse the listing table**
+(`<tr class="row_odd|row_even" id="f<id>">`). Scraping every `field.cgi?id=` on the page
+picks up cross-references out of the category's own prose and fails on two of the 22:
+category `149` reports 29 against a true 28, and `150` reports 7 against 5, because its
+description names two retired fields in a sentence about them being retired. Category `126` Liver MRI is the compact case — 11 fields in the
 download, 7 on the page, difference exactly the 4 retired ones.
 
 Note how easily this hides. The `\bliver\b` search above uses `min_n=10000`, and all four
@@ -955,12 +959,27 @@ assert "22189" not in shadowed                 # index at recruitment', both n=5
 # Ground truth for that: the Showcase's own category page lists live fields only.
 page = urllib.request.urlopen(f"{SHOWCASE}/label.cgi?id=126", timeout=180).read().decode(
     "utf-8", "replace")
-listed = {m for m in re.findall(r"field\.cgi\?id=(\d+)", page)}
+# Parse the LISTING TABLE, not every field.cgi link. A category's prose cross-references
+# other fields, and on cat 150 it names two retired ones in a sentence about retirement.
+listed = set(re.findall(r'<tr class="row_(?:odd|even)"[^>]*id="f(\d+)"', page))
 in_cat = [f for f in fields if f["main_category"] == "126"]
 dead = [f for f in in_cat if f["availability"] == "4"]
 print(f"category 126 Liver MRI  : schema 1 has {len(in_cat)}, its Showcase page lists "
       f"{len(listed)}, difference {len(dead)} retired")
 assert len(in_cat) - len(dead) == len(listed), (len(in_cat), len(dead), len(listed))
+
+# 126 passes with either method, so it cannot detect the method rotting. 149 and 150 can:
+# a `field.cgi?id=` scrape returns 29 and 7 there against a true 28 and 5.
+for cat in ("149", "150"):
+    p = urllib.request.urlopen(f"{SHOWCASE}/label.cgi?id={cat}", timeout=180).read().decode(
+        "utf-8", "replace")
+    tbl = set(re.findall(r'<tr class="row_(?:odd|even)"[^>]*id="f(\d+)"', p))
+    live = [f for f in fields if f["main_category"] == cat and f["availability"] != "4"]
+    scraped = set(re.findall(r"field\.cgi\?id=(\d+)", p))
+    print(f"category {cat:<3}             : table {len(tbl)} == live {len(live)}, "
+          f"prose scrape would say {len(scraped)}")
+    assert len(tbl) == len(live), (cat, len(tbl), len(live))
+    assert len(scraped) > len(live), f"cat {cat} no longer distinguishes the two methods"
 
 # scdown.cgi is an HTTP-200-with-an-error-body endpoint. The status code proves nothing.
 bad = urllib.request.urlopen(f"{SHOWCASE}/scdown.cgi?fmt=txt&id=9999", timeout=60)
@@ -1030,6 +1049,8 @@ availability            : {'0': 11592, '1': 54, '4': 172, '7': 3}
 retired fields          : 172
 retired under a live field's exact title: 11 ['189', '20033', '20034', '20074'] ...
 category 126 Liver MRI  : schema 1 has 11, its Showcase page lists 7, difference 4 retired
+category 149             : table 28 == live 28, prose scrape would say 29
+category 150             : table 5 == live 5, prose scrape would say 7
 scdown.cgi?id=9999      : HTTP 200, text/html, parses as 1 column named '<!DOCTYPE HTML>'
 NMR metabolomics     category ['220'] |  251 fields | max n = 488,514 (field 23480)
 Protein biomarkers   category ['1839'] |    5 fields | max n = 53,039 (field 30900)
