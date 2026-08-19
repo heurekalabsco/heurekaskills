@@ -25,7 +25,20 @@ const ROOT = path.resolve(__dirname, '..');
 const SKILLS_DIR = process.env.SKILLS_DIR ? path.resolve(process.env.SKILLS_DIR) : path.join(ROOT, 'skills');
 const REGISTRY_URL = process.env.REGISTRY_URL || 'https://heurekaskills.com/registry.json';
 const JSON_OUT = process.argv.includes('--json');
-const TIMEOUT_MS = Number(process.env.PUBLISHED_CHECK_TIMEOUT_MS || 30000);
+// '0' is a truthy string and Number('abc') is NaN — either makes setTimeout fire immediately
+// and abort every fetch. check-datasets.js hit this first; same reasoning, same refusal.
+const TIMEOUT_MS = positiveInt(process.env.PUBLISHED_CHECK_TIMEOUT_MS, 30000, 'PUBLISHED_CHECK_TIMEOUT_MS');
+const RETRIES = 2;
+
+function positiveInt(raw, fallback, name) {
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    console.error(`${name} must be a positive integer; got "${raw}". Refusing to run.`);
+    process.exit(2);
+  }
+  return n;
+}
 
 // A published registry that cannot be fetched is its own failure — that is the same outage
 // from the client's side, so it must not pass quietly.
@@ -59,7 +72,17 @@ const localChecksum = (slug) => {
 };
 
 const local = listSkillDirs(SKILLS_DIR);
-const { body, error } = await fetchRegistry();
+
+// A single network blip would otherwise file an issue titled "merged skills are not reaching
+// the published registry" — a confident and wrong diagnosis. Retry before believing it, the
+// way the dataset probe already does.
+let attempt;
+for (let i = 0; i <= RETRIES; i++) {
+  attempt = await fetchRegistry();
+  if (!attempt.error) break;
+  if (i < RETRIES) await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+}
+const { body, error } = attempt;
 
 if (error) {
   const out = { ok: false, reason: 'unreachable', error, localCount: local.length };

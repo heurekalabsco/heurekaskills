@@ -13,9 +13,10 @@ on:
   workflow_dispatch:
     inputs:
       selftest:
-        description: 'Run against a fixture with a known-dead dataset, to prove the notify path still fires'
-        type: boolean
-        default: false
+        description: 'Prove an alarm branch still fires, against a fixture rather than a real outage'
+        type: choice
+        options: ['none', 'dataset', 'publish']
+        default: 'none'
   pull_request:
     paths:
       - 'skills/**/SKILL.md'
@@ -42,15 +43,16 @@ jobs:
       - run: npm ci
       - name: Probe every declared dataset
         id: datasets
-        if: inputs.selftest != true
+        if: inputs.selftest != 'dataset' && inputs.selftest != 'publish'
         continue-on-error: true
         run: node scripts/check-datasets.js
 
-      # An alarm nobody has watched fire is not known to work. This points the same script
-      # at a fixture declaring one unreachable dataset, so a dispatch can prove the notify
-      # job still opens an issue — without waiting for a real dataset to rot.
+      # An alarm nobody has watched fire is not known to work. Each branch points a script at
+      # the same fixture, so a dispatch can prove the notify job opens the RIGHT issue —
+      # without waiting for a real dataset to rot or a real deploy to break. `selftest: publish`
+      # exercises the branch added with the publish check; `selftest: dataset` the original.
       - name: Self-test — prove the alarm fires
-        if: inputs.selftest == true
+        if: inputs.selftest == 'dataset'
         run: SKILLS_DIR=.github/fixtures/dataset-selftest/skills node scripts/check-datasets.js
 
       # Merging is not publishing. Every link after the merge — dispatch, site build, deploy,
@@ -62,10 +64,20 @@ jobs:
       # stale registry. They are independent outages with different owners — one is a skill
       # pointing at data that moved, the other is a broken deploy in another repo — and
       # discovering the second only after fixing the first would waste a night.
+      # Scheduled runs only. This is a POST-merge assertion: a skill in an open PR is not
+      # published yet, by definition, so running it on `pull_request` would fail every
+      # skill-adding PR — turning this alarm red on exactly the workflow the registry exists
+      # to process, and training everyone to ignore it. A false red that frequent is worse
+      # than no alarm, because it takes the real one down with it.
       - name: Published registry matches this repo
         id: published
-        if: inputs.selftest != true
+        if: (inputs.selftest == 'publish' || (inputs.selftest != 'dataset' && github.event_name != 'pull_request'))
         continue-on-error: true
+        env:
+          # The dataset fixture works unchanged here: one skill that is not in the registry is
+          # exactly the shape of the real outage. SKILLS_DIR='' is falsy, so a normal run falls
+          # back to the real skills/ and the script needs no self-test branch of its own.
+          SKILLS_DIR: ${{ inputs.selftest == 'publish' && '.github/fixtures/dataset-selftest/skills' || '' }}
         run: node scripts/check-published.js
 
       # One gate for both, so each probe's outcome survives for the notify job to read. Without
