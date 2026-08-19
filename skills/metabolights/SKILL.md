@@ -68,6 +68,12 @@ for h in hits[:4]:
 `hitCount` is the real total; `size` caps what comes back, so page with `start=` rather than
 assuming the first response is everything.
 
+**An accession you find elsewhere may not be public.** `/studies` lists exactly the 3,292 that
+are. Fetching one that is not returns **HTTP 401** — which reads like a problem with your
+credentials and is not: the study exists but is still embargoed or in curation. A genuinely
+nonexistent accession returns **400**. So `401` means *come back later*, `400` means *wrong
+identifier*, and neither is anything to do with authentication.
+
 **Query terms are OR-ed and ranked**, so a two-word query returns more than either word alone,
 sorted by relevance. Narrow with the `organism` and `study_design` fields rather than by
 adding words.
@@ -125,11 +131,18 @@ Four ISA-Tab *kinds*, and the `type` tells you which is which without parsing na
 | `metadata_assay` | `a_<ACC>_*.txt` | one row per assay run, linking sample to raw file |
 | `metadata_maf` | `m_<ACC>_*_maf.tsv` | **the measured values** |
 
-**Kinds, not files — a type can repeat, and this is the easiest way to lose half a study.**
-`MTBLS3341` ships **six** files: positive *and* negative ionisation, so two `metadata_assay`
-and two `metadata_maf`. Building `{f["type"]: f["file"] for f in ...}` is the natural thing to
-write and it silently keeps whichever came last, discarding an entire ionisation mode. Group
-into lists and decide deliberately which mode you want, or concatenate both:
+**Kinds, not files — a type repeats, and the MAFs partition your samples between them.**
+`MTBLS3341` ships six files (positive *and* negative ionisation, so two assays and two MAFs);
+`MTBLS12833` ships ten, with four MAFs. Two consequences, and the second is the expensive one:
+
+- `{f["type"]: f["file"] for f in ...}` is the natural thing to write and it silently keeps
+  whichever came last, discarding whole assays.
+- **Different MAFs carry different samples.** `MTBLS1452` has three MAFs holding 12, 12 and 60
+  sample columns; their union is all 84 declared samples, but **reading the first alone gives
+  you 12 of 84 — 14% of the study, with nothing to indicate the rest exists.** Measured also on
+  `MTBLS12036` (567/568/568, union 568) and `MTBLS11748` (48/49, union 49).
+
+So read every MAF and take the union. Group into lists first:
 
 ```python
 from collections import defaultdict
@@ -209,27 +222,28 @@ what a sample is called:
 ```python
 import csv, io
 
-def maf_matrix(acc, outdir="Data/metabolights"):
-    """Metabolite x sample intensities, with the sample columns identified honestly."""
+def maf_matrix(acc):
+    """Every MAF, unioned, with honest coverage against what the study declares."""
     by_type = files_by_type(acc)
-    mafs = by_type["metadata_maf"]
-    if len(mafs) > 1:
-        print(f"   note: {len(mafs)} MAFs (ionisation modes) — reading {mafs[0]}, "
-              f"the others are {mafs[1:]}")
-    maf_name, smp_name = mafs[0], by_type["metadata_sample"][0]
-
     grab = lambda n: urllib.request.urlopen(f"{FTP}/{acc}/{n}", timeout=60).read().decode("utf-8", "replace")
-    maf = list(csv.DictReader(io.StringIO(grab(maf_name)), delimiter="\t"))
     samples = {r["Sample Name"].strip() for r in
-               csv.DictReader(io.StringIO(grab(smp_name)), delimiter="\t")
+               csv.DictReader(io.StringIO(grab(by_type["metadata_sample"][0])), delimiter="\t")
                if r.get("Sample Name")}
 
-    cols = [c for c in (maf[0].keys() if maf else []) if c.strip() in samples]
-    print(f"  {acc}: {len(maf)} metabolites x {len(cols)} sample columns "
-          f"({len(samples)} samples declared)")
-    if not cols:
-        print("   -> this MAF carries summary statistics only, no per-sample values")
-    return maf, cols
+    tables, covered = [], set()
+    for name in by_type["metadata_maf"]:
+        rows = list(csv.DictReader(io.StringIO(grab(name)), delimiter="\t"))
+        cols = [c for c in (rows[0] if rows else {}) if c.strip() in samples]
+        tables.append({"maf": name, "metabolites": len(rows), "samples": cols})
+        covered |= {c.strip() for c in cols}
+        print(f"   {name[:52]:<52} {len(rows):>5} metabolites x {len(cols):>3} samples")
+
+    print(f"  {acc}: {len(covered)}/{len(samples)} declared samples appear in some MAF")
+    if not covered:
+        print("   -> summary statistics only; no per-sample values anywhere in this study")
+    elif len(covered) < len(samples):
+        print("   -> partial: the rest were run but their per-sample values are not published")
+    return tables, samples, covered
 
 maf_matrix("MTBLS3341")
 ```
@@ -302,7 +316,21 @@ smp2 = {r["Sample Name"].strip() for r in
         if r.get("Sample Name")}
 cols2 = [c for c in maf2[0] if c.strip() in smp2]
 
+# 6. Multi-MAF studies partition their samples: the first MAF alone is a subset.
+inv3 = defaultdict(list)
+for f in json.loads(get(f"{WS}/studies/MTBLS1452/files"))["study"]:
+    inv3[f["type"]].append(f["file"])
+smp3 = {r["Sample Name"].strip() for r in
+        csv.DictReader(io.StringIO(get(f"{FTP}/MTBLS1452/{inv3['metadata_sample'][0]}").decode("utf-8","replace")), delimiter="\t")
+        if r.get("Sample Name")}
+per_maf, union3 = [], set()
+for m in inv3["metadata_maf"]:
+    rows = list(csv.DictReader(io.StringIO(get(f"{FTP}/MTBLS1452/{m}").decode("utf-8","replace")), delimiter="\t"))
+    cs = {c.strip() for c in (rows[0] if rows else {}) if c.strip() in smp3}
+    per_maf.append(len(cs)); union3 |= cs
+
 assert searched == "400", "the MetaboLights API gained a search endpoint"
+assert per_maf[0] < len(union3), "reading one MAF should undercount a multi-MAF study"
 assert set(d) == {"mtblsStudy", "isaInvestigation", "validation"}, sorted(d)
 assert {"metadata_maf", "metadata_sample", "metadata_assay", "metadata_investigation"} <= set(inv)
 assert len(inv["metadata_maf"]) == 2, "MTBLS3341 has positive and negative ionisation modes"
@@ -317,6 +345,7 @@ print(f"assay                              : {st['assays'][0]['technologyType'][
 print(f"validation                         : {d['validation']}")
 print(f"{ACC} MAF                       : {len(maf)} metabolites x {len(cols)} samples of {len(smp)} declared")
 print(f"MTBLS2679 MAF                      : {len(maf2)} metabolites x {len(cols2)} samples of {len(smp2)} declared")
+print(f"MTBLS1452 MAFs                     : {per_maf} samples each, union {len(union3)} of {len(smp3)} declared")
 ```
 
 **Expect**
@@ -331,6 +360,10 @@ Invariants — these hold regardless of release, and a failure means the skill i
 - **`MTBLS3341` has per-sample columns and `MTBLS2679` has none**, from identical code. That
   asymmetry is the whole point of intersecting with the sample sheet, and the two assertions
   are what stop the technique silently degrading into positional guessing.
+- **`MTBLS1452`'s first MAF holds strictly fewer samples than its three MAFs together.** The
+  assertion is `per_maf[0] < len(union3)`, not a fixed count, so it keeps holding if the study
+  is revised. This is the check that stops anyone reintroducing "just read the first MAF",
+  which would have handed a reader 12 of 84 samples with nothing to signal the loss.
 
 Observed 2026-08-19 — these move when a submitter revises a study, so treat a mismatch as drift
 to investigate rather than a failure:
@@ -344,6 +377,7 @@ assay                              : mass spectrometry
 validation                         : {'errors': [], 'warnings': []}
 MTBLS3341 MAF                       : 57 metabolites x 19 samples of 19 declared
 MTBLS2679 MAF                      : 28 metabolites x 0 samples of 133 declared
+MTBLS1452 MAFs                     : [12, 12, 60] samples each, union 84 of 84 declared
 ```
 
 ## Sources
