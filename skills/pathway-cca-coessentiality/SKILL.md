@@ -5,8 +5,12 @@ category: analysis
 tags: [cca, pathway-coessentiality]
 author: Pol Castellano-Escuder
 license: CC-BY-4.0
-try-it: pending
-verified: pending
+datasets: []
+verified:
+  date: 2026-08-19
+  against: NumPy 2.4.6 / Python 3.11.15
+  executed: 1
+  unverified: 0
 ---
 
 # Pathway association mapping (PCA → CCA → CC1)
@@ -175,3 +179,164 @@ coverage in your matrix; **k** and the variance explained per set; minimum set s
 missing-value and zero-variance policy; variance share of the full matrix's first component; the
 null model used, if any; the selection threshold with the median and SD it came from; Jaccard
 overlap for reported pairs; and explicitly that CC1 is unsigned and uncorrected.
+
+## Try it
+
+A self-contained check that this skill's own claims still hold. No account, no key, nothing
+to download beyond `numpy`. Runs in about a second.
+
+**Data** — generated inline, and the frontmatter says so with `datasets: []` rather than
+naming a source. That is the point rather than a shortcut: every claim below is about what
+CC1 does when there is **nothing to find**, and only simulation can guarantee that. The
+matrices here are drawn from independent normals, so any score above the null is arithmetic,
+not biology. The one place a real signal appears, it is planted by adding a shared factor to
+two disjoint feature sets, so its true answer is known too.
+
+**Run**
+
+```python
+import numpy as np
+
+rng = np.random.default_rng(20260819)
+K = 4  # fixed across every pair in a run, and reported
+
+
+def block(M, k=K):
+    """Center + scale features, PCA over samples, return the first k component scores."""
+    X = M - M.mean(0)
+    sd = X.std(0, ddof=1)
+    X = X[:, sd > 0] / sd[sd > 0]          # zero-variance filter, on the FEATURE axis
+    U, S, _ = np.linalg.svd(X, full_matrices=False)
+    k = min(k, X.shape[1], X.shape[0] - 1)  # a set smaller than k silently gives fewer
+    return U[:, :k] * S[:k]
+
+
+def cc1(A, B):
+    """Largest canonical correlation between two sample-aligned blocks."""
+    def whiten(Z):
+        Q, R = np.linalg.qr(Z - Z.mean(0))
+        d = np.abs(np.diag(R))
+        return Q[:, d > 1e-10 * d.max()]
+    Qa, Qb = whiten(A), whiten(B)
+    return float(np.clip(np.linalg.svd(Qa.T @ Qb, compute_uv=False)[0], 0, 1))
+
+
+# 1. The reduction IS the method. Both sets are pure noise — there is nothing to find.
+N = 200
+print(f"1. unrelated sets, n = {N} samples: raw feature blocks vs k = 4 components")
+raw_curve, red_curve = [], []
+for w in (5, 10, 25, 50, 80):
+    r = [(cc1(A, B), cc1(block(A), block(B)))
+         for A, B in ((rng.standard_normal((N, w)), rng.standard_normal((N, w)))
+                      for _ in range(20))]
+    raw_curve.append(np.mean([x[0] for x in r]))
+    red_curve.append(np.mean([x[1] for x in r]))
+    print(f"   set width {w:3d} features   raw CC1 = {raw_curve[-1]:.3f}   k=4 CC1 = {red_curve[-1]:.3f}")
+assert np.all(np.diff(raw_curve) > 0), "raw CC1 must chase set size"
+assert raw_curve[-1] > 0.9 > raw_curve[0], "raw CC1 must reach the top of the scale"
+assert np.ptp(red_curve) < 0.05, "k=4 CC1 must be flat across set size"
+
+# Past width = n/2 the raw score is not even statistics: two subspaces of more than half
+# the sample dimension must intersect, so CC1 is exactly 1 by dimension counting.
+wide = cc1(rng.standard_normal((N, N // 2)), rng.standard_normal((N, N // 2)))
+print(f"   set width {N // 2:3d} features   raw CC1 = {wide:.3f}   (exactly 1 by dimension counting)")
+assert wide > 1 - 1e-9
+
+# 2. The k = 4 null is not a constant — it falls with sample count.
+print("\n2. k = 4 null for unrelated sets, by cohort size")
+null = {}
+for n in (50, 200, 1100):
+    v = [cc1(block(rng.standard_normal((n, 40))), block(rng.standard_normal((n, 40))))
+         for _ in range(60)]
+    null[n] = float(np.mean(v))
+    print(f"   n = {n:5d}   mean CC1 = {null[n]:.3f}   sd = {np.std(v):.3f}")
+assert null[50] > null[200] > null[1100], "the null must fall as n grows"
+
+# 3. Invariants, and the two failures that are silent.
+print("\n3. invariants and silent failures")
+M = rng.standard_normal((150, 90))
+shared = rng.standard_normal((150, 1))
+S1, S2 = M[:, :20] + shared, M[:, 40:60] + shared      # disjoint features, planted coupling
+S3 = M[:, 60:80]                                       # disjoint and unrelated
+b1, b2, b3 = block(S1), block(S2), block(S3)
+print(f"   self-comparison CC1, 1 - CC1   = {1 - cc1(b1, b1):.1e}")
+print(f"   symmetry |CC1(a,b) - CC1(b,a)| = {abs(cc1(b1, b2) - cc1(b2, b1)):.1e}")
+print(f"   planted shared factor          = {cc1(b1, b2):.3f}")
+print(f"   unrelated pair, same n and k   = {cc1(b1, b3):.3f}")
+print(f"   set of 3 features under k = 4  -> {block(M[:, :3]).shape[1]} components, "
+      f"CC1 = {cc1(block(M[:, :3]), b3):.3f}")
+print(f"   rows of one block permuted     = {cc1(b1, b2[rng.permutation(150)]):.3f}  "
+      "(no exception raised)")
+assert abs(cc1(b1, b1) - 1) < 1e-12 and cc1(b1, b2) > cc1(b1, b3)
+assert 0.0 <= cc1(b1, b3) <= 1.0
+
+# 4. The confounding trap. One global axis loaded onto every feature — proliferation,
+#    purity, batch — and disjoint unrelated sets stop being distinguishable from real ones.
+print(f"\n4. a single global axis, n = {N} (diagnose it BEFORE reading any score)")
+for label, g in (("no global factor ", 0.0), ("moderate global  ", 1.0)):
+    scores, pc1 = [], []
+    for _ in range(20):
+        F = rng.standard_normal((N, 60))
+        F += g * rng.standard_normal((N, 1)) * rng.uniform(0.8, 1.2, size=(1, 60))
+        Z = (F - F.mean(0)) / F.std(0, ddof=1)
+        ev = np.linalg.svd(Z, compute_uv=False) ** 2
+        pc1.append(ev[0] / ev.sum())
+        scores.append(cc1(block(F[:, :20]), block(F[:, 30:50])))   # disjoint, unrelated
+    print(f"   {label}  CC1 = {np.mean(scores):.3f} "
+          f"[{np.min(scores):.3f}, {np.max(scores):.3f}]   "
+          f"PC1 of full matrix = {np.mean(pc1) * 100:.1f}% of variance")
+    if g == 0.0:
+        clean = np.mean(scores)
+    else:
+        assert np.mean(scores) > 0.8 > clean, "a global axis must inflate unrelated pairs"
+```
+
+**Expect**
+
+Invariants — these follow from the math, not from a library version. A failure here means
+this page is wrong, and the assertions in the block are what enforce them:
+
+- **CC1 lies in [0, 1]**, and canonical correlation is **symmetric** — `CC1(a,b)` and
+  `CC1(b,a)` agree to floating point (2e-16 here), which is why only the upper triangle is
+  ever computed.
+- **Self-comparison is exactly 1**, to 1e-16. Every median, SD and threshold in a run must
+  exclude the diagonal or it is biased upward.
+- **Without the PCA step, CC1 measures set width.** Two sets containing nothing but noise
+  climb from 0.27 at 5 features to 0.98 at 80, and past width = n/2 they hit exactly 1 —
+  at that point two subspaces spanning more than half the sample dimension have to
+  intersect, so the score is dimension counting rather than statistics. Reduced to k = 4 the
+  same pairs sit flat near 0.22 across every width. This is the single check to run if you
+  are unsure an implementation is doing the method rather than something adjacent to it.
+- **A set smaller than k yields fewer than k components, silently** — no warning, no error,
+  and its scores are then on a different footing from every other set's. Hence the minimum
+  set size of 5.
+- **Sample misalignment does not raise.** Permuting the rows of one block leaves the shapes
+  valid and returns a plausible-looking number instead of an error. Assert on identifiers
+  before subsetting; nothing downstream will catch this for you.
+- **The null is a function of n**, not a constant, so a CC1 is uninterpretable without the
+  sample count beside it.
+
+Observed 2026-08-19, NumPy 2.4.6 / Python 3.11.15, seed 20260819. These are simulation
+estimates, so a mismatch is drift to investigate rather than a failure — but read the two
+kinds differently, because they are not equally reproducible.
+
+Averaged over replicates, and stable to about ±0.03 across twelve seeds:
+
+- k = 4 null for unrelated sets: **0.446** at n = 50, **0.217** at n = 200, **0.099** at
+  n = 1,100 — reproducing the values quoted earlier on this page.
+- The confounding trap, at n = 200: one moderate global axis takes **disjoint, unrelated**
+  sets from **0.225** to **0.953**, while the first component of the full matrix goes from
+  3.8% to 50.4% of variance. That second number is the diagnostic — it is visible before any
+  pair is scored, which is the only reason the trap is avoidable.
+
+Single draws, printed by check 3, where only the **ordering** is reproducible:
+
+- A planted shared factor between two disjoint sets scores **0.947** (0.93–0.96 across
+  seeds), against **0.251** for an unrelated pair at the same n and k. Permuting the rows of
+  one block collapses that 0.947 to **0.302** — no exception, just a number that looks like
+  any other.
+- Those last two figures move over roughly **0.20–0.36** from one seed to the next, because
+  each is a single realization of the n = 200 null rather than an average of sixty. That
+  spread is not noise in the check; it is the thing this page is about. A lone CC1 of 0.30
+  means nothing until you know what the null is at your n — which is why the assertions test
+  that the planted pair beats the unrelated one, and never that either hits a fixed value.
