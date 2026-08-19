@@ -17,7 +17,7 @@ verified:
   against: Census 2025-11-08 LTS (schema 2.4.0, 1,845 datasets) / cellxgene-census 1.17.0 / tiledbsoma 2.3.0 / tiledbsoma-ml 0.1.0 / spatialdata 0.8.0 / scanpy 1.12.3 / Python 3.12.8
   executed: 9
   unverified: 2
-  unverified_reason: Use Case 3 streams all 99.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Case 4's counts, subsample and every API argument are checked, but the get_anndata materialisation itself did not finish on a loaded machine; re-run it when one is free.
+  unverified_reason: Use Case 3 streams all 99.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Case 4 ran end to end at 200 cells (obs_coords, remove_unused_categories, rank_genes_groups) and its 437,482-cell count is confirmed, but the 50,000-cell get_anndata itself did not finish on a loaded machine; re-run it when one is free.
 ---
 # CZ CELLxGENE Census
 
@@ -276,11 +276,16 @@ obs_column_names=["cell_type", "tissue_general", "disease"]  # Not all columns
 ```
 
 The columns come back as pandas **categoricals carrying the release's whole dictionary**, not
-just the values present. `adata.obs.cell_type.value_counts()` on a 152-cell slice prints all 903
-human cell types, 902 of them zero. Drop the unused levels before grouping or plotting:
+just the values present. A 152-cell slice's `cell_type` still has all 903 human levels, and a
+200-cell two-tissue slice still has all 36 mouse `tissue_general` levels.
+
+This is not merely untidy — it **breaks downstream tools**. `sc.tl.rank_genes_groups(adata,
+groupby="tissue_general")` on that 200-cell slice raises `ValueError: Could not calculate
+statistics for groups forelimb, reproductive system, brain, … since they only contain one
+sample`, naming 34 tissues the slice does not contain. Drop the unused levels first:
 
 ```python
-adata.obs["cell_type"] = adata.obs.cell_type.cat.remove_unused_categories()
+adata.obs["tissue_general"] = adata.obs.tissue_general.cat.remove_unused_categories()  # 36 -> 2
 adata.obs.groupby("cell_type", observed=True).size()      # observed=True does the same for a groupby
 ```
 
@@ -472,6 +477,9 @@ with cellxgene_census.open_soma(census_version="2025-11-08") as census:
         obs_coords=keep,                                        # not obs_value_filter
         obs_column_names=["tissue_general", "assay", "donor_id"],
     )                                                           # 50,000 x 16
+
+    # Without this, rank_genes_groups raises: the categorical still has all 71 tissues
+    adata.obs["tissue_general"] = adata.obs.tissue_general.cat.remove_unused_categories()
 
     sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
     sc.tl.rank_genes_groups(adata, groupby="tissue_general", method="wilcoxon")
