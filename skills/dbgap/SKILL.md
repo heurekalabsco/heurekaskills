@@ -155,6 +155,11 @@ def metadata_url(phs, vs=None):
     vs = versions(phs) if vs is None else vs
     if not vs:
         raise LookupError(f"{phs}: no version directory on the tree; dbGaP declares {want}")
+    if want is None:
+        # 35 studies have a tree directory and NO catalogue record. Treating that as
+        # "stale" tells a reader to go read a parent study that does not exist. The tree
+        # is the only surface that has anything to say, so use it — and say so.
+        return f"{FTP}/{phs}/{vs[-1]}/GapExchange_{vs[-1]}.xml", vs[-1], len(vs)
     if vnum(vs[-1]) < vnum(want):
         raise LookupError(f"{phs}: tree stops at {vs[-1]}, dbGaP declares {want} — "
                           f"the current release is filed under the parent study")
@@ -201,9 +206,15 @@ phs000342   0 version dirs -> REFUSED: phs000342: no version directory on the tr
   both is filed under the parent's accession, and 10 of Framingham's 13 children have no
   directory on the tree whatsoever. Without the `declared_accession` check, `phs000401`
   returns a 2011 record reading `GRU` and `NPU` for a study dbGaP now publishes as
-  `HMB-IRB-MDS` and `HMB-IRB-NPU-MDS` — you would be told it is general research use with
-  no IRB requirement when it is health/medical/biomedical only and IRB documentation is
-  required.
+  `HMB-IRB-MDS` and `HMB-IRB-NPU-MDS` — you would be told any research use is permitted on a
+  study now restricted to health, medical and biomedical purposes, which excludes exactly the
+  population-origins and ancestry work `GRU` would have allowed.
+  **The IRB requirement is not what changed**, and reading it off the code letters is the
+  mistake this section warns against: the 2011 record already carries `IrbRequired` and states
+  in prose that "full or expedited IRB approval is required for data access" for both groups.
+  The drift is in what the data may be used *for*, not in whether an IRB signs off.
+
+The tree can also be **ahead** of the catalogue — 14 studies were, on the same sweep — which is harmless for reading metadata but means a declared subject count can belong to an older release than the var_report you just parsed. That is one of the three ways the subject-count check fails.
 
 Swept across all 3,216 catalogued studies on 2026-08-18: the tree's newest version
 disagrees with the declared accession for **44 studies**, is *behind* it for **30**, and
@@ -441,7 +452,15 @@ def reachable_subjects(phs, ver):
         return
 
     subj = [r for r in reports if "subject" in r.lower()] or reports
-    tbl = ET.fromstring(get(f"{base}/pheno_variable_summaries/{subj[0]}"))
+    # dbGaP names the canonical table <STUDY>_Subject. A *_Subject_Phenotypes table is a
+    # per-release view of the same study and is usually smaller. POPRES (phs000145) ships
+    # three matches, and the alphabetically-first is POPRES_v1_v2_Subject_Phenotypes at
+    # 5,917 against a declared 8,012 — a 26% undercount, printed as a feasibility figure.
+    exact = [r for r in subj if re.search(r"_Subject\.var_report", r, re.I)]
+    pick = (exact or subj)[0]
+    if len(exact or subj) > 1:
+        print(f"   ambiguous: {len(subj)} tables named *subject*; using {pick}")
+    tbl = ET.fromstring(get(f"{base}/pheno_variable_summaries/{pick}"))
     print(f"{ver}  table={tbl.get('name')}  ({len(reports)} var_report files, "
           f"{len(subj)} named *subject*)")
 
@@ -501,7 +520,7 @@ subjects. A question about eye disease can reach all of them; a question about a
 else can reach 4,139 and must leave the other 618 alone. Report the reachable N, never the
 headline N, in a feasibility note or a power calculation.
 
-**The right invariant to assert is `sum of .cN rows == the subject count dbGaP declares`,
+**The right check is `sum of .cN rows == the subject count dbGaP declares`,
 and it is not the same as "the group figures sum to the whole-study row".** Every study
 carrying an `NRUP` group breaks the second one: `NRUP` subjects did not consent, are
 counted in the table's bare-id row, and get no `.cN` row of their own, because no one can
@@ -861,7 +880,9 @@ for i in range(0, len(PHS), 100):
 rows, manifest, refused = [], [], []
 for phs in PHS:
     try:
-        ver, nver, xml = newest_metadata(phs, declared[phs])
+        # .get, not [] — a KeyError here is a LookupError and would be swallowed below,
+        # reporting a perfectly readable study as refused-because-stale.
+        ver, nver, xml = newest_metadata(phs, declared.get(phs))
     except LookupError as e:
         refused.append(str(e))
         print(f"  {phs:22} REFUSED: {e}")
@@ -1279,7 +1300,11 @@ re-introduced:
   than returning a number. Absence here is a real answer: this study's N is not published.
 - **4d** — `phs000313`'s subject table has 4,718 rows, its one consent group has 2,105,
   and dbGaP declares 2,105 subjects. The 2,613 difference is the `NRUP` group, which no
-  applicant can ever reach. `sum(groups) == declared` is the invariant;
+  applicant can ever reach. `sum(groups) == declared` is the check to make — a check, not an invariant: it holds on
+  roughly 99% of studies and fails three distinct ways. `phs000145` has several subject
+  tables and the wrong one is smaller; `phs003067` has a tree *ahead* of the catalogue, so
+  the declared figure is the older release's; `phs000128` has multiple rows per subject, so
+  neither the grouped sum nor the bare row matches. Report a mismatch, do not assert it away;
   `sum(groups) == whole-study row` is not, and asserting the second one raises a false
   alarm on every study with un-consented subjects in its pedigree.
 
