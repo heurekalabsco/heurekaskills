@@ -728,16 +728,32 @@ S-BIAD4        info.files=19988  listed=19988/19988  1.78 GB  zipped-folder entr
 - **`limit` caps at 1000, and exceeding it returns an empty list with `total: 0`** rather
   than an error — which for a study that genuinely has no files is the same response, so
   the cap and an empty deposit are indistinguishable from the reply alone.
+- **`offset` is a page index in disguise — it is floored to a multiple of `limit`.**
+  `limit=1000&offset=500` on `S-BIAD2193` returns 549 items *starting at global index 0*,
+  not at 500. Any window that is not page-aligned silently returns a different slice than
+  you asked for, with HTTP 200. This skill's pagers always step by a full `limit`, so they
+  are safe; resuming from a partial count is not.
 - **An offset past the end returns the last page again, not an empty page.** `S-BIAD1069`
   declares 4,715,142 files, and `offset=4715142` answers with 142 items — the same tail
-  `offset=4715000` returns. Terminate on `pagination.total`, not on an empty response,
-  and dedupe on `path`: a pager built around `while True: … if not page: break` runs
-  forever on the largest deposits, which are exactly the ones you would use it for.
+  `offset=4715000` returns. That is the flooring rule at the boundary.
+  A naive `while True: ... if not page: break` pager does **not** hang here: advancing by
+  `len(page)` walks off the aligned grid and it terminates after 8 extra requests, having
+  appended 994 duplicate rows. The damage is silent duplication, not a hang — and the
+  pathological case is the *smallest* deposits, not the largest: `S-BIAD1500` holds one
+  file and that pager issues roughly a thousand requests before stopping. Terminate on
+  `pagination.total`, not on an empty response, and dedupe on `path`.
+- **A suppressed record answers 403 on `/studies` and `/info` while `/files` still answers
+  200.** `S-BIAD1499` is one. The helpers special-case 404 only, so a 403 propagates as a
+  raw `HTTPError` and kills a loop over a list of accessions instead of raising the
+  `LookupError` the rest of the skill promises. Catch both.
 - **`isDirectory: "true"` is a zipped folder, and it is often the whole deposit.** It
   carries a real `Size` and is usually fetchable. Sampled across 60 BioImages and S-BSST
-  studies, three had such entries — `S-BIAD1500`, `S-BSST1197`, `S-BSST225` — and in all
-  three *every* entry was one, so a filter of `isDirectory == "false"` returns nothing
-  at all for them. Do not treat the flag as "skip this".
+  studies, three had such entries — `S-BIAD1500`, `S-BSST1197`, `S-BSST225` — and in each
+  *every* entry was one, so a filter of `isDirectory == "false"` returns nothing at all
+  for them. **Do not read that as the shape: mixed deposits exist and are common** —
+  `S-BIAD617` is 65 of 67 and `S-BIAD662` is 1 of 114 — so filtering on the flag drops an
+  arbitrary fraction rather than everything, which is harder to notice. Do not treat the
+  flag as "skip this" in either case.
 - `Size` in the listing is the declared size. Read it *before* fetching: the mouse
   companion study `E-MTAB-17510` is one 2.2 GB `.h5ad`, and `S-BSST3223` is four zips
   totalling 33 GB — neither is something to start downloading by accident.
