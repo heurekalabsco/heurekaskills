@@ -318,11 +318,17 @@ one of them is "nothing here":
   40 + 39 + 40; the same held for every SuperSeries tested, up to `GSE241776`'s 7,968 = 7,899 +
   69.
 - **An array series whose values are in the series matrix.** `GSE935` reports `suppfile: ""` and
-  is not a SuperSeries, and its 12,557 × 63 value matrix is sitting in `matrix/`. In a random
-  200-series sample of `"expression profiling by array"[GTYP]`, **49 reported an empty
-  `suppfile` — and all 49 had a series matrix**. See "Three storage layouts" below.
+  is not a SuperSeries, and its 12,557 × 63 value matrix is sitting in `matrix/`.
+  **How common depends entirely on age, and that is the useful fact.** Sampling
+  `"expression profiling by array"[GTYP] AND gse[ETYP]` (69,850 series) on 2026-08-19: a
+  uniform random 400 gave 27 empty `suppfile` (**6.8%**), but the same query's *oldest* 200
+  UIDs gave **189 of 200 (94.5%)** and its newest 200 gave 3 (1.5%). Do not sample
+  `esearch`'s idlist head or tail and call it a rate — it is returned UID-descending, which
+  is how an earlier draft of this page reported 24.5%. Nearly every empty-`suppfile` series
+  has a matrix; `GSE25410` is the exception I found, and it is a SuperSeries whose `matrix/`
+  answers 200 with nothing in it. See "Three storage layouts" below.
 - **A series that does have `suppl/` files anyway.** `GSE60789` and `GSE57958` both report
-  `suppfile: ""` and both publish a `GSE…_RAW.tar`, and so did 4 of the 49 above. `suppfile` is
+  `suppfile: ""` and both publish a `GSE…_RAW.tar`, and so do a minority of empty-`suppfile` series generally. `suppfile` is
   a triage hint, not an inventory — the SOFT record's `!Series_supplementary_file` lines are the
   authority.
 
@@ -589,11 +595,30 @@ import gzip, io, urllib.error
 import pandas as pd
 
 
+def ftp_open(url, timeout=60, tries=4):
+    """urlopen with backoff on the transient 5xx that ftp.ncbi.nlm.nih.gov returns under
+    load. Everything below now lists matrix/ for EVERY series, so a burst of requests is
+    the normal case rather than the exception — and a 503 on an unrelated directory
+    should not end a harvest that suppl/ would have satisfied. 404 is passed through
+    untouched: it is an answer, not a failure."""
+    for attempt in range(tries):
+        try:
+            return urllib.request.urlopen(url, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 404 or e.code < 500 or attempt == tries - 1:
+                raise
+            time.sleep(2 ** attempt)
+        except urllib.error.URLError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(2 ** attempt)
+
+
 def listdir(url, suffix=""):
     """Filenames in a GEO FTP directory index. Used ONLY for matrix/, which no SOFT
     record points at — suppl/ URLs come from the SOFT record instead."""
     try:
-        with urllib.request.urlopen(url, timeout=60) as r:
+        with ftp_open(url) as r:
             html = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -609,7 +634,7 @@ def series_matrix_urls(acc):
 
 def read_series_matrix(url):
     """(GSM accessions, header fields, value table) for ONE part."""
-    with urllib.request.urlopen(url, timeout=300) as r:
+    with ftp_open(url, timeout=300) as r:
         text = gzip.decompress(r.read()).decode("utf-8", "replace")
     head, body, inside = {}, [], False
     for line in text.splitlines():
@@ -876,9 +901,16 @@ def read_counts(path):
 
 def read_all(manifest, suffixes=(".csv.gz", ".tsv.gz", ".txt.gz")):
     """Every tabular file in the manifest, and the total sample columns against the
-    series' own declared sample count. Less is a fact about the deposit, not a bug."""
+    series' own declared sample count. Less is a fact about the deposit, not a bug.
+
+    Series matrices are skipped: fetch_series writes them into the same manifest, but a
+    series matrix carries 60+ `!Series_*` header lines before its table, so read_counts
+    sniffs the separator off the wrong line and pandas raises. Use read_series_matrix.
+    """
     frames = {}
     for entry in manifest["files"]:
+        if entry["path"].endswith("_series_matrix.txt.gz"):
+            continue
         if entry["path"].endswith(suffixes):
             df = read_counts(entry["path"])
             frames[os.path.basename(entry["path"])] = df
@@ -1136,13 +1168,28 @@ ACC = "GSE263566"
 
 
 def eutils(endpoint, **params):
+    """Throttled AND retried. This block makes ~20 calls in a burst, and under load NCBI
+    answers with a truncated chunked body — urlopen succeeds and `r.read()` raises
+    IncompleteRead, which is not an HTTPError and so survives any `except HTTPError`.
+    Retrying the request is the only fix; the same reasoning as soft_text below."""
     params.update(retmode="json", tool="geo-skill-tryit")
     if os.environ.get("NCBI_EMAIL"):
         params["email"] = os.environ["NCBI_EMAIL"]
     url = f"{EUTILS}/{endpoint}.fcgi?" + urllib.parse.urlencode(params)
-    time.sleep(0.34)                                  # 3 req/s unkeyed
-    with urllib.request.urlopen(url, timeout=90) as r:
-        body = json.loads(r.read())
+    for attempt in range(4):
+        time.sleep(0.34)                              # 3 req/s unkeyed
+        try:
+            with urllib.request.urlopen(url, timeout=90) as r:
+                body = json.loads(r.read())
+            break
+        except (http.client.IncompleteRead, urllib.error.URLError, json.JSONDecodeError):
+            if attempt == 3:
+                raise
+            time.sleep(2 ** attempt)
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == 3:
+                raise
+            time.sleep(2 ** attempt)
     assert "eutilsresult" not in body, body.get("eutilsresult")   # 200 can carry an error
     return body
 
@@ -1188,8 +1235,24 @@ def matrix_parts(acc):
             sorted(set(re.findall(r'href="([^"/]+_series_matrix\.txt\.gz)"', idx)))]
 
 
+def ftp_open(url, timeout=60, tries=4):
+    """Backoff on the transient 5xx ftp.ncbi.nlm.nih.gov returns under load. This block
+    lists matrix/ for several series in a burst; a 503 on one should not end the run."""
+    for attempt in range(tries):
+        try:
+            return urllib.request.urlopen(url, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 404 or e.code < 500 or attempt == tries - 1:
+                raise
+            time.sleep(2 ** attempt)
+        except urllib.error.URLError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(2 ** attempt)
+
+
 def matrix_gsms_and_rows(url):
-    with urllib.request.urlopen(url, timeout=300) as r:
+    with ftp_open(url, timeout=300) as r:
         lines = gzip.decompress(r.read()).decode("utf-8", "replace").splitlines()
     gsms, rows, inside = [], 0, False
     for l in lines:
