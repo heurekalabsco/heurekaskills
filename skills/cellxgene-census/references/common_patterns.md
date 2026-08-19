@@ -334,7 +334,7 @@ Minimize data transfer by selecting only required metadata columns:
 ```python
 obs_column_names=["cell_type", "tissue_general", "disease"]  # Not all columns
 ```
-Every one comes back as a categorical carrying the release's whole dictionary — 903 human cell
+Every one comes back as a categorical carrying the release's whole dictionary — 898 human cell
 types, 71 human `tissue_general` labels — regardless of how few the slice holds. Drop the unused
 levels before any `groupby` or scanpy call that groups; `sc.tl.rank_genes_groups` raises
 `ValueError` on the empty ones rather than ignoring them:

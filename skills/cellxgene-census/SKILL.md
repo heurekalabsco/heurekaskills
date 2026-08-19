@@ -17,7 +17,7 @@ verified:
   against: Census 2025-11-08 LTS (schema 2.4.0, 1,845 datasets) / cellxgene-census 1.17.0 / tiledbsoma 2.3.0 / tiledbsoma-ml 0.1.0 / spatialdata 0.8.0 / scanpy 1.12.3 / Python 3.12.8
   executed: 9
   unverified: 2
-  unverified_reason: Use Case 3 streams all 99.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Case 4 ran end to end at 200 cells (obs_coords, remove_unused_categories, rank_genes_groups) and its 437,482-cell count is confirmed, but the 50,000-cell get_anndata itself did not finish on a loaded machine; re-run it when one is free.
+  unverified_reason: Use Case 3 streams all 96.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Case 4 ran end to end at 200 cells (obs_coords, remove_unused_categories, rank_genes_groups) and its 437,482-cell count is confirmed, but the 50,000-cell get_anndata itself did not finish on a loaded machine; re-run it when one is free.
 ---
 # CZ CELLxGENE Census
 
@@ -223,7 +223,16 @@ cellxgene_census.get_obs(census, "homo_sapiens", value_filter="tissue_generall =
 Take the vocabulary from the release rather than from memory. `summary_cell_counts` carries
 every `assay`, `cell_type`, `disease`, `self_reported_ethnicity`, `sex`, `suspension_type`,
 `tissue` and `tissue_general` label with its declared counts, so it is both the vocabulary and
-the ground truth:
+the ground truth — **for seven of those eight**.
+
+`suspension_type` is the exception, and it fails in the opposite direction from the spatial
+bug this skill is about. The table lists a single label, `cell`, carrying the organism totals;
+`nucleus` and `na` are absent, and `nucleus` is another 37.7M primary human cells. Read the
+vocabulary for that one field off the obs enumeration instead, or you will conclude `nucleus`
+is not a legal value and over-count `cell`. Checked 2026-08-19 on `2025-11-08`:
+`summary_cell_counts` gives `['cell']` where obs gives three values.
+
+For the other seven:
 
 ```python
 counts = census["census_info"]["summary_cell_counts"].read().concat().to_pandas()
@@ -276,7 +285,7 @@ obs_column_names=["cell_type", "tissue_general", "disease"]  # Not all columns
 ```
 
 The columns come back as pandas **categoricals carrying the release's whole dictionary**, not
-just the values present. A 152-cell slice's `cell_type` still has all 903 human levels, and a
+just the values present. A small slice's `cell_type` still carries all 898 human levels present in `census_data`, and a
 200-cell two-tissue slice still has all 36 mouse `tissue_general` levels.
 
 This is not merely untidy — it **breaks downstream tools**. `sc.tl.rank_genes_groups(adata,
@@ -423,7 +432,7 @@ Size varies wildly by tissue for the same filter: spleen 42,196, kidney 47,245, 
 label and not a `tissue_general` one. Count before you load, every time.
 
 ### Use Case 3: Train Cell Type Classifier
-`is_primary_data == True` with nothing else is all 99,633,637 primary human cells in
+`is_primary_data == True` with nothing else is all 96,591,226 primary human cells in
 `census_data` — a real full-atlas run, not a demo. It streams, so it does not blow memory, but
 add a tissue or assay filter unless that is genuinely the training set you want. The loader
 reaches `census_data` only, so a classifier trained this way has seen no spatial cells.
@@ -478,7 +487,7 @@ with cellxgene_census.open_soma(census_version="2025-11-08") as census:
         obs_column_names=["tissue_general", "assay", "donor_id"],
     )                                                           # 50,000 x 16
 
-    # Without this, rank_genes_groups raises: the categorical still has all 71 tissues
+    # Without this, rank_genes_groups raises: the categorical still has all 70 tissues
     adata.obs["tissue_general"] = adata.obs.tissue_general.cat.remove_unused_categories()
 
     sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
