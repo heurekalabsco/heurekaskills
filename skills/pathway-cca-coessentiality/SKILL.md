@@ -302,11 +302,14 @@ this page is wrong, and the assertions in the block are what enforce them:
 - **Self-comparison is exactly 1**, to 1e-16. Every median, SD and threshold in a run must
   exclude the diagonal or it is biased upward.
 - **Without the PCA step, CC1 measures set width.** Two sets containing nothing but noise
-  climb from 0.27 at 5 features to 0.98 at 80, and past width = n/2 they hit exactly 1 —
-  at that point two subspaces spanning more than half the sample dimension have to
-  intersect, so the score is dimension counting rather than statistics. Reduced to k = 4 the
-  same pairs sit flat near 0.22 across every width. This is the single check to run if you
-  are unsure an implementation is doing the method rather than something adjacent to it.
+  climb monotonically with width, and past width = n/2 they hit exactly 1 — at that point
+  two subspaces spanning more than half the sample dimension have to intersect, so the score
+  is dimension counting rather than statistics. Reduced to k = 4 the same pairs sit flat
+  across every width. The *shape* is the invariant; the heights are not, because both the
+  climb and the flat level are functions of n — at n = 200 the raw curve runs 0.27 → 0.98
+  and the reduced one sits near 0.22, but at n = 1100 the same code gives 0.11 → 0.51 and a
+  flat level near 0.10. This is the single check to run if you are unsure an implementation
+  is doing the method rather than something adjacent to it.
 - **A set smaller than k yields fewer than k components, silently** — no warning, no error,
   and its scores are then on a different footing from every other set's. Hence the minimum
   set size of 5.
@@ -335,8 +338,8 @@ Single draws, printed by check 3, where only the **ordering** is reproducible:
   seeds), against **0.251** for an unrelated pair at the same n and k. Permuting the rows of
   one block collapses that 0.947 to **0.302** — no exception, just a number that looks like
   any other.
-- Those last two figures move over roughly **0.20–0.36** from one seed to the next, because
-  each is a single realization of the n = 200 null rather than an average of sixty. That
+- Those last two figures move over roughly **0.13–0.42** from one seed to the next, because
+  each is a single realization of the n = 150 null rather than an average of sixty. That
   spread is not noise in the check; it is the thing this page is about. A lone CC1 of 0.30
   means nothing until you know what the null is at your n — which is why the assertions test
   that the planted pair beats the unrelated one, and never that either hits a fixed value.
