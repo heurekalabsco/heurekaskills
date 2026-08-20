@@ -4,39 +4,42 @@ description: Search the PRIDE Archive at EMBL-EBI for public mass-spectrometry p
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [proteomics, mass-spectrometry, pride, public-data, multi-omics]
 covers: [proteomics, proteome, mass spectrometry, phosphoproteomics, lipidomics, immunopeptidomics, LC-MS/MS, shotgun proteomics, data-independent acquisition, TMT, SILAC, label-free, mzML, mzIdentML, mzTab, Orbitrap, timsTOF, MaxQuant, DIA-NN, PXD, ProteomeXchange, liver, heart, blood plasma, kidney, brain, human, mouse, hepatocellular carcinoma, aging]
 papers: [PMID:39494541, PMID:34723319, PMID:36370099, PMID:20716697, PMID:40915658]
 access: [open]
-datasets: [https://www.ebi.ac.uk/pride/ws/archive/v3/search/projects?keyword=liver&pageSize=1, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD050610, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD074038, https://ftp.pride.ebi.ac.uk/pride/data/archive/2026/05/PXD074038/GSTM3_SDRF.sdrf.tsv]
+datasets: [https://www.ebi.ac.uk/pride/ws/archive/v3/search/projects?keyword=liver&pageSize=1, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD050610, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD074038, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD000001/files/all, https://www.ebi.ac.uk/pride/ws/archive/v3/files/checksum/PXD000001, https://ftp.pride.ebi.ac.uk/pride/data/archive/2026/05/PXD074038/GSTM3_SDRF.sdrf.tsv]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
+  date: 2026-08-18
   against: PRIDE Archive REST API v3 (api-docs info.version 3.0, OpenAPI 3.0.1) / ProteomeCentral PROXI v0.1 / Python 3.12.8 standard library only
-  executed: 10
+  executed: 11
   unverified: 0
 ---
 # PRIDE Archive
 
 PRIDE (EMBL-EBI) is the largest public repository of mass-spectrometry proteomics
-data and the founding member of ProteomeXchange. On 2026-08-17 it held **40,738
-projects and 3,503,452 files across 4,741 organisms** — raw spectra, processed
+data and the founding member of ProteomeXchange. On 2026-08-18 it held **40,770
+projects and 3,504,583 files across 4,743 organisms** — raw spectra, processed
 identifications, and the methods text that came with them.
 
 No account, no API key, no licence click-through. Everything below reads a public
 endpoint.
 
-The skill is about three decisions, in this order, because getting them wrong in
+The skill is about four decisions, in this order, because getting them wrong in
 order wastes the most time:
 
-1. **Is the accession even in PRIDE?** Roughly half of current ProteomeXchange
-   accessions are not.
+1. **Is the accession even in PRIDE — and released?** Roughly half of current
+   ProteomeXchange accessions are held elsewhere, and PRIDE returns the same 404 for
+   a wrong repository, an embargoed dataset and an accession that never existed.
 2. **Is the dataset comparable to your experiment?** That lives in two free-text
    protocol fields, not in the structured metadata.
 3. **Does it contain processed identifications, or only raw spectra?** That is
    `submissionType`, and it decides whether you can use the data this week or need
    to re-search it from scratch.
+4. **Did you get all the files?** The file index is not the same thing as the
+   project directory, and only the checksum manifest tells you the difference.
 
 ## First — check PRIDE actually holds the accession
 
@@ -49,7 +52,18 @@ repository.
 Of the **400 most recently announced ProteomeXchange datasets on 2026-08-17, only 201
 were PRIDE-held.** The rest were iProX (140), MassIVE (33), jPOST (23) and
 PanoramaPublic (3); six drawn from that group were checked individually and all six
-404 in the PRIDE v3 API. Resolve first, then decide where to go:
+404 in the PRIDE v3 API.
+
+**PRIDE's 404 has three different meanings and does not distinguish them.** Wrong
+repository, embargoed-in-PRIDE, and never-issued all return HTTP 404 with the same
+body. Verified 2026-08-18: `PXD082740` (a PRIDE submission still under embargo),
+`PXD082693` (iProX-held and public) and `PXD999999999` (never issued) are
+indistinguishable from `/projects/{accession}` alone. Treating that 404 as "bad
+accession" tells an author their own valid accession is wrong.
+
+Two endpoints resolve it. ProteomeCentral's PROXI 404 **body** carries an
+`error_code` and a `repository`, and PRIDE's `/status/{accession}` answers `PRIVATE`
+for a PRIDE-held embargoed accession. Resolve first, then decide where to go:
 
 ```python
 import json, urllib.error, urllib.request
@@ -58,42 +72,79 @@ V3 = "https://www.ebi.ac.uk/pride/ws/archive/v3"
 PROXI = "https://proteomecentral.proteomexchange.org/api/proxi/v0.1/datasets"
 
 def where_is(accession):
-    """Is this ProteomeXchange accession in PRIDE? If not, name the repository that has it."""
+    """Resolve an accession to (repository, state, note).
+
+    Four states, not two. PRIDE's 404 is identical for an embargoed dataset and for
+    an accession that was never issued — but ProteomeCentral's 404 BODY tells them
+    apart, and PRIDE's own /status confirms the PRIDE-held ones.
+    """
     try:
         with urllib.request.urlopen(f"{V3}/projects/{accession}", timeout=60) as r:
-            return "PRIDE", json.loads(r.read())["title"]
+            return "PRIDE", "public", json.loads(r.read())["title"][:60]
     except urllib.error.HTTPError as e:
         if e.code != 404:
             raise
+
     try:
         with urllib.request.urlopen(f"{PROXI}/{accession}", timeout=90) as r:
             px = json.loads(r.read())
-    except urllib.error.HTTPError:
-        return "unassigned", "no ProteomeXchange record — check the accession"
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read())        # the 404 BODY is the answer, not the code
+        except ValueError:
+            body = {}
+        if body.get("error_code") == "DatasetNotYetReleased":
+            repo = body.get("repository") or "?"
+            note = "accession is valid — data embargoed, not yet released"
+            if repo == "PRIDE":     # only PRIDE-held accessions answer /status quickly
+                try:
+                    with urllib.request.urlopen(f"{V3}/status/{accession}", timeout=15) as r:
+                        note = f"/status={r.read().decode().strip()} — " + note
+                except Exception:
+                    pass
+            return repo, "embargoed", note
+        return "none", "never issued", (body.get("description") or "no record")[:70]
+
     repo = (px.get("datasetSummary") or {}).get("hostingRepository") or "?"
     link = next((l["value"] for l in (px.get("fullDatasetLinks") or [])
                  if "URI" in (l.get("name") or "")), "")
-    return repo, (px.get("title") or "")[:44] + ("  " + link if link else "")
+    return repo, "public", (px.get("title") or "")[:34] + ("  " + link if link else "")
 
-for acc in ["PXD050610", "PXD074038", "PXD082693", "PXD073836",
-            "PXD067722", "MSV000078568", "PXD999999999"]:
-    repo, note = where_is(acc)
-    print(f"  {acc:<14} {repo:<12} {note[:96]}")
+for acc in ["PXD050610", "PXD074038", "PAD000052", "PXD082693", "PXD073836",
+            "PXD067722", "PXD082740", "PXD082748", "PXD999999999"]:
+    repo, state, note = where_is(acc)
+    print(f"  {acc:<14} {repo:<9} {state:<12} {note[:78]}")
 ```
 
 ```
-  PXD050610      PRIDE        The Human Cardiac “Age-OME”: Age-specific changes in myocardial molecular
-  PXD074038      PRIDE        Mass Spectrometric Profiling of hepatic GSTM3 - co-immunoprecipitate in Cholesterol-induced Stea
-  PXD082693      iProX        Tracing the evolutionary trajectory of  prot  http://www.iprox.org/page/project.html?id=IPX00190
-  PXD073836      MassIVE      A multi-omics approach reveals specific onco  http://massive.ucsd.edu/ProteoSAFe/dataset.jsp?tas
-  PXD067722      jPOST        Nectin-4 is an entry receptor for rubella vi  https://repository.jpostdb.org/entry/JPST004036
-  MSV000078568   unassigned   no ProteomeXchange record — check the accession
-  PXD999999999   unassigned   no ProteomeXchange record — check the accession
+  PXD050610      PRIDE     public       The Human Cardiac “Age-OME”: Age-specific changes in myocard
+  PXD074038      PRIDE     public       Mass Spectrometric Profiling of hepatic GSTM3 - co-immunopre
+  PAD000052      PRIDE     public       Plasma proteomics defines two reproducible subphenotypes of
+  PXD082693      iProX     public       Tracing the evolutionary trajector  http://www.iprox.org/page/project.html?id=
+  PXD073836      MassIVE   public       A multi-omics approach reveals spe  http://massive.ucsd.edu/ProteoSAFe/dataset
+  PXD067722      jPOST     public       Nectin-4 is an entry receptor for   https://repository.jpostdb.org/entry/JPST0
+  PXD082740      PRIDE     embargoed    /status=PRIVATE — accession is valid — data embargoed, not yet released
+  PXD082748      jPOST     embargoed    accession is valid — data embargoed, not yet released
+  PXD999999999   none      never issued Identifier PXD999999999 has not yet been reserved for use by any repos
 ```
+
+The two embargoed rows are the ones worth having. `PXD082740` and `PXD082748` are
+real reserved accessions whose data has not been released; a resolver that reports
+them as "no such accession" sends the reader to correct something that is already
+correct. They will flip to `public` when their submitters release them — that is the
+point of the state, not a defect in the example. Of the 47 accessions
+`PXD082700`–`PXD082746` on 2026-08-18, **45 were embargoed** (31 at PRIDE, 9 iProX,
+5 MassIVE) and none were unissued, so the band immediately below the newest public
+accession is almost entirely embargoed rather than empty.
 
 `MSV…` (MassIVE), `JPST…` (jPOST) and `IPX…` (iProX) native accessions are never in
-PRIDE either. The search below only ever sees PRIDE-held projects, so a literature
-survey built on PRIDE search alone systematically misses half the field.
+PRIDE, and PROXI does not index them either — `MSV000078568` returns
+`NoSuchIdentifier`, so a native accession reads as "never issued" here. Convert it at
+its own repository first. `PAD…` (affinity) and `PRD…` (legacy PRIDE) accessions
+*are* PRIDE-held and resolve normally, even though they are not `PXD…`.
+
+The search below only ever sees PRIDE-held, released projects, so a literature survey
+built on PRIDE search alone systematically misses half the field.
 
 ## Searching
 
@@ -103,7 +154,7 @@ One endpoint. `keyword` is the free-text term, `filter` narrows on controlled fi
 curl -s -D - -o /dev/null \
   "https://www.ebi.ac.uk/pride/ws/archive/v3/search/projects?keyword=liver&pageSize=1" \
   | grep -i total_records
-# total_records: 2192
+# total_records: 2194
 ```
 
 That `grep` is not decoration. **The body is a bare JSON list with no hit count, no
@@ -173,16 +224,16 @@ Three behaviours that will bite:
 
 `keyword` is matched across the accession, the title, the people **and both free-text
 protocol fields** — and every record carries a `highlights` object naming the field
-that matched, with the matching snippet in `<em>` tags. Observed 2026-08-17:
+that matched, with the matching snippet in `<em>` tags. Observed 2026-08-18:
 
-| keyword | hits | `highlights` key on the top hits |
+| keyword | hits | `highlights` key on the top hit |
 |---|---|---|
-| `PXD050610` | 1 | (accession match, exact) |
-| `Age-OME` | 1 | title |
+| `PXD050610` | 1 | `accession` — exact match |
+| `Age-OME` | 1 | `title`, `references` |
 | `QSonica` | 149 | `sampleProcessingProtocol` — a sonicator brand |
-| `deoxycholate` | 2256 | `sampleProcessingProtocol` — a lysis detergent |
+| `deoxycholate` | 2258 | `sampleProcessingProtocol` — a lysis detergent |
 | `ThermoRawFileParser` | 65 | `dataProcessingProtocol` — a conversion tool |
-| `Malecki` | 5 | `labPIs`, `references` |
+| `Malecki` | 5 | `labPIs` |
 | `GSE263566` | 0 | none — linked accessions are **not** indexed |
 
 The `highlights` value for `keyword=QSonica` on its top hit, verbatim:
@@ -234,7 +285,7 @@ for dim in ("submissionType", "organisms", "instruments", "experimentTypes",
         print(f"    {count:>6}  {name}")
 ```
 
-Observed 2026-08-17 for `keyword=phosphoproteomics`:
+Observed 2026-08-18 for `keyword=phosphoproteomics`:
 
 ```
 facet dimensions: additionalAttributes, allCountries, diseases, experimentTypes,
@@ -242,11 +293,11 @@ experimentalFactors, instruments, keywords, organisms, organismsPart,
 otherOmicsLinks, projectTags, publicationDate, quantificationMethods, softwares,
 submissionDate, submissionType, updatedDate
 
-submissionType:   PARTIAL 1357 · COMPLETE 290 · PRIDE 9
-organisms:        Homo sapiens (human) 913 · Mus musculus (mouse) 369 · S. cerevisiae 61
-instruments:      Q Exactive 439 · Orbitrap Fusion Lumos 256 · Q Exactive HF 217
-experimentTypes:  Shotgun proteomics 1091 · Bottom-up proteomics 308 · DDA 180
-otherOmicsLinks:  NONE 1196 · PRIDE 380 · GEO 65 · BioProject 26 · ArrayExpress 9
+submissionType:   PARTIAL 1357 · COMPLETE 291 · PRIDE 9
+organisms:        Homo sapiens (human) 913 · Mus musculus (mouse) 370 · S. cerevisiae 61
+instruments:      Q Exactive 439 · Orbitrap Fusion Lumos 257 · Q Exactive HF 217
+experimentTypes:  Shotgun proteomics 1091 · Bottom-up proteomics 309 · DDA 180
+otherOmicsLinks:  NONE 1197 · PRIDE 380 · GEO 65 · BioProject 26 · ArrayExpress 9
 diseases:         Breast cancer 61 · Acute leukemia 53 · Disease free 43
 ```
 
@@ -261,15 +312,22 @@ them together, per project, before a single byte moves.
 
 **`submissionType` decides whether processed results exist.** PRIDE distinguishes:
 
-| value | what the submitter deposited | what you can do with it |
-|---|---|---|
-| `COMPLETE` | raw + peak lists + identifications in a PSI standard format | load the identifications directly |
-| `PARTIAL` | raw + whatever the search engine emitted | re-search from raw, or reverse-engineer one vendor file |
-| `PRIDE` | legacy pre-2012 PRIDE XML submissions | historical; expect no modern format |
-| `AFFINITY` | affinity proteomics, not mass spectrometry | different assay entirely |
+| value | accession prefix | what the submitter deposited | what you can do with it |
+|---|---|---|---|
+| `COMPLETE` | `PXD` | raw + peak lists + identifications in a result format | load the identifications directly |
+| `PARTIAL` | `PXD` | raw + whatever the search engine emitted | re-search from raw, or reverse-engineer one vendor file |
+| `PRIDE` | `PRD` | legacy pre-2012 PRIDE XML submissions | historical; expect no modern format |
+| `AFFINITY` | `PAD` | affinity proteomics (Olink, SomaScan), not mass spectrometry | different assay entirely |
+
+**Not every PRIDE accession starts with `PXD`.** The legacy and affinity tiers use
+their own prefixes — `PRD000749` and `PAD000052` are both PRIDE-held and resolve
+through every endpoint below, but neither is registered with ProteomeXchange, so
+PROXI returns `NoSuchIdentifier` for them. There were 524 `PRIDE`-type and 30
+`AFFINITY` projects on 2026-08-18. Regex-validating input as `^PXD\d+$` silently
+rejects both.
 
 **`PARTIAL` is the common case, by a wide margin.** For `keyword=liver` on
-2026-08-17: PARTIAL 1792, COMPLETE 385, PRIDE 15, AFFINITY 1. A pipeline that assumes
+2026-08-18: PARTIAL 1792, COMPLETE 385, PRIDE 15, AFFINITY 1. A pipeline that assumes
 processed results exist will fail on four datasets in five, so filter for
 `submissionType==COMPLETE` up front unless you are prepared to re-search raw files.
 
@@ -414,14 +472,31 @@ DOI, both, or neither — cite the DOI when it exists, because it resolves wheth
 not the manuscript ever appeared.
 
 `otherOmicsLinks` is the other cross-reference, and it is `["geo:GSE263566"]` for
-PXD050610 — the paired transcriptomics for the same hearts. It can also be JSON
-`null` rather than `[]`, so coerce it.
+PXD050610 — the paired transcriptomics for the same hearts. **The key is usually
+absent entirely** rather than `null` or `[]` — PXD074038, PXD000001, PXD000561,
+PRD000749 and PAD000052 all lack it — so `p.get("otherOmicsLinks") or []`, never
+`p["otherOmicsLinks"]`.
+
+Its values are prefixed and **not deduplicated across prefixes**. PXD055605 returns
+`['px:PXD051747', 'px:PXD055141', 'pride.project:PXD055192', 'pride.project:PXD055141']`
+— four entries naming three projects, with `PXD055141` appearing under both `px:` and
+`pride.project:`. Strip the prefix before counting related datasets, or you will
+report one more than exists. PXD010154 uses a third namespace,
+`['arrayexpress:E-MTAB-2836']`.
 
 ## What files a submission actually contains
 
 `/projects/{acc}/files/all` is unpaginated; `/projects/{acc}/files` caps at 100 like
-search. `/files/getCountOfFilesByType/{acc}` gives just the category counts, which is
-usually all you need to make the go/no-go call.
+search — and, unlike search, it *does* put the true count in the `total_records`
+header, so a paging loop there is at least self-checking.
+`/files/getCountOfFilesByType/{acc}` gives just the category counts, which is usually
+all you need to make the go/no-go call. `/projects/{acc}/files/count` gives the bare
+integer.
+
+Verified against `/files/count` on projects of 8, 26, 27, 1026, 1938, 2384, 8240 and
+8741 files: **`/files/all` really is unpaginated** — it returned every indexed file
+each time, and it ignores `pageSize` if you pass one. The default 100 on the paginated
+`/files` sibling is the trap; `/files/all` is not.
 
 ```python
 import json, urllib.parse, urllib.request
@@ -430,9 +505,13 @@ from collections import defaultdict
 V3 = "https://www.ebi.ac.uk/pride/ws/archive/v3"
 
 def list_files(accession, name_filter=None):
-    """Every file in a project. /files/all is unpaginated — /files caps at 100."""
+    """Every file the API INDEXES. /files/all is unpaginated — /files caps at 100.
+
+    Not necessarily every file in the project directory — see audit_listing below.
+    filenameFilter is a case-insensitive substring match.
+    """
     q = f"?filenameFilter={urllib.parse.quote(name_filter)}" if name_filter else ""
-    with urllib.request.urlopen(f"{V3}/projects/{accession}/files/all{q}", timeout=90) as r:
+    with urllib.request.urlopen(f"{V3}/projects/{accession}/files/all{q}", timeout=300) as r:
         return json.loads(r.read())
 
 def http_url(rec):
@@ -487,6 +566,119 @@ That contrast is `submissionType` made concrete. PXD050610 is PARTIAL: 66 GB of
 vendor `.raw` and one 51 MB spreadsheet. PXD074038 is COMPLETE: five `.mzid` files
 you can parse today.
 
+### The file index is not the project directory — check it
+
+This is the one that costs you data, and it is invisible from the listing's own
+output. `/files/all` returns everything the API has **indexed**, and
+`/projects/{acc}/files/count` agrees with it — because both read the same index. The
+archive directory on the FTP server can hold more.
+
+`/files/checksum/{accession}` is generated from the directory itself, so it is the
+independent count. Diff the two:
+
+```python
+import json, urllib.parse, urllib.request
+
+V3 = "https://www.ebi.ac.uk/pride/ws/archive/v3"
+# Excluded from the gap count because their absence is not a data loss. Only
+# `submission.px` is reliably unindexed — `checksum.txt` IS in `/files/all` on modern
+# projects, so a manifest count printed against this set can run one low.
+HOUSEKEEPING = {"submission.px", "README.txt", "checksum.txt"}
+
+def list_files(accession, name_filter=None):
+    q = f"?filenameFilter={urllib.parse.quote(name_filter)}" if name_filter else ""
+    with urllib.request.urlopen(f"{V3}/projects/{accession}/files/all{q}", timeout=300) as r:
+        return json.loads(r.read())
+
+def manifest(accession):
+    """The archive's own manifest: fileName -> (md5, bytes). This is what is on disk."""
+    with urllib.request.urlopen(f"{V3}/files/checksum/{accession}", timeout=300) as r:
+        rows = r.read().decode().splitlines()
+    out = {}
+    for line in rows[1:]:                      # row 0 is the header
+        c = line.split("\t")
+        if len(c) >= 3:
+            out[c[0]] = (c[1], int(c[2]))
+    return out
+
+def audit_listing(accession):
+    """Does the file index cover the project directory? Sometimes it does not.
+
+    Refuses an accession with no project, because `/files/all` answers 200 with `[]`
+    for one and `/files/checksum/` answers 200 with an empty body — so without this
+    guard the function reports `index and manifest agree` for a typo, which is the
+    same shape of wrong answer it exists to catch.
+    """
+    listed = {f["fileName"] for f in list_files(accession)}
+    disk = manifest(accession)
+    with urllib.request.urlopen(f"{V3}/projects/{accession}/files/count", timeout=120) as r:
+        declared = int(r.read())
+    if not listed and not disk:
+        raise LookupError(f"{accession}: no indexed files and no manifest — check the "
+                          f"accession with where_is() before trusting an empty result")
+    unlisted = sorted((set(disk) - listed) - HOUSEKEEPING)   # on disk, not in the index
+    no_md5 = sorted(listed - set(disk))                      # indexed, unverifiable
+    assert len(listed) == declared, (len(listed), declared)
+    print(f"{accession}: indexed {len(listed)} (= /files/count {declared}) · "
+          f"manifest {len(set(disk) - HOUSEKEEPING)} (housekeeping excluded)")
+    if unlisted:
+        extra = sum(disk[n][1] for n in unlisted)
+        print(f"  ON DISK, NOT INDEXED : {len(unlisted)} files, {extra/1e6:.1f} MB  {unlisted[:3]}")
+    if no_md5:
+        print(f"  INDEXED, NO MD5      : {len(no_md5)} files  {no_md5[:3]}")
+    if not unlisted and not no_md5:
+        print("  index and manifest agree")
+    return listed, disk, unlisted, no_md5
+
+for acc in ("PXD074038", "PXD055605", "PXD000561",
+            "PXD000001", "PXD000004", "PXD010154"):
+    audit_listing(acc)
+```
+
+```
+PXD074038: indexed 27 (= /files/count 27) · manifest 26 (housekeeping excluded)
+  index and manifest agree
+PXD055605: indexed 8741 (= /files/count 8741) · manifest 8740 (housekeeping excluded)
+  index and manifest agree
+PXD000561: indexed 2384 (= /files/count 2384) · manifest 2384 (housekeeping excluded)
+  index and manifest agree
+PXD000001: indexed 8 (= /files/count 8) · manifest 10 (housekeeping excluded)
+  ON DISK, NOT INDEXED : 4 files, 933.1 MB  ['PRIDE_Exp_mzData_Ac_22134.xml.gz', 'PXD000001_mztab.txt', 'TMT_Erwinia_1uLSike_Top10HCD_isol2_45stepped_60min_01-20141210.mzML']
+  INDEXED, NO MD5      : 2 files  ['PRIDE_Exp_Complete_Ac_22134.pride.mgf.gz', 'PRIDE_Exp_Complete_Ac_22134.pride.mztab.gz']
+PXD000004: indexed 30 (= /files/count 30) · manifest 25 (housekeeping excluded)
+  ON DISK, NOT INDEXED : 5 files, 1063.0 MB  ['PRIDE_Exp_mzData_Ac_26881.xml.gz', 'PRIDE_Exp_mzData_Ac_26882.xml.gz', 'PRIDE_Exp_mzData_Ac_26883.xml.gz']
+  INDEXED, NO MD5      : 10 files  ['PRIDE_Exp_Complete_Ac_26881.pride.mgf.gz', 'PRIDE_Exp_Complete_Ac_26881.pride.mztab.gz', 'PRIDE_Exp_Complete_Ac_26882.pride.mgf.gz']
+PXD010154: indexed 1938 (= /files/count 1938) · manifest 1941 (housekeeping excluded)
+  ON DISK, NOT INDEXED : 3 files, 125.7 MB  ['Synthetic_pepitdes.xlsx', 'Tissues_Rawfilie_list.xlsx', 'spectra_comparison_table_and_plots.zip']
+```
+
+Read `PXD000001` carefully, because it is the archive's first dataset and still the
+one most often used as a worked example. `/files/all` lists **8 files**. The project
+directory at
+`https://ftp.pride.ebi.ac.uk/pride/data/archive/2012/03/PXD000001/` holds **11**,
+plus 2 more under `generated/` — **13 in total**. The four data files it does not
+index are `PRIDE_Exp_mzData_Ac_22134.xml.gz`, `PXD000001_mztab.txt` — **an mzTab
+identifications file, exactly the processed result this skill tells you to look
+for** — and the `.mzML` / `.mzXML` pair added after publication. That is 933 MB the
+index does not mention, and the record's own `dataProcessingProtocol` announces two
+of them in prose: *"Two extra files have been added post-publication"*. The listing
+and the description of the same record disagree, and nothing in the listing's output
+says so.
+
+`PXD010154` shows this is not only a 2012 problem: a 2019 submission whose directory
+holds a 125 MB `spectra_comparison_table_and_plots.zip` and two `.xlsx` sample tables
+that `/files/all` never returns.
+
+The reverse gap matters for a different reason. Files PRIDE **generated** from a
+submission — the `.pride.mgf.gz` and `.pride.mztab.gz` conversions that live in a
+`generated/` subdirectory — are indexed but are *not* in the checksum manifest, so
+they have no published MD5. They are intact; they are simply unverifiable. Ten of
+`PXD000004`'s thirty indexed files are in that state.
+
+So: `/files/all` is the right listing to page from, but it is a floor, not a total.
+Run `audit_listing` once per project and fetch anything it reports by name under the
+FTP root.
+
 ### Which categories to expect, per submission type
 
 Sampled over the 30 most recently published projects of each type, 2026-08-17:
@@ -494,7 +686,7 @@ Sampled over the 30 most recently published projects of each type, 2026-08-17:
 | category | in COMPLETE | in PARTIAL | typical extensions |
 |---|---|---|---|
 | `RAW` | 30/30 | 30/30 | `.raw` (Thermo), `.d.zip` (Bruker), `.wiff` (Sciex), `.tdf` |
-| `RESULT` | **30/30** | **0/30** | `.mzid` (mzIdentML), `.mzTab` |
+| `RESULT` | **30/30** | **0/30** | PRIDE XML `.xml.gz`, `.mzid`, `.mzTab` — see below |
 | `PEAK` | 21/30 | 3/30 | `.mzML`, `.mgf`, `.mzXML`, `.dta`, `.apl` |
 | `SEARCH` | 8/30 | **30/30** | `.dat`, `.msf`, `.pdresult`, `.txt`, `.tsv`, `.xlsx` |
 | `FASTA` | 6/30 | 5/30 | `.fasta`, `.faa` |
@@ -503,12 +695,47 @@ Sampled over the 30 most recently published projects of each type, 2026-08-17:
 | `QUANTIFICATION`, `SPECTRUM LIBRARY` | rare | rare | `.xlsx`, `.speclib` |
 
 Read that table as one rule: **`RESULT` is the marker of a COMPLETE submission and it
-never appears in a PARTIAL one.** `RESULT` means a PSI standard format — mzIdentML or
-mzTab — which any compliant parser opens. `SEARCH` means whatever the search engine
-wrote, and you cannot parse it without knowing which engine produced it: a Mascot
-`.dat`, a Proteome Discoverer `.msf` SQLite database and a bare `.xlsx` all arrive
-under the same label. Checking for `SEARCH` and assuming it is machine-readable is
-the mistake this table exists to prevent.
+never appears in a PARTIAL one.** That row was re-tested at scale on 2026-08-18 over
+**360 projects** — the 100 newest and 100 oldest `PARTIAL`, the 100 newest and 100
+oldest `COMPLETE`, plus `PRIDE` and `AFFINITY` samples — with **zero violations**: no
+`PARTIAL` carried a `RESULT`, and no `COMPLETE` lacked one. It is a rule, not a
+tendency.
+
+`SEARCH`, by contrast, means whatever the search engine wrote, and you cannot parse
+it without knowing which engine produced it: a Mascot `.dat`, a Proteome Discoverer
+`.msf` SQLite database and a bare `.xlsx` all arrive under the same label. Checking
+for `SEARCH` and assuming it is machine-readable is the mistake this table exists to
+prevent.
+
+**But `RESULT` does not mean mzIdentML or mzTab.** It means *the submitter supplied a
+format PRIDE recognises as a result*, and which format that is depends on when and how
+the data was deposited. Every `RESULT` file across the 80 newest and 80 oldest
+projects of each submission type, tallied by extension — the sample is deliberately
+weighted to both ends of the archive, so read it as a range of what exists, not as an
+archive-wide frequency:
+
+| `submissionType` | PRIDE XML | `.mzid` | `.mzTab` | other |
+|---|---|---|---|---|
+| `COMPLETE` | 950 | 412 | 42 | `.psdb` 2, `.xml` 1 |
+| `PRIDE` | 5465 | 0 | 0 | — |
+| `AFFINITY` | 0 | 0 | 0 | `.csv` 42, `.parquet` 8, `.tsv` 2, `.adat` 2 |
+
+Legacy PRIDE XML (`PRIDE_Exp_Complete_Ac_*.xml.gz`) is the *only* format in
+`PRIDE`-type submissions and is common in older `COMPLETE` ones; `AFFINITY`
+submissions contain no PSI format at all; and `.psdb` (PeptideShaker) and `.adat`
+(SomaScan) turn up as well. Named cases:
+
+| project | `submissionType` | what `RESULT` actually is |
+|---|---|---|
+| PXD074038 | COMPLETE | 5 × `.mzid` — mzIdentML, as expected |
+| PXD000001 | COMPLETE (2012) | 1 × `PRIDE_Exp_Complete_Ac_22134.xml.gz` — **PRIDE XML** |
+| PRD000749 | PRIDE | 36 × `PRIDE_Exp_Complete_*.xml.gz` — PRIDE XML again |
+| PXD055210 | COMPLETE | 1 × `.gz` covering 96 raw files — one bundle, not one per run |
+| PAD000052 | AFFINITY | 1 × `.npx.csv` — an Olink NPX table; no spectra exist at all |
+
+`if "RESULT" in categories: parse_mzid(...)` is therefore wrong on four of those five
+rows. Branch on the filename. PRIDE XML is readable, but it needs a PRIDE XML parser,
+not an mzIdentML one, and an `AFFINITY` `RESULT` needs neither.
 
 `EXPERIMENTAL DESIGN` is an SDRF-Proteomics file mapping each raw file to its sample,
 condition and replicate. It appears on only about 10% of submissions but it is the
@@ -517,16 +744,43 @@ it when it is there. `/files/sdrf/{accession}` returns just its URL.
 
 ## Get the files
 
-Two things are missing from the file records and both matter.
+Four things about the file records will cost you if you take them at face value.
 
 **`publicFileLocations` offers `ftp://` and Aspera only — never HTTPS.** The same host
 serves HTTPS on the identical path, and swapping the scheme is verified to return
 byte-identical content. Do that rather than adding an FTP client.
 
-**The `checksum` field on every file record is an empty string.** The MD5s live only
-at `/files/checksum/{accession}`, as a three-column TSV. Fetch it once per project
-and verify, because a truncated multi-gigabyte raw file fails deep inside a search
-engine hours later.
+**The `checksum` field on the file record is almost always an empty string**, and the
+MD5s live at `/files/checksum/{accession}` instead, as a three-column TSV. Fetch it
+once per project and verify, because a truncated multi-gigabyte raw file fails deep
+inside a search engine hours later.
+
+"Almost always" is not "always", and **when the field is populated it is a SHA-1, not
+an MD5.** Legacy `PRIDE`-type submissions carry it: all 36 file records in `PRD000749`,
+all 12 in `PRD000567` and all 279 in `PRD000580` hold a **40-character** hex digest,
+while `PRD000001` holds `""` on all 15. Verified byte-for-byte against
+`PRIDE_Exp_Complete_Ac_19313.pride.mztab.gz` — `sha1` of the download equals the
+record's `checksum`; the `md5` does not. Length is the discriminator: 32 hex means the
+TSV's MD5, 40 hex means the record's SHA-1. Feeding a 40-character value to an MD5
+comparison reports corruption on every file in the project.
+
+That SHA-1 is worth having for a second reason: it covers files the MD5 TSV omits.
+`PRIDE_Exp_Complete_Ac_19313.pride.mztab.gz` is a `generated/` derivative with no
+entry in `/files/checksum/PRD000567` at all, and its record SHA-1 is the only
+published digest for it.
+
+**A missing MD5 is not a failed MD5.** The TSV covers the submitted files; it does not
+cover the derivatives PRIDE generated under `generated/`, which the file index *does*
+list (see `audit_listing` above). `md5s.get(name, "")` turns "no published checksum"
+into an empty expected value that never matches, so a naive equality assert reports
+`MD5 MISMATCH want= got=<hash>` on a perfectly intact download. That is a false
+corruption alarm, and it aborts the loop. Distinguish the two cases explicitly.
+
+**`fileSizeBytes` is not always the size on disk.** For `PXD000001` the record claims
+497,985 bytes for `PRIDE_Exp_Complete_Ac_22134.pride.mztab.gz` where the server sends
+103,845, and 10,677,205 for the `RESULT` file where the server sends 10,668,000. The
+`File-Size` column of the checksum TSV matched the server both times. Use
+`fileSizeBytes` to plan a transfer, not to validate one.
 
 ```python
 import hashlib, json, os, urllib.request
@@ -537,9 +791,10 @@ ACC = "PXD074038"                       # COMPLETE submission, 27 files, ~688 MB
 OUT = "Data/pride/" + ACC
 WANT = {"EXPERIMENTAL DESIGN", "RESULT", "PEAK"}   # RAW is deliberately excluded
 PER_CATEGORY = 1                        # smallest N per category; raise for the full set
+HOUSEKEEPING = {"submission.px", "README.txt", "checksum.txt"}
 
 def api(path):
-    with urllib.request.urlopen(V3 + path, timeout=120) as r:
+    with urllib.request.urlopen(V3 + path, timeout=300) as r:
         return json.loads(r.read())
 
 def https(rec):
@@ -551,28 +806,43 @@ os.makedirs(OUT, exist_ok=True)
 project = api(f"/projects/{ACC}")
 files = api(f"/projects/{ACC}/files/all")
 
-# MD5s are NOT on the file records (rec["checksum"] is ""); they are only here, as TSV.
-with urllib.request.urlopen(f"{V3}/files/checksum/{ACC}", timeout=120) as r:
+# MD5s are not on the file records for a modern submission; they are here, as TSV.
+with urllib.request.urlopen(f"{V3}/files/checksum/{ACC}", timeout=300) as r:
     lines = r.read().decode().splitlines()
 md5s = {c[0]: c[1] for c in (l.split("\t") for l in lines[1:]) if len(c) >= 2}
+
+# The manifest is the directory; the index is not. Say so before anything moves.
+unindexed = sorted((set(md5s) - {f["fileName"] for f in files}) - HOUSEKEEPING)
+if unindexed:
+    print(f"  !! {len(unindexed)} file(s) in the project directory are NOT in the file index:")
+    for n in unindexed:
+        print(f"     {n}   (fetch by name under the FTP root)")
 
 by_cat = defaultdict(list)
 for f in files:
     by_cat[f["fileCategory"]["value"]].append(f)
 
-manifest, total = [], 0
+manifest, total, unverified = [], 0, 0
 for cat in sorted(WANT & set(by_cat)):
     for f in sorted(by_cat[cat], key=lambda x: x["fileSizeBytes"])[:PER_CATEGORY]:
         dest = os.path.join(OUT, f["fileName"])
         urllib.request.urlretrieve(https(f), dest)
         got = hashlib.md5(open(dest, "rb").read()).hexdigest()
-        want = md5s.get(f["fileName"], "")
-        ok = "md5 OK" if got == want else f"MD5 MISMATCH want={want} got={got}"
-        assert got == want, ok
-        total += os.path.getsize(dest)
+        want = md5s.get(f["fileName"])          # None, not "" — absent is not mismatch
+        if want is None:
+            unverified += 1
+            ok = "NO PUBLISHED MD5 — unverifiable"
+        elif got == want:
+            ok = "md5 OK"
+        else:
+            raise AssertionError(f"MD5 MISMATCH {f['fileName']} want={want} got={got}")
+        size = os.path.getsize(dest)
+        if want is not None and size != f["fileSizeBytes"]:
+            print(f"     note: fileSizeBytes {f['fileSizeBytes']:,} != {size:,} on disk")
+        total += size
         manifest.append({"category": cat, "fileName": f["fileName"], "md5": got,
-                         "bytes": os.path.getsize(dest), "url": https(f)})
-        print(f"  {cat:<20} {os.path.getsize(dest):>12,} B  {ok}  {f['fileName']}")
+                         "md5Verified": want is not None, "bytes": size, "url": https(f)})
+        print(f"  {cat:<20} {size:>12,} B  {ok}  {f['fileName']}")
 
 for cat in sorted(set(by_cat) - WANT):
     n = len(by_cat[cat])
@@ -587,14 +857,16 @@ with open(os.path.join(OUT, "manifest.json"), "w") as fh:
                "license": project.get("license"),
                "otherOmicsLinks": project.get("otherOmicsLinks") or [],
                "ftpRoot": api(f"/projects/files-path/{ACC}")["ftp"],
+               "notIndexed": unindexed,
                "files": manifest}, fh, indent=2)
 
-print(f"\n{len(manifest)} files, {total/1e6:.1f} MB -> {OUT}")
+print(f"\n{len(manifest)} files, {total/1e6:.1f} MB -> {OUT}"
+      + (f"  ({unverified} without a published MD5)" if unverified else ""))
 print("manifest records submissionType:", project["submissionType"],
       "| licence:", project.get("license"))
 ```
 
-Run 2026-08-17:
+Run 2026-08-18:
 
 ```
   EXPERIMENTAL DESIGN         2,833 B  md5 OK  GSTM3_SDRF.sdrf.tsv
@@ -607,6 +879,31 @@ Run 2026-08-17:
 3 files, 44.2 MB -> Data/pride/PXD074038
 manifest records submissionType: COMPLETE | licence: Creative Commons Public Domain (CC0)
 ```
+
+Change `ACC` to `PXD000001` and the same block reports what the previous paragraphs
+warned about, rather than crashing on it:
+
+```
+  !! 4 file(s) in the project directory are NOT in the file index:
+     PRIDE_Exp_mzData_Ac_22134.xml.gz   (fetch by name under the FTP root)
+     PXD000001_mztab.txt   (fetch by name under the FTP root)
+     TMT_Erwinia_1uLSike_Top10HCD_isol2_45stepped_60min_01-20141210.mzML   (fetch by name under the FTP root)
+     TMT_Erwinia_1uLSike_Top10HCD_isol2_45stepped_60min_01-20141210.mzXML   (fetch by name under the FTP root)
+  PEAK                    5,984,662 B  NO PUBLISHED MD5 — unverifiable  PRIDE_Exp_Complete_Ac_22134.pride.mgf.gz
+     note: fileSizeBytes 10,677,205 != 10,668,000 on disk
+  RESULT                 10,668,000 B  md5 OK  PRIDE_Exp_Complete_Ac_22134.xml.gz
+  OTHER                   3 files, 2 MB  — not requested
+  RAW                     1 files, 220 MB  — not requested
+  SEARCH                  1 files, 21 MB  — not requested
+
+2 files, 16.7 MB -> Data/pride/PXD000001  (1 without a published MD5)
+manifest records submissionType: COMPLETE | licence: EBI terms of use
+```
+
+With `md5s.get(name, "")` and a bare `assert got == want`, that run dies at the first
+file — `AssertionError: MD5 MISMATCH want= got=5f5393bc3d6cc2a2fd9ba7831e8cc861` — on
+a download that is byte-perfect. Note also the licence: `EBI terms of use`, not CC0.
+Per-project licences vary, which is why the manifest records the one it saw.
 
 Raise `PER_CATEGORY` for the full set and add `"RAW"` to `WANT` only when you mean it.
 
@@ -729,7 +1026,7 @@ about the index.
 ## Which API version, and what the version prefix does not do
 
 The current base is `https://www.ebi.ac.uk/pride/ws/archive/v3`, tested here on
-2026-08-17. Its own OpenAPI document lives at `/v3/v3/api-docs` — the doubled `v3` is
+2026-08-18. Its own OpenAPI document lives at `/v3/v3/api-docs` — the doubled `v3` is
 correct, not a typo, and there is no `/api-docs` at the base.
 
 The trap is subtle and worth knowing before you debug something that looks like data
@@ -748,13 +1045,25 @@ the shape you parse, and treat any surviving v1/v2 URL as already migrated.
 
 ## Other endpoints worth knowing
 
-- `/status/{accession}` returns the bare text `PUBLIC` for a held project — and
-  **hangs** for anything else. Verified twice each on 2026-08-17: `PXD050610` and the
-  legacy `PRD000001` answer in under a second, while `PXD082693` (iProX-held),
-  `PXD073836` (MassIVE-held) and the nonexistent `PXD999999999` all time out at 45 s
-  with no status code and no body. Never use this as an existence check — use
-  `/projects/{accession}`, which returns a clean 404 — and always pass a timeout.
-  Private and embargoed submissions are not exposed by the API at all.
+- `/status/{accession}` returns bare text, and it is the **only** PRIDE endpoint that
+  distinguishes an embargoed submission from a nonexistent one. Three outcomes, all
+  verified 2026-08-18:
+  - `PUBLIC` in under a second — PRIDE-held and released (`PXD050610`, `PAD000052`,
+    `PXD055605`, and the legacy `PRD000001`).
+  - `PRIVATE` in under a second — **PRIDE-held and embargoed.** `PXD082700`,
+    `PXD082701`, `PXD082706`–`PXD082710`, `PXD082740` and `PXD082746` each returned
+    `PRIVATE` in 0.7 s while `/projects/{accession}` returned 404 for every one of
+    them. ProteomeCentral independently reports all nine as
+    `DatasetNotYetReleased` / `repository: PRIDE`.
+  - **hangs** — not PRIDE's accession at all. `PXD082693` (iProX), `PXD073836`
+    (MassIVE), `PXD082702` (iProX, embargoed), `PXD082711` (MassIVE, embargoed) and
+    the nonexistent `PXD999999999` all time out with no status code and no body.
+
+  So it is a good repository-and-release check and a poor existence check: only the
+  hang is ambiguous, and it costs you the full timeout. Always pass one — 30 s is
+  enough, since every real answer arrived in under a second on a warm index (a cold
+  one took 21 s). Reach for it *after* `/projects/{accession}` has 404'd, to find out
+  which kind of 404 you have.
 - `/projects/{accession}/similarProjects` returns full project records for related
   submissions, which is a better neighbourhood search than repeating your keyword.
 - `/projects/reanalysis/{accession}` flags whether a reanalysis of the project exists.
@@ -790,6 +1099,14 @@ the shape you parse, and treat any surviving v1/v2 URL as already migrated.
 - **Withdrawn and superseded datasets exist.** ProteomeXchange keeps a version
   number per accession; a reanalysis of "the" dataset may not be the version the
   paper used.
+- **The file index can under-report the project directory.** `/files/all` and
+  `/projects/{acc}/files/count` read the same index, so they always agree with each
+  other and never reveal the gap. State the count you enumerated *and* say you
+  reconciled it against `/files/checksum/{accession}`; on `PXD000001` that is the
+  difference between 8 files and 12.
+- **"Not in PRIDE" is three claims, not one.** Wrong repository, embargoed, and never
+  issued all look identical from `/projects/{accession}`. Do not write "the accession
+  is invalid" on the strength of a 404.
 
 ## Try it
 
@@ -797,28 +1114,57 @@ A self-contained check that this skill still works. Public data, no account, no 
 nothing downloaded — this is a shape assertion against the live API, which is the
 failure mode a URL check cannot see.
 
-**Data** — three live PRIDE v3 endpoints and two named public datasets:
+**Data** — live PRIDE v3 endpoints, ProteomeCentral's PROXI resolver, and six named
+public datasets:
 
     https://www.ebi.ac.uk/pride/ws/archive/v3/search/projects?keyword=liver&pageSize=1
     https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD050610
     https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD074038
+    https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD000001/files/all
+    https://www.ebi.ac.uk/pride/ws/archive/v3/files/checksum/PXD000001
 
 `PXD050610` is a human cardiac aging study (heart, Orbitrap Fusion Lumos, DIA), a
 **PARTIAL** submission paired with GEO series GSE263566. `PXD074038` is a hepatic
 GSTM3 co-immunoprecipitation study, a **COMPLETE** submission with mzIdentML results.
-Both are released under Creative Commons Public Domain (CC0) and need no account or
-licence acceptance. They are used because between them they exercise every branch
-that matters — both submission types, a minted dataset DOI against none, a linked
-PMID against `pubmedID: 0`. Last confirmed reachable 2026-08-17.
+The other four are the counter-examples this skill was corrected against:
+
+- `PXD055605` — 8,741 files, to prove `/files/all` is genuinely unpaginated.
+- `PXD000001` — the archive's first dataset, where the file index lists 8 of the 13
+  files in the project directory, and 2 of the 8 it does list have no published MD5.
+- `PRD000749` — a legacy `PRIDE`-type submission whose file records carry a
+  **40-character SHA-1** where every modern record carries `""`.
+- `PAD000052` — an `AFFINITY` submission on a `PAD` accession whose `RESULT` is an
+  Olink `.csv`, not a PSI format.
+
+The embargo check resolves its own accession at run time from the band below the
+newest public submission, because any specific embargoed accession becomes public
+eventually. All datasets are public and need no account or licence acceptance. Last
+confirmed reachable 2026-08-18.
 
 ```python
-import json, urllib.parse, urllib.request
+import json, urllib.error, urllib.parse, urllib.request
 
 V3 = "https://www.ebi.ac.uk/pride/ws/archive/v3"
+PROXI = "https://proteomecentral.proteomexchange.org/api/proxi/v0.1/datasets"
 
-def api(path):
-    with urllib.request.urlopen(V3 + path, timeout=90) as r:
+def api(path, timeout=300):
+    with urllib.request.urlopen(V3 + path, timeout=timeout) as r:
         return json.loads(r.read()), dict(r.headers)
+
+def text(path, timeout=300):
+    with urllib.request.urlopen(V3 + path, timeout=timeout) as r:
+        return r.read().decode()
+
+def code(url, timeout=90):
+    """(http_status, parsed_body_or_None) — the 404 BODY is where the answer lives."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read())
+        except ValueError:
+            return e.code, None
 
 # --- 1. the search response is a bare LIST and the hit count is a HEADER ---
 hits, hdr = api("/search/projects?" + urllib.parse.urlencode(
@@ -874,14 +1220,71 @@ assert "RESULT" not in p_types and "SEARCH" in p_types, p_types
 assert "RESULT" in c_types, c_types
 
 # --- 8. file locations are ftp:// and Aspera only; MD5s live elsewhere ---
-files, fh = api("/projects/PXD074038/files/all")
+files, _ = api("/projects/PXD074038/files/all")
 sdrf = next(f for f in files if f["fileName"].endswith(".sdrf.tsv"))
 protos = {v["name"] for v in sdrf["publicFileLocations"]}
 assert protos == {"FTP Protocol", "Aspera Protocol"}, protos
 assert sdrf["checksum"] == "", repr(sdrf["checksum"])
-with urllib.request.urlopen(f"{V3}/files/checksum/PXD074038", timeout=90) as r:
-    cols = r.read().decode().splitlines()[1].split("\t")
+cols = text("/files/checksum/PXD074038").splitlines()[1].split("\t")
 assert len(cols) == 3 and len(cols[1]) == 32, cols
+
+# --- 9. /files/all really is unpaginated, on a project of 8,741 files ---
+big_files, _ = api("/projects/PXD055605/files/all")
+big_declared = int(text("/projects/PXD055605/files/count"))
+assert len(big_files) == big_declared == 8741, (len(big_files), big_declared)
+assert len(api("/projects/PXD055605/files?pageSize=1000")[0]) == 100, "paginated sibling caps at 100"
+
+# --- 10. THE FILE INDEX IS NOT THE DIRECTORY. PXD000001: 8 indexed, 12 on disk. ---
+HOUSEKEEPING = {"submission.px", "README.txt", "checksum.txt"}
+one_files, _ = api("/projects/PXD000001/files/all")
+one_names = {f["fileName"] for f in one_files}
+one_manifest = {l.split("\t")[0] for l in text("/files/checksum/PXD000001").splitlines()[1:] if l.strip()}
+assert len(one_names) == int(text("/projects/PXD000001/files/count")) == 8, len(one_names)
+unlisted = (one_manifest - one_names) - HOUSEKEEPING
+assert len(unlisted) == 4, sorted(unlisted)
+assert "PXD000001_mztab.txt" in unlisted, "an mzTab result file is missing from the index"
+
+# --- 11. ...and files the index DOES list can have no published MD5 at all ---
+md5s = {c[0]: c[1] for c in (l.split("\t") for l in
+        text("/files/checksum/PXD000001").splitlines()[1:]) if len(c) >= 2}
+generated = sorted(one_names - set(md5s))
+assert len(generated) == 2 and all(g.startswith("PRIDE_Exp_Complete_Ac_22134.pride") for g in generated), generated
+assert md5s.get(generated[0]) is None and md5s.get(generated[0], "") == "", \
+    "absent MD5 must not be read as an empty expected value"
+
+# --- 12. the record's `checksum` is not always empty, and when set it is SHA-1 not MD5 ---
+legacy, _ = api("/projects/PRD000749")
+assert legacy["submissionType"] == "PRIDE", legacy["submissionType"]
+legacy_files, _ = api("/projects/PRD000749/files/all")
+digests = {len(f["checksum"]) for f in legacy_files}
+assert digests == {40}, f"legacy record checksums are 40-char SHA-1, got lengths {digests}"
+assert all(f["fileName"].endswith(".xml.gz") for f in legacy_files
+           if f["fileCategory"]["value"] == "RESULT"), "legacy RESULT is PRIDE XML, not mzIdentML"
+
+# --- 13. AFFINITY is a PAD accession whose RESULT is not a PSI format ---
+aff, _ = api("/projects/PAD000052")
+assert aff["submissionType"] == "AFFINITY", aff["submissionType"]
+aff_files, _ = api("/projects/PAD000052/files/all")
+aff_result = [f["fileName"] for f in aff_files if f["fileCategory"]["value"] == "RESULT"]
+assert aff_result and aff_result[0].endswith(".csv"), aff_result
+assert code(f"{PROXI}/PAD000052")[1]["error_code"] == "NoSuchIdentifier", "PAD is not a PX accession"
+
+# --- 14. EMBARGOED != NONEXISTENT, and PRIDE's own 404 cannot tell them apart ---
+newest = next(r["accession"] for r in api(
+    "/search/projects?pageSize=20&sortFields=submissionDate&sortDirection=DESC")[0]
+    if r["accession"].startswith("PXD"))
+held = None
+for n in range(int(newest[3:]) - 1, int(newest[3:]) - 25, -1):
+    acc = f"PXD{n:06d}"
+    body = code(f"{PROXI}/{acc}")[1] or {}
+    if body.get("error_code") == "DatasetNotYetReleased" and body.get("repository") == "PRIDE":
+        held = acc
+        break
+assert held, "no PRIDE-embargoed accession in the 24 below the newest public one"
+assert code(f"{V3}/projects/{held}")[0] == 404, "an embargoed project 404s like a bad accession"
+assert code(f"{V3}/projects/PXD999999999")[0] == 404, "so does one that was never issued"
+assert text(f"/status/{held}", timeout=30).strip() == "PRIVATE", "/status is the discriminator"
+assert code(f"{PROXI}/PXD999999999")[1]["error_code"] == "NoSuchIdentifier", "never issued"
 
 print("search        : list of", len(hits), "| total_records header:", total)
 print("pageSize 1000 : server returned", len(big))
@@ -889,13 +1292,19 @@ print("filter        : organisms== ->", narrowed, "| typo organism== ->", ignore
 print("submissionType:", json.dumps(st))
 print("PXD050610     :", partial["submissionType"], "| file types", json.dumps(p_types))
 print("              : doi", repr(partial["doi"]), "| paper PMID",
-      paper["pubmedID"], paper["doi"])
-print("              : otherOmicsLinks", partial["otherOmicsLinks"])
+      paper["pubmedID"], paper["doi"], "| otherOmicsLinks", partial["otherOmicsLinks"])
 print("PXD074038     :", complete["submissionType"], "| file types", json.dumps(c_types))
-print("              : dataset doi", complete["doi"], "| paper PMID",
-      complete["references"][0]["pubmedID"])
 print("file locations:", sorted(protos), "| record checksum", repr(sdrf["checksum"]))
 print("checksum TSV  :", cols)
+print("PXD055605     : /files/all returned", len(big_files), "= /files/count", big_declared)
+print("PXD000001     : index", len(one_names), "files | directory", len(one_manifest),
+      "| NOT INDEXED:", sorted(unlisted))
+print("              : indexed with no published MD5:", generated)
+print("PRD000749     :", legacy["submissionType"], "| record checksum lengths:", digests,
+      "(SHA-1, not the TSV's 32-char MD5)")
+print("PAD000052     :", aff["submissionType"], "| RESULT", aff_result)
+print("embargoed     :", held, "-> /projects 404, /status PRIVATE, PROXI DatasetNotYetReleased/PRIDE")
+print("never issued  : PXD999999999 -> /projects 404, PROXI NoSuchIdentifier")
 print("all shape assertions passed")
 ```
 
@@ -910,8 +1319,9 @@ not that the archive grew:
   against this skill.
 - All twelve named fields are present on a search record, including both protocol
   fields. A rename here silently empties the triage step.
-- `pageSize=1000` returns exactly **100** rows. The cap is not documented in the
-  response.
+- `pageSize=1000` returns exactly **100** rows on `/search/projects` and on
+  `/projects/{acc}/files`. `/projects/{acc}/files/all` ignores `pageSize` and returns
+  everything — 8,741 rows for PXD055605, equal to `/files/count`.
 - A **misspelled filter field is ignored, not rejected** — `organism==` returns the
   unfiltered total while `organisms==` narrows it. If those two ever agree, either
   the server started validating field names or the plural stopped working, and both
@@ -926,21 +1336,44 @@ not that the archive grew:
 - **`RESULT` appears for the COMPLETE project and not for the PARTIAL one**, and the
   PARTIAL one has `SEARCH`. This is the whole go/no-go rule as an assertion.
 - `publicFileLocations` offers exactly `{FTP Protocol, Aspera Protocol}` — **no
-  HTTPS** — the file record's own `checksum` is empty, and the MD5 is a 32-character
-  hex string in the second column of the checksum TSV.
+  HTTPS** — and the MD5 is a 32-character hex string in the second column of the
+  checksum TSV.
+- **The file index is not the project directory.** PXD000001 indexes 8 files while
+  its checksum manifest lists 11; the four data files the index omits include
+  `PXD000001_mztab.txt`. If that assertion ever fails because the gap closed, good —
+  but check it, do not assume it.
+- **An indexed file can have no published MD5.** PXD000001's two `generated/`
+  derivatives are absent from the manifest, so `md5s.get(name, "")` yields `""` and a
+  naive equality check reports corruption on an intact file. The assertion pins the
+  distinction between *absent* and *mismatched*.
+- **A populated record `checksum` is 40 hex characters, not 32** — SHA-1, on legacy
+  `PRIDE`-type submissions. Every `PRD000749` record has one; every modern record has
+  `""`.
+- **`AFFINITY` lives on `PAD` accessions and its `RESULT` is not a PSI format**, and
+  ProteomeCentral does not know `PAD` accessions at all.
+- **Embargoed and never-issued are different states behind the same 404.** A live
+  PRIDE-held embargoed accession returns 404 from `/projects/`, `PRIVATE` from
+  `/status/`, and `DatasetNotYetReleased` from PROXI; `PXD999999999` returns 404 and
+  `NoSuchIdentifier`. If `/status` ever stops answering `PRIVATE`, the only
+  discriminator in the API is gone and the resolver must say so rather than guess.
 
-Observed 2026-08-17 against API `info.version` **3.0** — these move as the archive
+Observed 2026-08-18 against API `info.version` **3.0** — these move as the archive
 grows, so treat a mismatch as drift to investigate rather than a failure:
 
-- `keyword=liver` → 2193 hits · `organisms==Homo sapiens (human)` → 932 ·
-  submissionType facet `COMPLETE 385, PRIDE 15, AFFINITY 1, PARTIAL 1792`
+- `keyword=liver` → 2194 hits · `organisms==Homo sapiens (human)` → 931 ·
+  submissionType facet `COMPLETE 385, PRIDE 15, AFFINITY 1, PARTIAL 1793`
 - PXD050610 → `{"SEARCH": 1, "RAW": 25}`, 26 files, 66.5 GB, `otherOmicsLinks
   ['geo:GSE263566']`
 - PXD074038 → `{"OTHER": 6, "SEARCH": 5, "EXPERIMENTAL DESIGN": 1, "RAW": 5,
   "PEAK": 5, "RESULT": 5}`, 27 files, ~688 MB
-- Archive scale: 40,738 projects · 3,503,452 files · 4,741 organisms
-- The ±1 wobble described above means the 932 may read 931 on a repeat call; the
+- PXD000001 → index 8 · manifest 11 · not indexed
+  `['PRIDE_Exp_mzData_Ac_22134.xml.gz', 'PXD000001_mztab.txt', two 20141210 files]`
+- The embargo check resolved `PXD082746` on the day of writing; it will resolve a
+  different accession on yours, and that is the assertion working
+- Archive scale: 40,770 projects · 3,504,583 files · 4,743 organisms
+- The ±1 wobble described above means the 931 may read 932 on a repeat call; the
   assertion allows a tolerance of 2 for exactly this reason
+
 
 ## Sources
 

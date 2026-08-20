@@ -4,17 +4,17 @@ description: Query GTEx human tissue expression and eQTLs through the GTEx Porta
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [gtex, transcriptomics, eqtl, rna-seq, public-data]
 covers: [heart, left ventricle, atrial appendage, skeletal muscle, brain cortex, cerebellum, liver, lung, whole blood, skin, thyroid, testis, pancreas, kidney cortex, adipose, esophagus, artery, nerve, eqtl, egene, sqtl, gene expression, median tpm, transcriptomics, bulk rna-seq, human, aging, gencode, dbgap, genotype-tissue expression]
 papers: [PMID:23715323, PMID:25954001, PMID:29022597, PMID:32913098]
 access: [open, controlled]
-datasets: [https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39, https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10, https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300, https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz]
+datasets: [https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39, https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10, https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300, https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket, https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=1, https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
+  date: 2026-08-18
   against: GTEx Portal API v2.0.0 / gtex_v10 (GENCODE v39, GRCh38) / bulk store v10 and v11 / Python 3.12.8 stdlib only / curl 8.7.1
-  executed: 12
+  executed: 13
   unverified: 0
 ---
 # GTEx — Genotype-Tissue Expression
@@ -30,8 +30,9 @@ no account, no key, no click-through. What sits behind an application is
 individual-level genotype and the raw per-sample sequence reads. Read *Which tier your
 question is in* before you plan around an application you probably do not need.
 
-Two mechanical traps cause almost every failed GTEx query, and both fail by returning
-an empty or wrong result instead of an error. They are the next two sections.
+Three mechanical traps cause almost every failed GTEx query, and all three fail by
+returning an empty, partial or wrong result instead of an error. They are the next
+three sections.
 
 ## Which tier your question is in
 
@@ -110,45 +111,71 @@ def get(path, params):
         return json.loads(fh.read())
 
 
-def resolve_gene(symbol, dataset="gtex_v10"):
-    """Symbol -> versioned GENCODE id valid for `dataset`. Raises on no hit."""
+def resolve_gene(query, dataset="gtex_v10"):
+    """Symbol OR bare Ensembl id -> versioned GENCODE id valid for `dataset`.
+
+    /reference/gene matches either, so this is also the migration route: hand
+    it ENSG00000141510 and the build you want. Raises rather than guessing."""
     if dataset not in GENCODE_FOR:
         raise ValueError(f"unknown dataset {dataset}")
-    hits = get("reference/gene", {"geneId": symbol,
+    hits = get("reference/gene", {"geneId": query,
                                   "gencodeVersion": GENCODE_FOR[dataset]})["data"]
-    exact = [h for h in hits if h["geneSymbolUpper"] == symbol.upper()]
-    if not exact:
-        raise LookupError(f"{symbol}: no gene in GENCODE {GENCODE_FOR[dataset]} "
+    q = query.upper()
+    exact = [h for h in hits if h["geneSymbolUpper"] == q
+             or h["gencodeId"].split(".")[0] == q]
+    # A pseudoautosomal gene has a second chrY entry under the same symbol,
+    # suffixed _PAR_Y, whose median is 0 in every tissue. Never return it.
+    real = [h for h in exact if not h["gencodeId"].endswith("_PAR_Y")]
+    if not real:
+        raise LookupError(f"{query}: no gene in GENCODE {GENCODE_FOR[dataset]} "
                           f"(HTTP 200 with an empty list, not an error)")
-    if len(exact) > 1:
-        raise LookupError(f"{symbol}: {len(exact)} entries -- "
-                          f"{[h['gencodeId'] for h in exact]}")
-    return exact[0]["gencodeId"]
+    if len(real) > 1:
+        raise LookupError(f"{query}: {len(real)} entries -- "
+                          f"{[h['gencodeId'] for h in real]}")
+    return real[0]["gencodeId"]
 
 
-def median_expression(gencode_id, tissues=None, dataset="gtex_v10"):
-    p = {"gencodeId": gencode_id, "datasetId": dataset}
+def median_expression(gencode_ids, tissues=None, dataset="gtex_v10"):
+    """Median TPM rows, and never a silently truncated page -- see Trap 3."""
+    ids = [gencode_ids] if isinstance(gencode_ids, str) else list(gencode_ids)
+    p = {"gencodeId": ids, "datasetId": dataset, "itemsPerPage": 100000}
     if tissues:
         p["tissueSiteDetailId"] = list(tissues)
-    return get("expression/medianGeneExpression", p)["data"]
+    body = get("expression/medianGeneExpression", p)
+    rows, total = body["data"], body["paging_info"]["totalNumberOfItems"]
+    assert len(rows) == total, f"page held {len(rows)} of {total} rows"
+    return rows
 
 
 gid = resolve_gene("TP53")
 print("resolved      :", gid)
+print("from bare id  :", resolve_gene("ENSG00000141510"))
 print("v10 rows      :", len(median_expression(gid, ["Heart_Left_Ventricle"])))
 
 # The three ways this silently fails. All are HTTP 200 with data == [].
 for bad in ["TP53", "ENSG00000141510", resolve_gene("TP53", "gtex_v8")]:
     rows = median_expression(bad, ["Heart_Left_Ventricle"])
     print(f"{bad:22} -> {len(rows)} rows")
+
+# A pseudoautosomal gene: two exact symbol matches, one of them all zeros.
+par = get("reference/gene", {"geneId": "SLC25A6", "gencodeVersion": "v39"})["data"]
+print("SLC25A6 entries:", [h["gencodeId"] for h in par])
+for h in par:
+    med = median_expression(h["gencodeId"])
+    print(f"{h['gencodeId']:26} {len(med)} tissues, "
+          f"{sum(1 for r in med if r['median'] > 0)} above zero")
 ```
 
 ```
 resolved      : ENSG00000141510.18
+from bare id  : ENSG00000141510.18
 v10 rows      : 1
 TP53                   -> 0 rows
 ENSG00000141510        -> 0 rows
 ENSG00000141510.16     -> 0 rows
+SLC25A6 entries: ['ENSG00000169100.14', 'ENSG00000169100.14_PAR_Y']
+ENSG00000169100.14         54 tissues, 54 above zero
+ENSG00000169100.14_PAR_Y   54 tissues, 0 above zero
 ```
 
 Consequences worth building around:
@@ -159,9 +186,25 @@ Consequences worth building around:
   one of them.
 - **Treat an empty `data` on a gene you believe exists as a resolution bug**, not as
   absence of expression. That is the single highest-value assertion in a GTEx client.
+- **A pseudoautosomal gene resolves to two ids and one of them is all zeros.** The 45
+  PAR genes — `SLC25A6`, `CD99`, `PLCXD1`, `CSF2RA`, `IL3RA`, `SHOX` and the rest —
+  appear in GENCODE twice under the same symbol, as `ENSG00000169100.14` on chrX and
+  `ENSG00000169100.14_PAR_Y` on chrY. GTEx assigns every read to the chrX copy, so the
+  `_PAR_Y` twin returns **54 rows, one per tissue, unit TPM, every median 0.0**. That
+  is a complete, correctly shaped, entirely wrong answer, and the row-count assertion
+  in Trap 2 passes on it. Filter `_PAR_Y` out at resolution time, as above. Verified
+  against the bulk median file: all 45 `_PAR_Y` rows are zero in all 68 columns.
+- **Prefer the Ensembl id over the symbol when migrating between releases.**
+  `/reference/gene` accepts a bare `ENSG…` in `geneId` and returns it stamped with the
+  build you asked for, which is the clean v8 → v10 route. A *versioned* id from the
+  wrong build (`geneId=ENSG00000141510.16&gencodeVersion=v39`) returns `[]` at HTTP 200
+  — strip the suffix before you ask.
 - Symbol lookup is case-insensitive — `tp53` resolves — but it does **not** resolve
-  deprecated aliases. `MLL` returns nothing; the current symbol `KMT2A` returns
-  `ENSG00000118058.24`. Normalise symbols upstream.
+  deprecated aliases, and symbols move between GENCODE builds. `MLL` returns nothing;
+  the current symbol `KMT2A` returns `ENSG00000118058.24`. `MARCH1` and `SEPT7` resolve
+  in v26 and return nothing in v39, where they are `MARCHF1` and `SEPTIN7` — so a
+  symbol-keyed table built against gtex_v8 goes quietly empty against gtex_v10 for
+  every gene the HGNC renamed. Normalise symbols upstream, or key on the Ensembl id.
 - `/reference/geneSearch` is a prefix search, not an alias resolver. `MLL` returns
   `MLLT1`, `MLLT3`, `MLLT10`, `MLLT11` and friends — never `KMT2A`. Taking `data[0]`
   from it hands you a different gene with no error at all. Use `/reference/gene` and
@@ -198,6 +241,79 @@ correct            HTTP 200, 1 rows
 
 Assert on the row count you expected, every time. `54` where you asked for `1` is what
 a dropped filter looks like, and it is indistinguishable from a real answer by shape.
+
+## Trap 3 — a complete-looking page can be a partial one
+
+Every endpoint pages, the default page is **250 rows**, and a truncated page is
+byte-for-byte a valid answer: `data` is a list, `unit` is `TPM`, nothing is flagged.
+The only evidence is `paging_info`, and you have to look.
+
+This is invisible on a single-gene query, because 54 tissues fit in one page. It bites
+the moment you ask for more than one gene — and `gencodeId` repeats, so asking for more
+than one gene is the obvious thing to do. The cut lands **inside** a gene, not between
+two of them, so the casualty is a per-tissue vector that is short by twenty tissues:
+
+```python
+import json, urllib.parse, urllib.request
+
+BASE = "https://gtexportal.org/api/v2"
+
+
+def get(path, params):
+    url = f"{BASE}/{path}?" + urllib.parse.urlencode(params, doseq=True)
+    with urllib.request.urlopen(url, timeout=120) as fh:
+        return json.loads(fh.read())
+
+
+def get_all(path, params, per_page=25000, cap=200_000):
+    """Follow paging_info to exhaustion, then prove nothing was left behind."""
+    params = dict(params, itemsPerPage=per_page, page=0)
+    first = get(path, params)
+    info = first["paging_info"]
+    if info["totalNumberOfItems"] > cap:
+        raise RuntimeError(f"{info['totalNumberOfItems']} rows exceeds cap {cap}")
+    out = list(first["data"])
+    for p in range(1, info["numberOfPages"]):
+        out += get(path, dict(params, page=p))["data"]
+    assert len(out) == info["totalNumberOfItems"], \
+        f"collected {len(out)} of {info['totalNumberOfItems']}"
+    return out
+
+
+# Five genes x 54 tissues = 270 rows. The default page is 250.
+FIVE = ["ENSG00000141510.18", "ENSG00000164308.17", "ENSG00000229807.13",
+        "ENSG00000129824.16", "ENSG00000067048.17"]
+naive = get("expression/medianGeneExpression",
+            {"gencodeId": FIVE, "datasetId": "gtex_v10"})
+per_gene = {g: sum(r["gencodeId"] == g for r in naive["data"]) for g in FIVE}
+print("default page :", len(naive["data"]), "rows;", naive["paging_info"])
+print("per gene     :", per_gene)
+
+full = get_all("expression/medianGeneExpression",
+               {"gencodeId": FIVE, "datasetId": "gtex_v10"})
+print("get_all      :", len(full), "rows;",
+      {g: sum(r["gencodeId"] == g for r in full) for g in FIVE})
+```
+
+```
+default page : 250 rows; {'numberOfPages': 2, 'page': 0, 'maxItemsPerPage': 250, 'totalNumberOfItems': 270}
+per gene     : {'ENSG00000141510.18': 54, 'ENSG00000164308.17': 54, 'ENSG00000229807.13': 54, 'ENSG00000129824.16': 54, 'ENSG00000067048.17': 34}
+get_all      : 270 rows; {'ENSG00000141510.18': 54, 'ENSG00000164308.17': 54, 'ENSG00000229807.13': 54, 'ENSG00000129824.16': 54, 'ENSG00000067048.17': 54}
+```
+
+DDX3Y came back with **34 of its 54 tissues** and nothing said so. Rules that fall out
+of this, all of them cheap:
+
+- **Never read `data` without reading `paging_info` in the same breath.** `len(data) ==
+  totalNumberOfItems` is the assertion; `numberOfPages > 1` is the alarm.
+- **A fixed `itemsPerPage` is a guess, and guesses expire.** `itemsPerPage=20000` looks
+  generous against the 11,070 eGenes of left ventricle and silently loses 2,694 genes
+  against the 22,694 of testis. Page, or assert against the source's own count.
+- `itemsPerPage` is honoured up to at least `100000`, so most single-gene work is one
+  request — write the loop anyway, because the query that outgrows it is one gene away.
+- The one endpoint where `len(data) == totalNumberOfItems` does **not** hold is
+  `/expression/geneExpression` under `attributeSubset`, which counts gene x tissue while
+  returning one row per subset group. See *Per-sample values and donor age*.
 
 ## The tissue vocabulary is a controlled list
 
@@ -254,11 +370,15 @@ Points that matter:
   `Heart_Left_Ventricle`.** GTEx has no single "heart" tissue — a whole-organ question
   has to be asked twice and reported per chamber, because they are not
   interchangeable. For TP53 the atrial appendage median is 1.6x the left ventricle's.
-- **The list is per-release.** Query it with the same `datasetId` you will use for
-  expression. v8 and v10 both have 54 entries but not the same 54 — v8 has
-  `Cells_Transformed_fibroblasts` where v10 has `Cells_Cultured_fibroblasts`, and the
-  enum published in the schema is the union across releases, so a value can validate
-  and still return nothing.
+- **The schema enum is wider than any release, so a value can validate and still
+  return nothing.** `TissueSiteDetailId` publishes **55** values; `/dataset/tissueSiteDetail`
+  returns **54** for `gtex_v8` and the same 54 for `gtex_v10`. The odd one out is
+  `Cells_Transformed_fibroblasts`, an older label for the site both current releases call
+  `Cells_Cultured_fibroblasts`: it passes enum validation and returns HTTP 200 with
+  `data: []` from *either* dataset. Query the tissue list with the same `datasetId` you
+  will use for expression and intersect against it, rather than trusting the enum.
+  The sample counts behind those 54 ids do move between releases — Bladder goes 21 → 77,
+  Kidney_Medulla 4 → 11 — so a per-tissue N read off v8 is wrong for v10.
 - **UBERON ontology ids work in place of the GTEx id.** `tissueSiteDetailId=UBERON:0006566`
   returns the same left-ventricle row, which is the cleaner join key when you are
   crossing GTEx with another ontology-annotated resource.
@@ -281,9 +401,23 @@ def get(path, params):
         return json.loads(fh.read())
 
 
+def median_rows(gencode_ids, dataset="gtex_v10"):
+    """Every tissue for every id, or an exception -- never a short answer."""
+    ids = [gencode_ids] if isinstance(gencode_ids, str) else list(gencode_ids)
+    body = get("expression/medianGeneExpression",
+               {"gencodeId": ids, "datasetId": dataset, "itemsPerPage": 100000})
+    rows, total = body["data"], body["paging_info"]["totalNumberOfItems"]
+    assert len(rows) == total, f"page held {len(rows)} of {total} rows"
+    n_tissues = len(get("dataset/tissueSiteDetail",
+                        {"datasetId": dataset, "itemsPerPage": 300})["data"])
+    per_gene = {g: sum(r["gencodeId"] == g for r in rows) for g in ids}
+    short = {g: n for g, n in per_gene.items() if n != n_tissues}
+    assert not short, f"{short} != {n_tissues} tissues each"
+    return rows
+
+
 GID = "ENSG00000141510.18"          # TP53, GENCODE v39 / gtex_v10
-rows = get("expression/medianGeneExpression",
-           {"gencodeId": GID, "datasetId": "gtex_v10", "itemsPerPage": 300})["data"]
+rows = median_rows(GID)
 
 rows.sort(key=lambda r: r["median"], reverse=True)
 print(f"{len(rows)} tissues, unit {rows[0]['unit']}\n")
@@ -319,6 +453,12 @@ Heart_Left_Ventricle       3.7304 TPM   rank 46/54
 Read the `unit` field rather than assuming it. v8 and v10 report TPM; the v6 and
 earlier files are RPKM, and a plot mixing them is wrong without saying so.
 
+**Zeros are returned, not dropped** — this endpoint gives you the whole release's tissue
+list every time. `DEFB126` comes back as 54 rows of which 53 are `0.0`, `SRY` as 54 with
+51 zeros, `PRM1` as 54 with 13. So a vector shorter than the tissue table is never
+"the gene is off there"; it is a truncated page or a resolution miss. `median_rows`
+above turns that into an exception rather than a silent gap.
+
 Two interpretation cautions:
 
 - **Two of the top four "tissues" are cell lines.** `Cells_EBV-transformed_lymphocytes`
@@ -341,7 +481,7 @@ import json, statistics, urllib.parse, urllib.request
 
 BASE = "https://gtexportal.org/api/v2"
 GID = "ENSG00000141510.18"                       # TP53 in GENCODE v39
-HEART = ["Heart_Atrial_Appendage", "Heart_Left_Ventricle"]
+TISSUES = ["Heart_Left_Ventricle", "Kidney_Medulla"]
 
 
 def get(path, params):
@@ -352,18 +492,25 @@ def get(path, params):
 
 rows = get("expression/geneExpression",
            {"gencodeId": GID, "datasetId": "gtex_v10",
-            "tissueSiteDetailId": HEART, "attributeSubset": "ageBracket"})["data"]
+            "tissueSiteDetailId": TISSUES, "attributeSubset": "ageBracket"})["data"]
 
 # One row per (tissue, bracket); row["data"] is the per-sample TPM vector.
-for tissue in HEART:
+# A bracket with no donors is returned with an EMPTY vector, not dropped --
+# statistics.median raises on it and quantiles needs two points.
+for tissue in TISSUES:
     groups = sorted((r for r in rows if r["tissueSiteDetailId"] == tissue),
                     key=lambda r: r["subsetGroup"])
     n = sum(len(g["data"]) for g in groups)
     print(f"\n{tissue}  n={n} samples over {len(groups)} brackets")
     for g in groups:
         v = g["data"]
+        if len(v) < 2:
+            print(f"  {g['subsetGroup']:6} n={len(v):4}  "
+                  f"{'no donors' if not v else f'single donor {v[0]:.3f}'}")
+            continue
+        q = statistics.quantiles(v, n=4)
         print(f"  {g['subsetGroup']:6} n={len(v):4}  median {statistics.median(v):7.3f} "
-              f"IQR {statistics.quantiles(v, n=4)[0]:6.3f}-{statistics.quantiles(v, n=4)[2]:6.3f}")
+              f"IQR {q[0]:6.3f}-{q[2]:6.3f}")
 
 # Cross-check the sample counts against the tissue table -- if these disagree,
 # the subset call dropped samples and any age trend you fit is on partial data.
@@ -371,21 +518,13 @@ meta = {r["tissueSiteDetailId"]: r["rnaSeqSampleSummary"]["totalCount"]
         for r in get("dataset/tissueSiteDetail",
                      {"datasetId": "gtex_v10", "itemsPerPage": 300})["data"]}
 print()
-for tissue in HEART:
+for tissue in TISSUES:
     got = sum(len(r["data"]) for r in rows if r["tissueSiteDetailId"] == tissue)
     print(f"{tissue:24} subset sum {got:4} vs tissue table {meta[tissue]:4} "
           f"{'OK' if got == meta[tissue] else 'MISMATCH'}")
 ```
 
 ```
-Heart_Atrial_Appendage  n=461 samples over 6 brackets
-  20-29  n=  15  median   6.235 IQR  4.390- 7.176
-  30-39  n=  17  median   5.364 IQR  4.005- 6.282
-  40-49  n=  63  median   6.038 IQR  4.471- 7.654
-  50-59  n= 166  median   5.759 IQR  4.492- 7.485
-  60-69  n= 181  median   6.035 IQR  4.477- 7.476
-  70-79  n=  19  median   5.437 IQR  3.742- 8.628
-
 Heart_Left_Ventricle  n=452 samples over 6 brackets
   20-29  n=  20  median   5.480 IQR  3.540- 6.370
   30-39  n=  25  median   3.551 IQR  3.065- 4.152
@@ -394,16 +533,33 @@ Heart_Left_Ventricle  n=452 samples over 6 brackets
   60-69  n= 167  median   3.497 IQR  2.489- 4.635
   70-79  n=  14  median   3.162 IQR  2.050- 5.980
 
-Heart_Atrial_Appendage   subset sum  461 vs tissue table  461 OK
+Kidney_Medulla  n=11 samples over 6 brackets
+  20-29  n=   3  median  15.938 IQR 13.222-17.807
+  30-39  n=   2  median  11.617 IQR 10.358-12.875
+  40-49  n=   0  no donors
+  50-59  n=   4  median  11.312 IQR  9.924-12.931
+  60-69  n=   2  median   5.776 IQR  2.914- 8.638
+  70-79  n=   0  no donors
+
 Heart_Left_Ventricle     subset sum  452 vs tissue table  452 OK
+Kidney_Medulla           subset sum   11 vs tissue table   11 OK
 ```
 
-Four things to know before you model an age effect on this:
+Five things to know before you model an age effect on this:
 
 - **`paging_info` lies under `attributeSubset`.** That call reports
   `totalNumberOfItems: 2` — one per gene x tissue — while `data` holds 12 rows, one
   per bracket. Code asserting `len(data) == totalNumberOfItems` breaks here and only
   here; assert on `numberOfPages` instead.
+- **Empty subset groups are returned, not omitted, and they will crash a naive loop.**
+  `statistics.median([])` raises, and `statistics.quantiles` needs two points. Four of
+  the 54 tissues have at least one empty age bracket — Kidney_Medulla is missing 40-49
+  and 70-79, Cervix_Ectocervix, Cervix_Endocervix and Fallopian_Tube are missing 70-79
+  — and under `attributeSubset=sex` **eight** tissues return one group with `n=0`,
+  because Uterus, Ovary, Vagina, Fallopian_Tube and both cervix sites have no male
+  donors and Prostate and Testis have no female ones. Guard on `len(v)` before you
+  summarise, as above. The empty group is honest bookkeeping, not a fault — the sums
+  still reconcile with `rnaSeqSampleSummary.totalCount`.
 - **The vectors are unlabelled.** There is no sample or donor id alongside the TPM
   values, so this endpoint cannot support a regression with covariates beyond the one
   you subset on, and it cannot pair a donor's two heart samples. For that, take the
@@ -411,8 +567,8 @@ Four things to know before you model an age effect on this:
 - **Age is a 10-year bracket, and that is a design property, not a limitation of the
   API.** Exact ages are protected. Bracketed age is usable as an ordinal covariate or
   a bracket midpoint; it is not usable for anything needing age resolution finer than
-  a decade, and the brackets are badly unbalanced — 347 of the 913 heart samples sit
-  in 50-69 while 33 sit in 70-79.
+  a decade, and the brackets are badly unbalanced — of the 913 samples across the two
+  heart tissues, 673 sit in 50-69, 77 in 20-39 and 33 in 70-79.
 - **The tail brackets are thin and the cohort is post-mortem.** Donors died; cause of
   death is captured as the Hardy scale and it correlates with both age and RNA
   quality. Any age model that omits Hardy scale, ischemic time and RIN is fitting
@@ -472,13 +628,13 @@ for r in rows[:3]:
 ```
 
 ```
-default page  : 250 rows; {'numberOfPages': 4, 'page': 0, 'maxItemsPerPage': 250, 'totalNumberOfItems': 4}
+default page  : 250 rows; {'numberOfPages': 4, 'page': 0, 'maxItemsPerPage': 250, 'totalNumberOfItems': 751}
 all pages     : 751 rows
 
 variantId                    rsId                pValue     NES
 chr5_96916728_G_A_b38        rs2927608       1.341e-158   1.077
 chr5_96916885_T_C_b38        rs2910686       1.342e-158   1.077
-chx5_96936716_T_G_b38        rs2548224       7.727e-144   1.065
+chr5_96936716_T_G_b38        rs2548224       7.727e-144   1.065
 ```
 
 `paging_info` carries `page`, `numberOfPages`, `maxItemsPerPage` and
@@ -503,40 +659,81 @@ def get(path, params):
         return json.loads(fh.read())
 
 
-ERAP2, TISSUE = "ENSG00000164308.17", "Heart_Left_Ventricle"
+def get_all(path, params, per_page=25000):
+    """Follow paging_info to exhaustion, then prove nothing was left behind."""
+    params = dict(params, itemsPerPage=per_page, page=0)
+    first = get(path, params)
+    info = first["paging_info"]
+    out = list(first["data"])
+    for p in range(1, info["numberOfPages"]):
+        out += get(path, dict(params, page=p))["data"]
+    assert len(out) == info["totalNumberOfItems"], \
+        f"collected {len(out)} of {info['totalNumberOfItems']}"
+    return out
+
+
+ERAP2 = "ENSG00000164308.17"
 
 # /association/egene takes tissueSiteDetailId and datasetId ONLY. A gencodeId
 # here is silently dropped and you get every eGene in the tissue.
 naive = get("association/egene", {"gencodeId": ERAP2,
-                                  "tissueSiteDetailId": TISSUE,
+                                  "tissueSiteDetailId": "Heart_Left_Ventricle",
                                   "datasetId": "gtex_v10", "itemsPerPage": 1})
 print("gencodeId 'filter' :", naive["paging_info"]["totalNumberOfItems"], "rows;",
       "first row is", naive["data"][0]["geneSymbol"])
 
-# Pull the tissue's eGene table and filter locally.
-res = get("association/egene", {"tissueSiteDetailId": TISSUE,
-                                "datasetId": "gtex_v10", "itemsPerPage": 20000})
-egenes = res["data"]
-assert len(egenes) == res["paging_info"]["totalNumberOfItems"]
-hit = next((e for e in egenes if e["gencodeId"] == ERAP2), None)
-print("eGenes in tissue   :", len(egenes))
-print("ERAP2 is an eGene  :", hit is not None)
-if hit:
-    print(f"  qValue {hit['qValue']:.3e}  empiricalP {hit['empiricalPValue']:.3e} "
-          f"log2 aFC {hit['log2AllelicFoldChange']:.3f} "
-          f"threshold {hit['pValueThreshold']:.3e}")
+# Pull each tissue's eGene table in full and filter locally, checking the row
+# count against eGeneCount from the tissue table.
+tissues = {r["tissueSiteDetailId"]: r["eGeneCount"]
+           for r in get("dataset/tissueSiteDetail",
+                        {"datasetId": "gtex_v10", "itemsPerPage": 300})["data"]}
+for tissue in ("Heart_Left_Ventricle", "Testis"):
+    egenes = get_all("association/egene",
+                     {"tissueSiteDetailId": tissue, "datasetId": "gtex_v10"})
+    assert len(egenes) == tissues[tissue], (len(egenes), tissues[tissue])
+    hit = next((e for e in egenes if e["gencodeId"] == ERAP2), None)
+    print(f"\n{tissue}")
+    print(f"  eGenes in tissue : {len(egenes)} (table says {tissues[tissue]})")
+    print(f"  ERAP2 is an eGene: {hit is not None}")
+    if hit:
+        print(f"    qValue {hit['qValue']:.3e}  empiricalP {hit['empiricalPValue']:.3e} "
+              f"log2 aFC {hit['log2AllelicFoldChange']:.3f} "
+              f"threshold {hit['pValueThreshold']:.3e}")
+
+# The counter-example: one request with a fixed cap under the true total.
+short = get("association/egene", {"tissueSiteDetailId": "Testis",
+                                  "datasetId": "gtex_v10", "itemsPerPage": 20000})
+print(f"\nTestis at itemsPerPage=20000: {len(short['data'])} rows of "
+      f"{short['paging_info']['totalNumberOfItems']}, "
+      f"{short['paging_info']['numberOfPages']} pages")
 ```
 
 ```
 gencodeId 'filter' : 11070 rows; first row is WASH7P
-eGenes in tissue   : 11070
-ERAP2 is an eGene  : True
-  qValue 8.312e-137  empiricalP 4.575e-140 log2 aFC 3.198 threshold 1.540e-04
+
+Heart_Left_Ventricle
+  eGenes in tissue : 11070 (table says 11070)
+  ERAP2 is an eGene: True
+    qValue 8.312e-137  empiricalP 4.575e-140 log2 aFC 3.198 threshold 1.540e-04
+
+Testis
+  eGenes in tissue : 22694 (table says 22694)
+  ERAP2 is an eGene: True
+    qValue 1.294e-103  empiricalP 7.219e-106 log2 aFC 1.888 threshold 2.226e-04
+
+Testis at itemsPerPage=20000: 20000 rows of 22694, 2 pages
 ```
 
 The unfiltered count matches `eGeneCount` in the tissue table exactly, which is how you
 prove the filter was dropped rather than merely unhelpful. Sanity-check any per-gene
-association result against that field.
+association result against that field — and note the last line, which is Trap 3 in this
+endpoint: a single request capped at 20,000 covers left ventricle's 11,070 eGenes and
+loses 2,694 of testis's 22,694. The table comes back in genomic order, so the cut
+discards the tail of the genome — everything past chr19:37.9 Mb, `A1BG` and `ABCB7`
+included — and "is my gene an eGene here" then answers `False` for genes that are.
+Four tissues — Kidney_Medulla, Cervix_Ectocervix, Cervix_Endocervix, Fallopian_Tube —
+have no eQTL analysis at all, and report `eGeneCount: null`, `hasEGenes: false` and zero
+rows from both association endpoints; that is *not tested*, not *not significant*.
 
 Interpreting the numbers: `nes` on `singleTissueEqtl` is the effect of the alternate
 allele on normalised expression, signed, and only comparable within a tissue.
@@ -597,10 +794,12 @@ def write_tsv(path, rows, cols):
 os.makedirs(OUT, exist_ok=True)
 files, sources = [], {}
 
-# 1. Resolve the symbol against the GENCODE build this dataset uses.
+# 1. Resolve the symbol against the GENCODE build this dataset uses, dropping
+#    the all-zero chrY copy that pseudoautosomal genes carry.
 url, res = get("reference/gene", {"geneId": SYMBOL,
                                   "gencodeVersion": GENCODE_FOR[DATASET]})
-exact = [g for g in res["data"] if g["geneSymbolUpper"] == SYMBOL.upper()]
+exact = [g for g in res["data"] if g["geneSymbolUpper"] == SYMBOL.upper()
+         and not g["gencodeId"].endswith("_PAR_Y")]
 if len(exact) != 1:
     raise LookupError(f"{SYMBOL}: {len(exact)} exact hits in "
                       f"GENCODE {GENCODE_FOR[DATASET]}")
@@ -747,8 +946,12 @@ matrix — `gene_tpm_v10_heart_left_ventricle.gct.gz` is 51 MB, its atrial count
 55 MB. **Two counts to get right before modelling:** those 913 samples come from 573
 distinct donors, 340 of whom gave both chambers, so chamber is a within-donor factor
 for most of the cohort and samples are not independent. And `/dataset/sample` returned
-1,970 aliquots for the same two tissues because it lists genotyping aliquots too —
-filtering on `dataType == "RNASEQ"` is what makes the row count match the matrix.
+1,970 aliquots for the same two tissues because it lists every aliquot of every assay —
+`RNASEQ`, `SMLRNA`, `WGS`, `DEEPWGS`, `WES`, `OMNI` and `EXCLUDE` for the ones that
+failed QC. Filtering on `dataType == "RNASEQ"` is what makes the row count match the
+matrix, and it holds across tissues: checked against `rnaSeqSampleSummary.totalCount`
+for eight of them, from Kidney_Medulla's 11 to Muscle_Skeletal's 818, it matched every
+time. The bulk filename is the `tissueSiteDetailId` lower-cased, for all 54.
 
 **Route C — the bulk store, for whole matrices.** Everything on the portal's download
 page lives in a public Google Cloud bucket readable over plain HTTPS at
@@ -757,7 +960,7 @@ returns the tree of `gs://` paths, which map to that prefix one-for-one. No clie
 library and no credentials.
 
 ```python
-import gzip, hashlib, json, os, urllib.request
+import collections, gzip, hashlib, json, os, urllib.request
 
 BUCKET = "https://storage.googleapis.com/adult-gtex"
 WANT = {
@@ -785,6 +988,14 @@ with open(f"{OUT}/manifest.json", "w") as fh:
 # and counts DATA columns only, then the real header. Two id columns precede the
 # data, so header length is n_data_columns + 2 -- assuming 3 (the GCT spec allows
 # an extra id column) shifts every tissue by one.
+#
+# Key on Name (the versioned GENCODE id), not Description: Name is unique but
+# 96 symbols occupy two rows, every pseudoautosomal gene among them.
+WANT_IDS = {"ENSG00000141510.18": "TP53",
+            "ENSG00000169100.14": "SLC25A6",
+            "ENSG00000169100.14_PAR_Y": "SLC25A6 chrY copy"}
+SHOW = ("Heart_Atrial_Appendage", "Heart_Left_Ventricle")
+
 gct = manifest[0]["path"]
 with gzip.open(gct, "rt") as fh:
     fh.readline()
@@ -792,13 +1003,20 @@ with gzip.open(gct, "rt") as fh:
     header = fh.readline().rstrip("\n").split("\t")
     assert len(header) == n_cols + 2, (len(header), n_cols)
     tissues = header[2:]
-    row = next(f for f in (l.rstrip("\n").split("\t") for l in fh) if f[1] == "TP53")
+    per_symbol, hits = collections.Counter(), {}
+    for line in fh:
+        f = line.rstrip("\n").split("\t")
+        per_symbol[f[1]] += 1
+        if f[0] in WANT_IDS:
+            hits[f[0]] = dict(zip(tissues, (float(v) for v in f[2:])))
+assert sum(per_symbol.values()) == n_genes, (sum(per_symbol.values()), n_genes)
+assert set(hits) == set(WANT_IDS), sorted(set(WANT_IDS) - set(hits))
 
 print(f"\n{n_genes:,} genes x {len(tissues)} columns; id cols {header[:2]}")
-tpm = dict(zip(tissues, (float(v) for v in row[2:])))
-print("TP53 row id:", row[0])
-for t in ("Heart_Atrial_Appendage", "Heart_Left_Ventricle"):
-    print(f"  {t:24} {tpm[t]}")
+print("symbols on two or more rows:", sum(1 for v in per_symbol.values() if v > 1))
+for gid, label in WANT_IDS.items():
+    print(f"  {label:18} {gid:26} " +
+          "  ".join(f"{t} {hits[gid][t]}" for t in SHOW))
 ```
 
 ```
@@ -806,9 +1024,10 @@ for t in ("Heart_Atrial_Appendage", "Heart_Left_Ventricle"):
       20,292 B  md5 ffa15a680855  Data/gtex/bulk/GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt
 
 59,033 genes x 68 columns; id cols ['Name', 'Description']
-TP53 row id: ENSG00000141510.18
-  Heart_Atrial_Appendage   5.94307
-  Heart_Left_Ventricle     3.73045
+symbols on two or more rows: 96
+  TP53               ENSG00000141510.18         Heart_Atrial_Appendage 5.94307  Heart_Left_Ventricle 3.73045
+  SLC25A6            ENSG00000169100.14         Heart_Atrial_Appendage 246.698  Heart_Left_Ventricle 159.697
+  SLC25A6 chrY copy  ENSG00000169100.14_PAR_Y   Heart_Atrial_Appendage 0.0  Heart_Left_Ventricle 0.0
 ```
 
 The GCT medians match the API to the last digit, which is the cross-check that the two
@@ -819,9 +1038,13 @@ routes are the same numbers. Two differences to expect between them:
   `Pancreas_Islets`, `Pancreas_Acini`, `Stomach_Mucosa`, `Stomach_Muscularis`,
   `Colon_Transverse_Muscularis` and similar. Only reachable through the files.
 - **The bucket is ahead of the API.** A **v11** release is already published there
-  (`GTEx_Analysis_2025-08-22_v11_…`, 74,628 genes, TP53 as `ENSG00000141510.19`) while
-  the API's `datasetId` enum still stops at `gtex_v10`. If you need the newest numbers
-  you need the files, and you need to re-resolve every identifier for that build.
+  (`GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_median_tpm.gct.gz`, 74,628 genes in
+  the same 68 columns, TP53 as `ENSG00000141510.19`) while the API's `datasetId` enum
+  still holds only `gtex_v8`, `gtex_v10` and `gtex_snrnaseq_pilot`. Re-resolve every
+  identifier for that build, and expect the numbers to move: TP53's left-ventricle
+  median is 3.67865 TPM in v8, 3.73045 in v10 and 2.69388 in the v11 file. The v11
+  directory also carries a second, later drop stamped `2026-05-19` alongside the
+  original — read the date in the filename rather than assuming one v11.
 
 ## Requesting access
 
@@ -901,7 +1124,9 @@ Signing Official to make. Draft the science; leave the attestations blank.
   behave nothing like it.
 - **`singleTissueEqtl` returns only significant associations.** Absence of a row means
   "not significant in this tissue at this sample size", not "no effect" — and power
-  tracks the tissue's sample count, which ranges from 4 to over 800.
+  tracks the tissue's sample count, which in `gtex_v10` runs from 11 (Kidney_Medulla)
+  to 818 (Muscle_Skeletal). Four tissues were not QTL-mapped at all, so for those it
+  does not even mean "not significant"; check `hasEGenes` before you interpret a zero.
 - **Version everything you report.** Release, GENCODE build, genome build, unit. TP53's
   median in left ventricle is 3.67865 TPM in v8 and 3.73045 in v10; unlabelled, those
   read as a finding.
@@ -911,18 +1136,24 @@ Signing Official to make. Draft the science; leave the attestations blank.
 A self-contained check that this skill still works. Public data, no account, no key,
 Python standard library only.
 
-**Data** — the GTEx Portal v2 API, `gtex_v10` release, reached through three endpoints:
+**Data** — the GTEx Portal v2 API, `gtex_v10` release, reached through five endpoints:
 
     https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39
     https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10
     https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300
+    https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket
+    https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=20000
 
 GTEx open-access data needs no account or licence acceptance, and the dbGaP study record
 states that releases from v5 onward carry no restrictions on use or publication. TP53 is
 used because it is expressed in every tissue and its GENCODE version suffix has moved in
 each of the last three releases, which is what makes it a good probe for the trap. ERAP2
 (`ENSG00000164308.17`) is used for paging because it has 751 significant eQTLs in one
-tissue. Last confirmed reachable 2026-08-17.
+tissue. The other four probes are the counter-examples that a single-gene, single-tissue
+test misses: **SLC25A6** for the pseudoautosomal twin that answers with 54 zeros,
+**DDX3Y** for the multi-gene page that cuts inside a gene, **Kidney_Medulla** and
+**Uterus** for the empty subset group, and **Testis** for the eGene table that outgrows a
+fixed `itemsPerPage`. Last confirmed reachable 2026-08-18.
 
 ```python
 import json, statistics, urllib.parse, urllib.request
@@ -933,13 +1164,20 @@ DATASET, SYMBOL = "gtex_v10", "TP53"
 HEART = ["Heart_Atrial_Appendage", "Heart_Left_Ventricle"]
 
 
+def raw(path, **params):
+    """One GET, no assertions -- for the calls that are meant to be partial."""
+    url = f"{BASE}/{path}?" + urllib.parse.urlencode(params, doseq=True)
+    with urllib.request.urlopen(url, timeout=120) as fh:
+        return json.loads(fh.read())
+
+
 def get(path, **params):
     """Returns (rows, paging_info) and refuses to hand back a truncated page."""
-    url = f"{BASE}/{path}?" + urllib.parse.urlencode(params, doseq=True)
-    with urllib.request.urlopen(url, timeout=90) as fh:
-        body = json.loads(fh.read())
+    body = raw(path, **params)
     assert set(body) == {"data", "paging_info"}, sorted(body)
     assert body["paging_info"]["numberOfPages"] <= 1, f"{path}: {body['paging_info']}"
+    assert len(body["data"]) >= body["paging_info"]["totalNumberOfItems"], \
+        f"{path}: {len(body['data'])} rows of {body['paging_info']}"
     return body["data"], body["paging_info"]
 
 
@@ -949,6 +1187,10 @@ hits = [g for g in rows if g["geneSymbolUpper"] == SYMBOL.upper()]
 assert len(hits) == 1, [h["gencodeId"] for h in hits]
 gid = hits[0]["gencodeId"]
 assert "." in gid, f"{gid} carries no version suffix"
+# The same endpoint migrates a bare Ensembl id onto the build you ask for.
+byid, _ = get("reference/gene", geneId=gid.split(".")[0],
+              gencodeVersion=GENCODE_FOR[DATASET])
+assert [g["gencodeId"] for g in byid] == [gid], byid
 print("gencodeId              :", gid, f"(GENCODE {GENCODE_FOR[DATASET]})")
 
 # 2. The trap. Every one of these is HTTP 200 with an empty list, not an error.
@@ -972,6 +1214,34 @@ top = max(med, key=lambda r: r["median"])
 print(f"tissues / unit         : {len(med)} / TPM")
 print(f"highest median         : {top['tissueSiteDetailId']} {top['median']}")
 
+# 3b. COUNTER-EXAMPLE, pseudoautosomal gene. Two exact symbol matches, and the
+# _PAR_Y twin answers with a full-length, correctly-shaped, all-zero vector.
+par, _ = get("reference/gene", geneId="SLC25A6", gencodeVersion="v39")
+par_ids = [g["gencodeId"] for g in par if g["geneSymbolUpper"] == "SLC25A6"]
+assert len(par_ids) == 2 and par_ids[1].endswith("_PAR_Y"), par_ids
+zero, _ = get("expression/medianGeneExpression", gencodeId=par_ids[1],
+              datasetId=DATASET, itemsPerPage=300)
+assert len(zero) == len(tis) and {r["median"] for r in zero} == {0.0}
+print(f"SLC25A6 _PAR_Y twin    : {len(zero)} tissues, every median 0.0")
+
+# 3c. COUNTER-EXAMPLE, more than one gene. 5 x 54 = 270 rows, default page 250,
+# and the cut lands INSIDE the fifth gene rather than between two genes.
+FIVE = [gid, "ENSG00000164308.17", "ENSG00000229807.13",
+        "ENSG00000129824.16", "ENSG00000067048.17"]
+part = raw("expression/medianGeneExpression", gencodeId=FIVE, datasetId=DATASET)
+counts = sorted(sum(r["gencodeId"] == g for r in part["data"]) for g in FIVE)
+assert len(part["data"]) < part["paging_info"]["totalNumberOfItems"]
+# The stated claim is that the cut lands INSIDE one gene — four full, one short.
+# `counts[0] < len(tis)` alone would also pass if paging went tissue-major and cut
+# every gene evenly, which is the case the Expect bullet says is disproved.
+assert counts.count(len(tis)) == len(FIVE) - 1, counts
+assert counts[0] < len(tis), counts
+full, full_info = get("expression/medianGeneExpression", gencodeId=FIVE,
+                      datasetId=DATASET, itemsPerPage=100000)
+assert len(full) == full_info["totalNumberOfItems"] == len(FIVE) * len(tis)
+print(f"5 genes unpaged / full : {len(part['data'])} rows (per gene {counts}) "
+      f"/ {len(full)} rows")
+
 # 4. Per-sample TPM by donor age bracket, for the two heart tissues.
 expr, expr_info = get("expression/geneExpression", gencodeId=gid, datasetId=DATASET,
                       tissueSiteDetailId=HEART, attributeSubset="ageBracket")
@@ -986,16 +1256,40 @@ for t in HEART:
 # Under attributeSubset, totalNumberOfItems counts gene x tissue, not returned rows.
 print(f"subset rows / reported : {len(expr)} / {expr_info['totalNumberOfItems']}")
 
+# 4b. COUNTER-EXAMPLE, empty subset groups. A bracket or a sex with no donors
+# comes back with an EMPTY vector rather than being dropped, so any loop that
+# calls statistics.median on every group dies on 9 of the 54 tissues.
+thin, _ = get("expression/geneExpression", gencodeId=gid, datasetId=DATASET,
+              tissueSiteDetailId="Kidney_Medulla", attributeSubset="ageBracket")
+empty_brackets = [g["subsetGroup"] for g in thin if not g["data"]]
+assert empty_brackets, thin
+one_sex, _ = get("expression/geneExpression", gencodeId=gid, datasetId=DATASET,
+                 tissueSiteDetailId="Uterus", attributeSubset="sex")
+# The invariant is that the empty group is PRESENT, not how many donors the other
+# group has — 153 is a v10 number, and asserting it turns a GTEx rebuild into a
+# hard failure instead of the drift report it should be.
+sexes = sorted((g["subsetGroup"], len(g["data"])) for g in one_sex)
+assert [g for g, _ in sexes] == ["female", "male"], sexes
+assert dict(sexes)["male"] == 0 and dict(sexes)["female"] > 0, sexes
+print(f"empty subset groups    : Kidney_Medulla {empty_brackets}, Uterus male n=0")
+
 # 5. Paging. The default page holds 250 rows and never claims to be everything.
-url = f"{BASE}/association/singleTissueEqtl?" + urllib.parse.urlencode(
-    {"gencodeId": "ENSG00000164308.17", "datasetId": DATASET,
-     "tissueSiteDetailId": "Heart_Left_Ventricle"})
-with urllib.request.urlopen(url, timeout=90) as fh:
-    page0 = json.loads(fh.read())
+page0 = raw("association/singleTissueEqtl", gencodeId="ENSG00000164308.17",
+            datasetId=DATASET, tissueSiteDetailId="Heart_Left_Ventricle")
 info = page0["paging_info"]
 assert len(page0["data"]) == info["maxItemsPerPage"] < info["totalNumberOfItems"]
 print(f"ERAP2 eQTL paging      : page 0 holds {len(page0['data'])} of "
       f"{info['totalNumberOfItems']} across {info['numberOfPages']} pages")
+
+# 5b. COUNTER-EXAMPLE, eGene tables. Testis holds more eGenes than any single
+# fixed-size request you would think to write, so page it or assert on the count.
+n_egene = {r["tissueSiteDetailId"]: r["eGeneCount"] for r in tis}
+cut = raw("association/egene", tissueSiteDetailId="Testis",
+          datasetId=DATASET, itemsPerPage=20000)
+assert len(cut["data"]) == 20000 < cut["paging_info"]["totalNumberOfItems"]
+assert cut["paging_info"]["totalNumberOfItems"] == n_egene["Testis"]
+print(f"Testis eGenes          : {n_egene['Testis']}, a 20000-row request holds "
+      f"{len(cut['data'])} across {cut['paging_info']['numberOfPages']} pages")
 ```
 
 **Expect**
@@ -1007,22 +1301,41 @@ Invariants — these hold regardless of release, and a failure means the skill i
 - The resolved `gencodeId` **carries a version suffix**. The assertion on `"."` is the
   point of the whole test.
 - The gene symbol, the bare Ensembl id, and the *other* release's versioned id all
-  return `data: []` at **HTTP 200**. If any of them ever returns rows, the keying
-  changed and the skill needs rewriting.
+  return `data: []` at **HTTP 200** from the expression endpoints. If any of them ever
+  returns rows, the keying changed and the skill needs rewriting. The bare Ensembl id
+  does resolve at `/reference/gene` — that is the migration route, not a contradiction.
 - The tissue set from `medianGeneExpression` equals the tissue set from
   `tissueSiteDetail` for the same `datasetId`, and every `unit` is `TPM`.
+- **`SLC25A6` returns two exact symbol matches and the `_PAR_Y` one is 54 tissues of
+  `0.0`.** If that ever holds fewer than the full tissue count, or a non-zero value,
+  the PAR handling in `resolve_gene` needs revisiting. This is the counter-example that
+  passes every row-count check while being entirely wrong.
+- **A default page cuts inside a gene, not between two.** The per-gene counts come back
+  with all but one at the full tissue count and one short — never a clean even split.
+  That is what proves the truncation is invisible from the rows themselves, and it is why
+  every call in this skill either passes `itemsPerPage` or pages. The specific arithmetic
+  (five genes, 250 of 270, one gene at 34) is a v10 observation and sits below, because it
+  depends on the release having 54 tissues and the server defaulting to 250 rows.
 - Per-sample vectors from `attributeSubset=ageBracket` sum to the tissue's
   `rnaSeqSampleSummary.totalCount`, and their **recomputed median matches the published
   median** from `medianGeneExpression`. That is what proves the two endpoints describe
   the same samples.
+- **Empty subset groups are present, not omitted.** Kidney_Medulla has no 40-49 and no
+  70-79 donors and Uterus has no male ones, and all three come back as rows with
+  `data: []`. Anything that maps `statistics.median` over the groups dies here.
 - `subset rows / reported` disagree, because `totalNumberOfItems` counts gene x tissue
   under `attributeSubset` — printed rather than asserted, since a fix upstream would be
   an improvement, not a break.
 - A default page of a multi-page result holds exactly `maxItemsPerPage` rows, strictly
   fewer than `totalNumberOfItems`. Any client that ignores `numberOfPages` is silently
   truncating.
+- **A fixed `itemsPerPage` is not a substitute for the source's own count.** At least one
+  tissue always outgrows any hardcoded cap; assert against `eGeneCount`. In `gtex_v10` that
+  is Testis (22,694) and Nerve_Tibial (20,101) against a 20,000-row request — the request that
+  loses 2,694 of them looks exactly like the one that returns all 11,070 of left
+  ventricle's. Assert against `eGeneCount` from the tissue table.
 
-Observed 2026-08-17 against **`gtex_v10`** (GENCODE v39, GRCh38, API 2.0.0) — these move
+Observed 2026-08-18 against **`gtex_v10`** (GENCODE v39, GRCh38, API 2.0.0) — these move
 when GTEx releases, so treat a mismatch as drift to investigate, not as a failure:
 
 ```
@@ -1030,10 +1343,14 @@ gencodeId              : ENSG00000141510.18 (GENCODE v39)
 silently empty for     : TP53 | ENSG00000141510 | ENSG00000141510.16
 tissues / unit         : 54 / TPM
 highest median         : Cells_EBV-transformed_lymphocytes 77.4845
+SLC25A6 _PAR_Y twin    : 54 tissues, every median 0.0
+5 genes unpaged / full : 250 rows (per gene [34, 54, 54, 54, 54]) / 270 rows
 Heart_Atrial_Appendage : n=461 in 6 brackets, median 5.9431 vs API 5.94307
 Heart_Left_Ventricle   : n=452 in 6 brackets, median 3.7305 vs API 3.73045
 subset rows / reported : 12 / 2
+empty subset groups    : Kidney_Medulla ['40-49', '70-79'], Uterus male n=0
 ERAP2 eQTL paging      : page 0 holds 250 of 751 across 4 pages
+Testis eGenes          : 22694, a 20000-row request holds 20000 across 2 pages
 ```
 
 ## Sources
