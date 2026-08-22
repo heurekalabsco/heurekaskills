@@ -1019,7 +1019,9 @@ print("example:", list(matched.items())[:3])
 m743 = match_columns(sample_table("GSE276743"), f4["GSE276743_counts_2nd.csv.gz"].columns)
 print("\nGSE276743 second file matched:",
       sum(v is not None for v in m743.values()), "/", len(m743))
-print("its column names:", list(m743)[0])
+# The depositor's own absolute BAM path is the evidence — the username is not.
+col = re.sub(r"^/(?:home|Users)/[^/]+/", "/<home>/", list(m743)[0])
+print("its column names:", col)
 ```
 
 ```
@@ -1033,7 +1035,7 @@ matrix columns matched to GSMs: 16 / 16
 example: [('old10', 'GSM8194562'), ('old11', 'GSM8194560'), ('old13', 'GSM8194556')]
 
 GSE276743 second file matched: 0 / 8
-its column names: /home/tngus3863/root_project/BPR/BPR_bulk_2nd/3a-1_star_alignment/BPR_3/Aligned.sortedByCoord.out.bam
+its column names: /<home>/root_project/BPR/BPR_bulk_2nd/3a-1_star_alignment/BPR_3/Aligned.sortedByCoord.out.bam
 ```
 
 Two things that block joins here and generalise. The titles are `young_4` while the matrix

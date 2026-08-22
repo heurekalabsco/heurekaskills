@@ -1,5 +1,6 @@
 // Validate every skill under skills/ against the registry's format rules.
 // Exit non-zero on any error. Run by CI on PRs and locally via `npm run validate`.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -563,6 +564,45 @@ if (!fs.existsSync(noticePath)) {
     else if (!attributed.has(slug) && !unreadable.has(slug)) err('NOTICE', `credits skills/${slug}, which has no attribution: field`);
   }
 }
+
+// Repo hygiene, over the whole tracked tree rather than just skills/.
+//
+// `skills/` already refuses symlinks (see the per-file loop above). That rule was right and
+// its scope was wrong: a symlink named `node_modules`, pointing at an absolute path on a
+// contributor's machine, sat on main for three days because it was at the repo root and
+// `.gitignore` said `node_modules/` — a trailing slash matches directories, not links.
+//
+// Reads the index, not the filesystem, so untracked scratch and ignored build output are
+// none of its business. Skips with a loud warning where git is unavailable, matching how
+// the site generator treats an absent schema — CI always has git, and CI is the gate.
+function repoHygiene() {
+  let tracked;
+  try {
+    tracked = execFileSync('git', ['ls-files', '-s'], { cwd: ROOT, encoding: 'utf8' });
+  } catch {
+    console.warn('[hygiene] not a git checkout, or git unavailable — tracked-tree checks skipped');
+    return;
+  }
+  // An absolute home path in a tracked blob is the thing the pre-push scrub exists to stop,
+  // and a public repo's history cannot be scrubbed by a later commit.
+  const HOME_PATH = /(^|[\s"'`(=:])\/(?:Users|home)\/[A-Za-z0-9._-]+\//;
+  for (const line of tracked.split('\n')) {
+    if (!line.trim()) continue;
+    const [meta, file] = line.split('\t');
+    const mode = meta.split(' ')[0];
+    if (mode === '120000') {
+      err('repo', `tracked symlink: ${file} — links carry their target's path into public history`);
+      continue;
+    }
+    const abs = path.join(ROOT, file);
+    if (!fs.existsSync(abs) || fs.statSync(abs).size > MAX_FILE_BYTES) continue;
+    const buf = fs.readFileSync(abs);
+    if (buf.includes(0)) continue;                       // binary
+    const m = HOME_PATH.exec(buf.toString('utf8'));
+    if (m) err('repo', `tracked file ${file} contains an absolute home path (${m[0].trim().slice(0, 44)}…)`);
+  }
+}
+repoHygiene();
 
 if (errors.length) {
   console.error(`✗ validation failed (${errors.length}):`);
