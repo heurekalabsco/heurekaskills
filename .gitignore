@@ -1,4 +1,7 @@
-node_modules/
+# No trailing slash on purpose: `node_modules/` matches directories only, so a
+# SYMLINK named node_modules slipped past it and got committed. Tooling symlinks
+# node_modules into scratch worktrees, and a `git add` there stages the link.
+node_modules
 dist/
 .DS_Store
 *.log
