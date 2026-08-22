@@ -524,6 +524,25 @@ is a reject. Free-for-academics with commercial terms by negotiation is the comm
 case: it ships, because the academic route is real and open — say plainly who each route
 is for. Where a gated tool has an open equivalent, document the equivalent.
 
+**A path carries its dependencies' terms, not just the tool's.** The cases above say "on the
+tool", which reads as though a permissive `LICENSE` on the repo settles it. It does not: a
+reader runs the whole path, so the binding constraint is whatever the path actually requires.
+BindCraft is the worked example — MIT, and its standard build needs PyRosetta, which is not
+OSI-licensed and needs a paid licence for commercial use. The tool is clean and the path is
+not. Its `--no-pyrosetta` build substitutes open components, which is what makes this a
+disclosure rather than a reject, and is the path to lead with.
+
+Two practical notes. **Check the dependency's own distribution, not the parent's reputation** —
+`pyrosetta` is absent from public PyPI and `pyrosetta-installer` ships under `Rosetta Software
+License`, which is the fact that settles it. And **an organisation name is not a licence**:
+`RosettaCommons` publishes `foundry` and `RFdiffusion` under BSD-3-Clause while core Rosetta and
+PyRosetta are not OSI-licensed at all, so confirming one repo and generalising across the org
+gets the answer backwards.
+
+Where upstream states the limitation itself, **quote upstream**. FreeBindCraft's README says a
+licence is required for commercial use; citing that is better than asserting the same
+conclusion in our own voice in a repo whose history is permanent.
+
 Record the finding on the issue either way, with the link that proves it. Settled cases
 get `blocked`; re-checkable ones get `needs-info`, stay open, and **name what would
 unblock them** — "when a LICENSE lands", "when the package ships" — so a later pass tests
