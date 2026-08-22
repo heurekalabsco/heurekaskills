@@ -1,5 +1,6 @@
 // Validate every skill under skills/ against the registry's format rules.
 // Exit non-zero on any error. Run by CI on PRs and locally via `npm run validate`.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -563,6 +564,72 @@ if (!fs.existsSync(noticePath)) {
     else if (!attributed.has(slug) && !unreadable.has(slug)) err('NOTICE', `credits skills/${slug}, which has no attribution: field`);
   }
 }
+
+// Repo hygiene, over the whole tracked tree rather than just skills/.
+//
+// `skills/` already refused symlinks. That rule was right and its scope was wrong: the
+// node_modules link sat at the repo root, outside it, for three days.
+//
+// The symlink half is a proof — a tracked mode of 120000 IS a symlink, and no amount of path
+// formatting hides it. The home-path half is a TRIPWIRE, not a proof: it catches the shape
+// that has actually leaked here and misses others (no trailing slash, a file:// URL, a tilde,
+// backslashes, UTF-16, anything encoded). Read a pass as "the obvious form is absent", never
+// as "there is no path in here".
+//
+// Reads the git index, not the filesystem, so untracked scratch and ignored build output are
+// none of its business.
+const HYGIENE_ALLOW = 'hygiene-allow';
+
+function repoHygiene() {
+  let tracked, top;
+  try {
+    top = execFileSync('git', ['rev-parse', '--show-toplevel'],
+                       { cwd: ROOT, encoding: 'utf8' }).trim();
+    // -z, because `ls-files -s` C-quotes any path with non-ASCII, a tab or a newline
+    // ("caf\303\251.md"), which then fails to resolve on disk and was silently skipped.
+    // One mis-named directory would have exempted every file under it.
+    tracked = execFileSync('git', ['ls-files', '-sz'],
+                           { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  } catch (e) {
+    console.warn(`[hygiene] tracked-tree checks skipped: ${e.code || e.message}`);
+    return;
+  }
+  // `git ls-files` inside an unrelated PARENT repo succeeds and returns nothing, so the loop
+  // would pass a leak in silence. Only a real toplevel match means we scanned what we think.
+  if (path.resolve(top) !== path.resolve(ROOT)) {
+    console.warn(`[hygiene] git toplevel is ${top}, not ${ROOT} — tracked-tree checks skipped`);
+    return;
+  }
+
+  const HOME_PATH = /(^|[\s"'`(=:<>{|,])\/(?:Users|home)\/[A-Za-z0-9._-]+\//;
+  for (const line of tracked.split('\0')) {
+    if (!line.trim()) continue;
+    const tab = line.indexOf('\t');
+    if (tab < 0) continue;
+    const mode = line.slice(0, line.indexOf(' '));
+    const file = line.slice(tab + 1);
+    if (mode === '120000') {
+      err('repo', `tracked symlink: ${file} — a link's blob is its target's path, and this history is public`);
+      continue;
+    }
+    if (mode === '160000') continue;                     // gitlink; nothing to read
+    const abs = path.join(ROOT, file);
+    let st;
+    try { st = fs.statSync(abs); } catch { continue; }
+    if (!st.isFile() || st.size > MAX_FILE_BYTES) continue;
+    const buf = fs.readFileSync(abs);
+    if (buf.includes(0)) continue;                       // binary
+    const text = buf.toString('utf8');
+    if (text.includes(HYGIENE_ALLOW)) continue;          // deliberate, and visible in review
+    const m = HOME_PATH.exec(text);
+    if (m) {
+      err('repo', `tracked file ${file} contains an absolute home path (${m[0].trim().slice(0, 44)}…) — `
+                + `elide the username, or add the marker ${HYGIENE_ALLOW} if the path is genuinely `
+                + `part of the documentation`);
+    }
+  }
+}
+repoHygiene();
 
 if (errors.length) {
   console.error(`✗ validation failed (${errors.length}):`);
