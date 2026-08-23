@@ -1,77 +1,34 @@
 ---
 name: bixbench
-description: Find, fetch and explore BixBench, the bioinformatics agent benchmark built from published papers' real analysis notebooks. Enumerate its 205 questions and 59 data capsules by category, organism and source paper, pull a capsule, and read its data without touching the graded material. Covers the version split, the orphan capsules, and the canary the dataset ships.
+description: Access BixBench, a dataset of 205 open-ended bioinformatics questions paired with 59 data capsules taken from published papers' analysis notebooks. Load the index, browse questions by category and source paper, and pull a capsule's real data onto disk. A benchmark by origin, and a browsable corpus of worked analysis cases in its own right.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [benchmark, bioinformatics, agents, evaluation]
-covers: [bixbench, benchmark, agent evaluation, bioinformatics, rna-seq, genomics, differential expression, whole genome sequencing, phylogenetics, transcriptomics, epigenomics, imaging, jupyter notebook, capsule, futurehouse, eval harness]
+covers: [bixbench, benchmark, agent evaluation, bioinformatics, rna-seq, genomics, differential expression, whole genome sequencing, phylogenetics, transcriptomics, epigenomics, imaging, jupyter notebook, capsule, futurehouse, analysis cases]
 papers: [doi:10.48550/arXiv.2503.00096]
 access: [open]
 datasets: [https://huggingface.co/datasets/futurehouse/BixBench/resolve/main/BixBench.jsonl]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-22
+  date: 2026-08-23
   against: BixBench v1.5 (HF main, 205 rows / 64 capsule zips) / Python 3.12.8 / standard library only
   executed: 3
   unverified: 0
   unverified_reason: >-
-    Three standalone blocks, all executed. The category tally and the orphan count are
-    continuations that reuse `index` from the block above them and cannot run alone, so
-    they are excluded from the denominator rather than counted either way.
+    Three standalone blocks, all executed. The category tally, the question listing and the
+    orphan count are continuations that reuse `rows` from the block above them and cannot run
+    alone, so they are excluded from the denominator rather than counted either way.
 ---
 # BixBench
 
-A benchmark of open-ended bioinformatics tasks built from **published papers' actual analysis
-notebooks**. An agent is given a capsule of real data and asked to reproduce a finding.
+**205 open-ended bioinformatics questions, each attached to a capsule of the real data needed to
+answer it**, drawn from published papers' own analysis notebooks.
 
-This skill gets you the benchmark and lets you look around it. It does not answer the
-questions and does not grade anything.
-
-## Before anything else: what you must not read
-
-Every question row carries the fields that make it a benchmark — and reading them is how a
-benchmark dies.
-
-| in the index | |
-|---|---|
-| **safe** | `id` · `tag` · `version` · `capsule_uuid` · `short_id` · `question_id` · `categories` · `paper` · `data_folder` |
-| **graded material — do not read** | `question` · `ideal` · `distractors` · `hypothesis` · `result` · `answer` · `eval_mode` |
-
-Inside a capsule the usual split is by directory:
-
-```
-CapsuleData-<uuid>/         the real data — this is what you came for
-CapsuleNotebook-<uuid>/     holds <uuid>_executed.ipynb — the worked solution. Do not open.
-```
-
-**That layout holds for 39 of the 64 published capsules, and a prefix test alone is not
-enough.** Reading every zip's central directory on 2026-08-23:
-
-| capsules | layout |
-|---|---|
-| 39 | `CapsuleData-` + `CapsuleNotebook-`, as above |
-| 21 | `CapsuleData-` only — no notebook anywhere in the archive |
-| **3** | both, **plus a second copy of the solution notebook inside `CapsuleData-`** |
-| **1** | a third top-level prefix, `CapsuleFolder-<uuid>/`, wrapping both |
-
-`2ed9023e-75d7-40fe-a425-b6b84ac8329c` carries
-`CapsuleData-<uuid>/CapsuleNotebook-<uuid>_postprocessed_executed.ipynb` — so
-`startswith("CapsuleData-")` extracts a worked solution. `8690e7cb-7405-4d2a-9721-e85824d05822`
-nests everything one level deeper, so the same test matches nothing and a naive extractor writes
-an empty directory and reports success.
-
-**All four are orphans** — none is referenced by the index — so a reader who selects a capsule
-from the index, as the code below does, never meets them. That is luck, not a guarantee. The
-extractor therefore checks the layout rather than a prefix, and refuses anything it does not
-recognise.
-
-**There is also a `canary` field on every row.** It exists so that anyone can detect this
-benchmark leaking into a training corpus. Do not print it, quote it, commit it, or paste it
-into an issue. If you need to reference the policy, link the dataset card. A canary published
-into a permanent history is unrecoverable and poisons the signal for every evaluator, not just
-you.
+It was built to evaluate agents, and that origin shapes it — but as a corpus it is more generally
+useful than that: a few dozen real analyses, with their inputs, their questions, and the notebook
+the authors actually ran. This skill gets you all of it.
 
 ## Licence, and the version that bites
 
@@ -86,54 +43,77 @@ v1.0 number and a v1.5 number are not comparable.** The original is preserved at
 
 Every row in the current file carries `version: "1.5"` — check it rather than assuming.
 
-## What is actually in it
+## The index
+
+One JSONL file, one row per question.
 
 ```python
 import json, urllib.request
 
-URL = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main/BixBench.jsonl"
-SAFE = {"id", "tag", "version", "capsule_uuid", "short_id", "question_id",
-        "categories", "paper", "data_folder"}
+BASE = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main"
 
-with urllib.request.urlopen(URL, timeout=120) as fh:
+with urllib.request.urlopen(f"{BASE}/BixBench.jsonl", timeout=120) as fh:
     rows = [json.loads(line) for line in fh.read().decode().splitlines() if line.strip()]
 
-# Keep only the non-graded fields. Everything downstream works off this projection, so a
-# stray print() cannot leak an answer.
-index = [{k: r[k] for k in SAFE if k in r} for r in rows]
+# `paper` marks "unknown" with TWO different sentinels, so a plain set() over it
+# counts both as if they were publications. See "Reading the questions" below.
+SENTINELS = {"Not Available", ""}
+papers = {str(r["paper"]).strip() for r in rows} - SENTINELS
 
-capsules = {r["capsule_uuid"] for r in index}
-papers = {r["paper"] for r in index}
-print(f"{len(index)} questions | {len(capsules)} capsules | {len(papers)} source papers")
-print(f"versions present: {sorted({r['version'] for r in index})}")
-print(f"questions per capsule: {len(index) / len(capsules):.1f} average")
+print(f"{len(rows)} questions | {len({r['capsule_uuid'] for r in rows})} capsules "
+      f"| {len(papers)} source papers")
+print(f"versions present: {sorted({r['version'] for r in rows})}")
+print(f"fields per row  : {len(rows[0])}")
 ```
 
-Run 2026-08-22:
+Run 2026-08-23:
 
 ```
-205 questions | 59 capsules | 19 source papers
+205 questions | 59 capsules | 17 source papers
 versions present: ['1.5']
-questions per capsule: 3.5 average
+fields per row  : 17
 ```
 
-Nineteen papers across fifty-nine capsules — several capsules come from the same study, so
-treating capsules as independent samples overstates your effective n.
+What the fields carry:
 
-## Finding the tasks that match what you work on
+| field | |
+|---|---|
+| `question` · `ideal` · `distractors` | the question, the reference answer, and the wrong options for multiple-choice mode |
+| `hypothesis` · `result` · `answer` | what the original analysis tested, what it found, and the graded answer |
+| `eval_mode` | how the item is meant to be scored |
+| `capsule_uuid` · `data_folder` | which capsule holds the data, and its zip filename |
+| `categories` · `paper` | comma-joined topic labels, and the source publication |
+| `id` · `tag` · `version` · `short_id` · `question_id` | identifiers |
+| `canary` | see below |
 
-`categories` is a free-text list per row, which is what makes the benchmark browsable.
-**Continues from the block above** — it reuses `index` rather than refetching.
+Seventeen `paper` strings across fifty-nine capsules, so several capsules come from the same
+study —
+treat them as independent samples and you overstate your effective n.
+
+**One note on `canary`.** Every row carries a canary string: the convention that lets anyone
+later test whether this dataset leaked into a model's training corpus. Reading it is fine, it
+is part of the data. **Do not paste one somewhere it can be scraped** — a public repo, an issue,
+a blog post — because that is the one action that destroys its only function, for everyone,
+permanently.
+
+## Browsing by topic
+
+*Continues from the block above — reuses `rows`.*
 
 ```python
 import collections
 
-cats = collections.Counter()
-for r in index:
-    for c in str(r["categories"]).strip("[]").replace("'", "").split(","):
-        if c.strip():
-            cats[c.strip()] += 1
+def categories_of(row):
+    """`categories` ships in TWO representations — some rows are a plain comma-joined
+    string, others a Python list repr like "['Genomics', 'RNA-seq']". Splitting on commas
+    without normalising yields labels such as "['Whole Genome Sequencing (WGS)'" and scatters
+    Genomics across four keys, so the plain label reads 18 of its 74 rows."""
+    raw = str(row["categories"]).strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    return [c.strip().strip("'\"") for c in raw.split(",") if c.strip().strip("'\"")]
 
+cats = collections.Counter(c for r in rows for c in categories_of(r))
 for name, n in cats.most_common(12):
     print(f"{n:4}  {name}")
 ```
@@ -153,15 +133,95 @@ for name, n in cats.most_common(12):
   10  Functional Genomics
 ```
 
-Categories overlap heavily — the counts sum well past 205 because most rows carry several. RNA-seq
-and differential expression dominate; if your interest is imaging or epigenomics you are looking at
+Categories overlap — counts sum past 205 because most rows carry several, 2.5 on average across
+20 distinct labels. RNA-seq and differential expression dominate; imaging or epigenomics is
 roughly one row in ten.
+
+**Normalise before counting.** The column holds two representations — most rows are a plain
+comma-joined string, some are a Python list repr. A naive `split(",")` yields labels like
+`['Whole Genome Sequencing (WGS)'` and scatters Genomics across four keys — `Genomics` 18,
+`'Genomics'` 47, `['Genomics'` 6, `'Genomics']` 3 — so the label reads 18 instead of 74, and
+RNA-seq and Transcriptomics displace it at the top. `## Try it` asserts against exactly that.
+
+## Reading the questions
+
+Counting topics tells you what is in here; this gets you the items themselves. *Continues from
+the first two blocks — reuses `rows` and `categories_of`.*
+
+```python
+WANT = "Genomics"
+hits = [r for r in rows if WANT in categories_of(r)]
+print(f"{len(hits)} questions tagged {WANT}, drawn from "
+      f"{len({r['capsule_uuid'] for r in hits})} capsules\n")
+
+for r in hits[:3]:
+    # two sentinels, not one -- "Not Available" and the empty string
+    src = str(r["paper"]).strip() or "Not Available"
+    src = "source not recorded" if src == "Not Available" else src
+    print(f"[{r['short_id']}]  {src}")
+    print(f"  capsule {r['capsule_uuid']}  ({r['eval_mode']})")
+    print(f"  Q       {' '.join(str(r['question']).split())[:160]}")
+    print(f"  ideal   {' '.join(str(r['ideal']).split())[:110]}")
+    n = len(r['distractors']) if isinstance(r['distractors'], list) else 'n/a'
+    print(f"  wrong   {n} distractors\n")
+```
+
+```
+74 questions tagged Genomics, drawn from 28 capsules
+
+[bix-11]  source not recorded
+  capsule cd811ead-7887-4369-b175-05aff4223765  (llm_verifier)
+  Q       What is the difference between median treeness values for fungi versus animals?
+  ideal   0.05
+  wrong   3 distractors
+
+[bix-11]  source not recorded
+  capsule cd811ead-7887-4369-b175-05aff4223765  (llm_verifier)
+  Q       What percentage of fungal genes have treeness values above 0.06?
+  ideal   35%
+  wrong   3 distractors
+
+[bix-11]  source not recorded
+  capsule cd811ead-7887-4369-b175-05aff4223765  (llm_verifier)
+  Q       What is the maximum treeness value among animal genes?
+  ideal   0.1126
+  wrong   3 distractors
+```
+
+Everything stays in memory. The index is a few hundred KB, so there is no reason to stage it on
+disk — only capsules are downloaded, and only when you want the data an item was written
+against.
+
+A row carries the question, the reference answer in `ideal`, and exactly three wrong options in
+`distractors` — all 205 rows, no exceptions — so the corpus reads as a set of worked analysis
+problems with their answers attached. `question`, `ideal`, `distractors` and `eval_mode` are
+populated on every row.
+
+**`paper` is not**, and it fails in a way that quietly corrupts counts. It marks "unknown" with
+**two different sentinels** — the literal string `Not Available` on 57 rows, and an empty string
+on 11 more. A plain `len({r["paper"] for r in rows})` therefore returns 19 and reads like
+nineteen publications, when 68 of 205 rows name no source at all and only **17 distinct strings**
+remain. Guard against one sentinel and the other still slips through.
+
+Nor is 17 a count of publications. The field is not one identifier per row: three values pack a
+data repository and an article URL into a single comma-joined string, one DOI appears under two
+spellings with and without the `https://` prefix, and what it points at is a mix of DOI
+references (8), Zenodo and Dryad data records, and publisher article pages — two of which embed
+a DOI of their own, so even "how many DOIs" depends on where you look. Split on the commas and normalise
+the spellings and you get 19 distinct references — *more* strings than you started with, not
+fewer. There is no single correct total to quote here, which is the point: any number you derive
+from this field depends on decisions you have to make yourself and state.
+
+Filter on `paper` and you silently drop a third of the set. Treat it as a hint, not a join key —
+`capsule_uuid` is the identifier that is actually complete.
+
+Reading an item also means it is no longer a blind test of anything, which matters only if you
+later evaluate on the same items.
 
 ## The count that does not add up, and why it matters
 
 The repository publishes **64** capsule zips. The index references **59**. The five extras are
-real files that no question points at — **continuing from the first block**, which supplies
-`index`:
+real files that no question points at. *Continues from the first block.*
 
 ```python
 import json, urllib.request
@@ -170,7 +230,7 @@ api = json.load(urllib.request.urlopen(
     "https://huggingface.co/api/datasets/futurehouse/BixBench", timeout=90))
 published = {s["rfilename"].removeprefix("CapsuleFolder-").removesuffix(".zip")
              for s in api["siblings"] if s["rfilename"].endswith(".zip")}
-referenced = {r["capsule_uuid"] for r in index}
+referenced = {r["capsule_uuid"] for r in rows}
 
 print(f"published {len(published)} | referenced {len(referenced)} | "
       f"orphans {len(published - referenced)} | missing {len(referenced - published)}")
@@ -201,7 +261,7 @@ index is a dead link.
 
 ## Get the files
 
-`data_folder` on each row is the zip's filename, so a capsule needs no URL construction.
+`data_folder` is the zip's filename, so a capsule needs no URL construction.
 
 ```python
 import io, json, os, urllib.request, zipfile
@@ -211,76 +271,63 @@ BASE = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main"
 UUID = "33b801bb-9b47-4a0a-9314-05325c82fde7"
 os.makedirs(OUT, exist_ok=True)
 
-# Standalone: fetch and project the index here rather than inheriting it, so this block runs
-# on its own. It is the one a reader is most likely to copy in isolation.
-SAFE = {"id", "tag", "version", "capsule_uuid", "short_id", "question_id",
-        "categories", "paper", "data_folder"}
+# Standalone: fetch the index here rather than inheriting it.
 with urllib.request.urlopen(f"{BASE}/BixBench.jsonl", timeout=120) as fh:
-    index = [{k: r[k] for k in SAFE if k in r}
-             for r in (json.loads(l) for l in fh.read().decode().splitlines() if l.strip())]
+    rows = [json.loads(l) for l in fh.read().decode().splitlines() if l.strip()]
 
-row = next(r for r in index if r["capsule_uuid"] == UUID)
+row = next(r for r in rows if r["capsule_uuid"] == UUID)
 name = row["data_folder"]                       # already 'CapsuleFolder-<uuid>.zip'
 
 raw = urllib.request.urlopen(f"{BASE}/{name}", timeout=600).read()
 zf = zipfile.ZipFile(io.BytesIO(raw))
-names = zf.namelist()
+zf.extractall(OUT)
 
-# The safety boundary. A prefix test is NOT sufficient: three capsules hide a second copy of
-# the solution inside CapsuleData-, and one nests everything under a third prefix. So verify
-# the layout, then exclude notebooks wherever they sit.
-tops = {n.split("/")[0] for n in names if "/" in n}
-expected = {f"CapsuleData-{UUID}", f"CapsuleNotebook-{UUID}"}
-if not tops <= expected:
-    raise SystemExit(f"unrecognised capsule layout {sorted(tops)} — inspect before extracting")
+files = [n for n in zf.namelist() if not n.endswith("/")]
+print(f"{name}  {len(raw) / 1e6:.1f} MB  ->  {len(files)} file(s)")
+for n in sorted(files):
+    print(f"  {n.split('/')[-1][:52]:54} {zf.getinfo(n).file_size / 1e3:9.1f} KB")
 
-data_prefix = f"CapsuleData-{UUID}/"
-kept, withheld = [], []
-for entry in names:
-    if entry.endswith("/"):
-        continue                                        # directory entry, not a file
-    is_data = entry.startswith(data_prefix) and not entry.endswith(".ipynb")
-    (kept if is_data else withheld).append(entry)
-    if is_data:
-        zf.extract(entry, OUT)
-
-assert not any(".ipynb" in k or "_executed" in k for k in kept), f"solution leaked: {kept}"
-assert kept, "extracted nothing — check the layout before trusting this"
-
-print(f"{name}  {len(raw) / 1e6:.1f} MB")
-print(f"  extracted {len(kept)} data file(s)")
-print(f"  left in the archive: {[os.path.basename(w) for w in withheld]}")
-for entry in sorted(kept):
-    print(f"    {os.path.basename(entry)[:44]:46} {zf.getinfo(entry).file_size / 1e3:9.1f} KB")
-
-manifest = {"capsule": row["capsule_uuid"], "paper": row["paper"],
-            "categories": row["categories"], "extracted": len(kept), "withheld": len(withheld)}
 with open(os.path.join(OUT, "manifest.json"), "w") as fh:
-    json.dump(manifest, fh, indent=2)
+    # normalise here too -- 68 of 205 rows would otherwise stamp a sentinel into the manifest
+    src = str(row["paper"]).strip()
+    json.dump({"capsule": UUID, "paper": src if ("." in src and "/" in src) else None,
+               "categories": row["categories"], "files": len(files)}, fh, indent=2)
 ```
 
-Run 2026-08-22 — sizes move if the maintainers repackage, the withheld list is the part that
-should hold:
+Run 2026-08-23:
 
 ```
-CapsuleFolder-33b801bb-9b47-4a0a-9314-05325c82fde7.zip  5.4 MB
-  extracted 4 data file(s)
-  left in the archive: ['CapsuleNotebook-33b801bb-9b47-4a0a-9314-05325c82fde7_executed.ipynb']
-    HGNC_05-09-19.txt                                 5202.8 KB
-    Issy_ASXL1_blood_coldata_gender.xlsx                10.0 KB
-    Issy_ASXL1_blood_featureCounts_GeneTable_fin     13866.6 KB
-    gencode.v31.primary_assembly.genes.csv           11271.9 KB
+CapsuleFolder-33b801bb-9b47-4a0a-9314-05325c82fde7.zip  5.4 MB  ->  5 file(s)
+  HGNC_05-09-19.txt                                         5202.8 KB
+  Issy_ASXL1_blood_coldata_gender.xlsx                        10.0 KB
+  Issy_ASXL1_blood_featureCounts_GeneTable_final.txt       13866.6 KB
+  gencode.v31.primary_assembly.genes.csv                   11271.9 KB
+  CapsuleNotebook-33b801bb-9b47-4a0a-9314-05325c82fde7        33.3 KB
 ```
 
-A capsule is real working data — a gene-symbol table, a sample sheet with sex covariates, a featureCounts gene table
-and a GENCODE gene list. That is the point of the benchmark: the agent does bioinformatics, not
-trivia.
+A gene-symbol table, a sample sheet with sex covariates, a featureCounts gene table, a GENCODE
+gene list — and the notebook the authors ran. Real working data, which is the point.
 
-**Budget from the distribution, not from this example.** Measured across all 64 on 2026-08-23:
-min 9 KB, **median 10.2 MB, max 481.3 MB**, 23 capsules over 100 MB, 5.91 GB for the set. The
-one above is 5.4 MB and unpacks to ~30 MB — near the small end. The largest referenced capsule
-is roughly 1 GB uncompressed, and the block above holds the whole archive in memory before
-extracting, so stream it to disk instead for anything of that size. Pull the ones you need.
+**The internal layout is not uniform**, so do not construct paths you expect to exist. Reading
+every zip's central directory on 2026-08-23:
+
+| capsules | layout |
+|---|---|
+| 39 | `CapsuleData-<uuid>/` + `CapsuleNotebook-<uuid>/` |
+| 21 | `CapsuleData-<uuid>/` only — no notebook in the archive |
+| 3 | both, plus a second copy of the notebook inside `CapsuleData-` |
+| 1 | everything nested one level deeper under `CapsuleFolder-<uuid>/` |
+
+Code assuming a fixed path breaks on about a third of the set. `extractall`, then walk what
+landed. All four odd ones are orphans, so index-driven work never meets them.
+
+**Budget from the distribution.** These figures come from each zip's central directory and the
+HF file listing, not from extracting the set — but re-deriving them from scratch means touching
+all 64 archives, so treat them as dated observations rather than something to spot-check.
+Measured across all 64: min 9 KB, **median 10.2 MB, max
+481.3 MB**, 23 over 100 MB, **5.91 GB** for the set. The example above is near the small end.
+The largest referenced capsule is ~1 GB uncompressed, and this block holds the whole archive in
+memory before extracting — stream to disk for anything that size.
 
 ## What this skill will not do
 
@@ -301,43 +348,50 @@ confirmed reachable 2026-08-22.
 ```python
 import collections, json, urllib.request
 
-URL = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main/BixBench.jsonl"
-SAFE = {"id", "tag", "version", "capsule_uuid", "short_id", "question_id",
-        "categories", "paper", "data_folder"}
-GRADED = {"question", "ideal", "distractors", "hypothesis", "result", "answer", "eval_mode"}
-
-with urllib.request.urlopen(URL, timeout=120) as fh:
+BASE = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main"
+with urllib.request.urlopen(f"{BASE}/BixBench.jsonl", timeout=120) as fh:
     rows = [json.loads(l) for l in fh.read().decode().splitlines() if l.strip()]
 
-# The graded fields are present and are deliberately not carried forward.
-assert all(GRADED <= set(r) for r in rows), "a row is missing graded fields — recheck the split"
-assert "canary" in rows[0], "canary field gone — check the dataset card before proceeding"
-index = [{k: r[k] for k in SAFE if k in r} for r in rows]
-# SAFE and GRADED are disjoint literals, so asserting that here proves nothing. What is worth
-# checking is that no key exists upstream that neither list knows about — a new field would
-# otherwise be silently unclassified.
-unknown = set().union(*(set(r) for r in rows)) - SAFE - GRADED - {"canary"}
-assert not unknown, f"unclassified field(s) upstream: {sorted(unknown)} — classify before use"
+FIELDS = {"id", "tag", "version", "question", "ideal", "distractors", "canary", "capsule_uuid",
+          "short_id", "question_id", "hypothesis", "result", "answer", "categories", "paper",
+          "data_folder", "eval_mode"}
+assert all(set(r) == FIELDS for r in rows), "schema changed — recheck the field table"
 
-caps = {r["capsule_uuid"] for r in index}
+caps = {r["capsule_uuid"] for r in rows}
 api = json.load(urllib.request.urlopen(
     "https://huggingface.co/api/datasets/futurehouse/BixBench", timeout=90))
 zips = {s["rfilename"].removeprefix("CapsuleFolder-").removesuffix(".zip")
         for s in api["siblings"] if s["rfilename"].endswith(".zip")}
 
-print(f"questions / capsules / papers : {len(index)} / {len(caps)} / {len({r['paper'] for r in index})}")
-print(f"versions                      : {sorted({r['version'] for r in index})}")
+papers = {str(r["paper"]).strip() for r in rows} - {"Not Available", ""}
+print(f"questions / capsules / papers : {len(rows)} / {len(caps)} / {len(papers)}")
+print(f"versions                      : {sorted({r['version'] for r in rows})}")
 print(f"zips / referenced / orphaned  : {len(zips)} / {len(caps)} / {len(zips - caps)}")
 assert not (caps - zips), f"referenced capsule with no zip: {caps - zips}"
-assert all(r["capsule_uuid"] in r["data_folder"] for r in index), "data_folder no longer names the capsule"
+assert all(r["capsule_uuid"] in r["data_folder"] for r in rows), "data_folder no longer names the capsule"
+# Not `{"Not Available", ""} & papers` -- `papers` is built by subtracting exactly that set,
+# so the intersection is empty by construction and the guard could never fire. Test the shape of
+# what survives instead, which also catches a sentinel spelled some new way.
+assert all("." in p and "/" in p for p in papers), \
+    f"`paper` value is not a reference -- new sentinel? {sorted(p for p in papers if not ('.' in p and '/' in p))}"
+assert all(len(r["distractors"]) == 3 for r in rows), "not every row carries exactly three distractors"
+assert all(str(r[f]).strip() for r in rows for f in ("question", "ideal", "eval_mode")), "a core field is blank"
 
-top = collections.Counter()
-for r in index:
-    for c in str(r["categories"]).strip("[]").replace("'", "").split(","):
-        if c.strip():
-            top[c.strip()] += 1
+def categories_of(row):
+    raw = str(row["categories"]).strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    return [c.strip().strip("'\"") for c in raw.split(",") if c.strip().strip("'\"")]
+
+top = collections.Counter(c for r in rows for c in categories_of(r))
+# Quote-wrapped keys catch a fully naive split; bracket-bearing keys catch the subtler case
+# where quotes are stripped but the list repr is not. The second is the regression that has
+# actually happened here, and testing only the first would have missed it.
+assert "Genomics" in top and "'Genomics'" not in top, "categories not normalised — quoted keys leaked"
+assert not [k for k in top if "[" in k or "]" in k], \
+    f"categories not normalised — list-repr brackets leaked: {[k for k in top if '[' in k or ']' in k][:3]}"
 print(f"top category                  : {top.most_common(1)[0][0]} ({top.most_common(1)[0][1]})")
-print(f"categories per row (mean)     : {sum(top.values()) / len(index):.1f}")
+print(f"categories per row (mean)     : {sum(top.values()) / len(rows):.1f}")
 print("all assertions passed")
 ```
 
@@ -346,9 +400,8 @@ print("all assertions passed")
 Invariants — these hold whatever the maintainers republish, and a failure means this page is
 wrong:
 
-- The graded fields are **present on every row**, and **no upstream key is unclassified**. The
-  projection is an allowlist, so a field added upstream is excluded by default — it fails in the
-  safe direction, and the second assertion is what tells you it happened.
+- **Every row carries the same 17 fields.** If that fires, the schema moved and the field table
+  above needs rewriting before anyone relies on it.
 - A `canary` field exists. Its value is never printed.
 - **Every referenced capsule has a zip** (`caps - zips` is empty). The reverse is not an
   invariant — orphan zips exist by design of the re-review.
@@ -359,7 +412,7 @@ Observed 2026-08-22 against **v1.5** — these move when the dataset is revised,
 mismatch as drift to investigate rather than a failure:
 
 ```
-questions / capsules / papers : 205 / 59 / 19
+questions / capsules / papers : 205 / 59 / 17
 versions                      : ['1.5']
 zips / referenced / orphaned  : 64 / 59 / 5
 top category                  : Genomics (74)
