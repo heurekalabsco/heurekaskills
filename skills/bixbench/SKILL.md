@@ -17,9 +17,9 @@ verified:
   executed: 3
   unverified: 0
   unverified_reason: >-
-    Three standalone blocks, all executed. The category tally and the orphan count are
-    continuations that reuse `rows` from the block above them and cannot run alone, so they
-    are excluded from the denominator rather than counted either way.
+    Three standalone blocks, all executed. The category tally, the question listing and the
+    orphan count are continuations that reuse `rows` from the block above them and cannot run
+    alone, so they are excluded from the denominator rather than counted either way.
 ---
 # BixBench
 
@@ -135,6 +135,69 @@ roughly one row in ten.
 comma-joined string, some are a Python list repr. A naive `split(",")` yields labels like
 `['Whole Genome Sequencing (WGS)'` and files Genomics under two keys, dropping it from 74 to 47
 and changing which category looks largest. `## Try it` asserts against exactly that.
+
+## Reading the questions
+
+Counting topics tells you what is in here; this gets you the items themselves. *Continues from
+the first two blocks — reuses `rows` and `categories_of`.*
+
+```python
+WANT = "Genomics"
+hits = [r for r in rows if WANT in categories_of(r)]
+print(f"{len(hits)} questions tagged {WANT}, drawn from "
+      f"{len({r['capsule_uuid'] for r in hits})} capsules\n")
+
+for r in hits[:3]:
+    # `paper` is the literal string "Not Available" on a third of the rows -- see below
+    src = r["paper"] if str(r["paper"]).strip() != "Not Available" else "source not recorded"
+    print(f"[{r['short_id']}]  {src}")
+    print(f"  capsule {r['capsule_uuid']}  ({r['eval_mode']})")
+    print(f"  Q       {' '.join(str(r['question']).split())[:160]}")
+    print(f"  ideal   {' '.join(str(r['ideal']).split())[:110]}")
+    n = len(r['distractors']) if isinstance(r['distractors'], list) else 'n/a'
+    print(f"  wrong   {n} distractors\n")
+```
+
+```
+74 questions tagged Genomics, drawn from 28 capsules
+
+[bix-11]  source not recorded
+  capsule cd811ead-7887-4369-b175-05aff4223765  (llm_verifier)
+  Q       What is the difference between median treeness values for fungi versus animals?
+  ideal   0.05
+  wrong   3 distractors
+
+[bix-11]  source not recorded
+  capsule cd811ead-7887-4369-b175-05aff4223765  (llm_verifier)
+  Q       What percentage of fungal genes have treeness values above 0.06?
+  ideal   35%
+  wrong   3 distractors
+
+[bix-11]  source not recorded
+  capsule cd811ead-7887-4369-b175-05aff4223765  (llm_verifier)
+  Q       What is the maximum treeness value among animal genes?
+  ideal   0.1126
+  wrong   3 distractors
+```
+
+Everything stays in memory. The index is a few hundred KB, so there is no reason to stage it on
+disk — only capsules are downloaded, and only when you want the data an item was written
+against.
+
+A row carries the question, the reference answer in `ideal`, and exactly three wrong options in
+`distractors` — all 205 rows, no exceptions — so the corpus reads as a set of worked analysis
+problems with their answers attached. `question`, `ideal`, `distractors` and `eval_mode` are
+populated on every row.
+
+**`paper` is not.** It holds the literal string `Not Available` on **68 of 205 rows**, and the
+137 that do carry a value resolve to just **17 distinct publications**. So a third of the corpus
+does not name where it came from, and the rest is far more concentrated than the row count
+suggests. Filter on it and you silently drop a third of the set; group by it and 17 buckets
+absorb everything. Treat it as a hint, not a join key — `capsule_uuid` is the identifier that is
+actually complete.
+
+Reading an item also means it is no longer a blind test of anything, which matters only if you
+later evaluate on the same items.
 
 ## The count that does not add up, and why it matters
 
