@@ -14,8 +14,12 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-22
   against: BixBench v1.5 (HF main, 205 rows / 64 capsule zips) / Python 3.12.8 / standard library only
-  executed: 4
+  executed: 3
   unverified: 0
+  unverified_reason: >-
+    Three standalone blocks, all executed. The category tally and the orphan count are
+    continuations that reuse `index` from the block above them and cannot run alone, so
+    they are excluded from the denominator rather than counted either way.
 ---
 # BixBench
 
@@ -35,15 +39,33 @@ benchmark dies.
 | **safe** | `id` · `tag` · `version` · `capsule_uuid` · `short_id` · `question_id` · `categories` · `paper` · `data_folder` |
 | **graded material — do not read** | `question` · `ideal` · `distractors` · `hypothesis` · `result` · `answer` · `eval_mode` |
 
-Inside a capsule the split is by directory, which makes it mechanically checkable:
+Inside a capsule the usual split is by directory:
 
 ```
 CapsuleData-<uuid>/         the real data — this is what you came for
 CapsuleNotebook-<uuid>/     holds <uuid>_executed.ipynb — the worked solution. Do not open.
 ```
 
-**Extract `CapsuleData-*` and leave `CapsuleNotebook-*` in the zip.** The code below does that
-rather than trusting you to remember.
+**That layout holds for 39 of the 64 published capsules, and a prefix test alone is not
+enough.** Reading every zip's central directory on 2026-08-23:
+
+| capsules | layout |
+|---|---|
+| 39 | `CapsuleData-` + `CapsuleNotebook-`, as above |
+| 21 | `CapsuleData-` only — no notebook anywhere in the archive |
+| **3** | both, **plus a second copy of the solution notebook inside `CapsuleData-`** |
+| **1** | a third top-level prefix, `CapsuleFolder-<uuid>/`, wrapping both |
+
+`2ed9023e-75d7-40fe-a425-b6b84ac8329c` carries
+`CapsuleData-<uuid>/CapsuleNotebook-<uuid>_postprocessed_executed.ipynb` — so
+`startswith("CapsuleData-")` extracts a worked solution. `8690e7cb-7405-4d2a-9721-e85824d05822`
+nests everything one level deeper, so the same test matches nothing and a naive extractor writes
+an empty directory and reports success.
+
+**All four are orphans** — none is referenced by the index — so a reader who selects a capsule
+from the index, as the code below does, never meets them. That is luck, not a guarantee. The
+extractor therefore checks the layout rather than a prefix, and refuses anything it does not
+recognise.
 
 **There is also a `canary` field on every row.** It exists so that anyone can detect this
 benchmark leaking into a training corpus. Do not print it, quote it, commit it, or paste it
@@ -101,6 +123,7 @@ treating capsules as independent samples overstates your effective n.
 ## Finding the tasks that match what you work on
 
 `categories` is a free-text list per row, which is what makes the benchmark browsable.
+**Continues from the block above** — it reuses `index` rather than refetching.
 
 ```python
 import collections
@@ -137,7 +160,8 @@ roughly one row in ten.
 ## The count that does not add up, and why it matters
 
 The repository publishes **64** capsule zips. The index references **59**. The five extras are
-real files that no question points at:
+real files that no question points at — **continuing from the first block**, which supplies
+`index`:
 
 ```python
 import json, urllib.request
@@ -164,10 +188,16 @@ published 64 | referenced 59 | orphans 5 | missing 0
 ```
 
 **Count the index, not the directory.** A reader who lists zips concludes there are 64 tasks and
-is wrong by five. The likeliest explanation is the v1.0 → v1.5 re-review dropping those capsules'
-questions while leaving the data published, but the maintainers do not say so — treat that as the
-observation it is. `missing 0` is the reassuring half: every referenced capsule does have a zip,
-so nothing in the index is a dead link.
+is wrong by five.
+
+The `v1.0` tag settles why, so this needs no hedging: at v1.0 the dataset referenced 53 capsules
+across 296 questions with **zero** orphans, and the set of capsules referenced at v1.0 but not at
+v1.5 is **exactly** these five. Eleven zips were added and none removed, so the re-review dropped
+their questions and left the data published. Four of the five are also the malformed capsules
+described above — which is the likeliest reason they were dropped.
+
+`missing 0` is the reassuring half: every referenced capsule does have a zip, so nothing in the
+index is a dead link.
 
 ## Get the files
 
@@ -178,30 +208,53 @@ import io, json, os, urllib.request, zipfile
 
 OUT = "Data/bixbench"
 BASE = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main"
+UUID = "33b801bb-9b47-4a0a-9314-05325c82fde7"
 os.makedirs(OUT, exist_ok=True)
 
-row = next(r for r in index if r["capsule_uuid"] == "33b801bb-9b47-4a0a-9314-05325c82fde7")
+# Standalone: fetch and project the index here rather than inheriting it, so this block runs
+# on its own. It is the one a reader is most likely to copy in isolation.
+SAFE = {"id", "tag", "version", "capsule_uuid", "short_id", "question_id",
+        "categories", "paper", "data_folder"}
+with urllib.request.urlopen(f"{BASE}/BixBench.jsonl", timeout=120) as fh:
+    index = [{k: r[k] for k in SAFE if k in r}
+             for r in (json.loads(l) for l in fh.read().decode().splitlines() if l.strip())]
+
+row = next(r for r in index if r["capsule_uuid"] == UUID)
 name = row["data_folder"]                       # already 'CapsuleFolder-<uuid>.zip'
 
 raw = urllib.request.urlopen(f"{BASE}/{name}", timeout=600).read()
 zf = zipfile.ZipFile(io.BytesIO(raw))
+names = zf.namelist()
 
-# Extract the data and NOT the worked solution. This is the whole safety boundary and it is
-# one prefix test — do not replace it with "extract everything and remember not to look".
-kept, skipped = [], []
-for entry in zf.namelist():
-    (kept if entry.startswith("CapsuleData-") else skipped).append(entry)
-    if entry.startswith("CapsuleData-") and not entry.endswith("/"):
+# The safety boundary. A prefix test is NOT sufficient: three capsules hide a second copy of
+# the solution inside CapsuleData-, and one nests everything under a third prefix. So verify
+# the layout, then exclude notebooks wherever they sit.
+tops = {n.split("/")[0] for n in names if "/" in n}
+expected = {f"CapsuleData-{UUID}", f"CapsuleNotebook-{UUID}"}
+if not tops <= expected:
+    raise SystemExit(f"unrecognised capsule layout {sorted(tops)} — inspect before extracting")
+
+data_prefix = f"CapsuleData-{UUID}/"
+kept, withheld = [], []
+for entry in names:
+    if entry.endswith("/"):
+        continue                                        # directory entry, not a file
+    is_data = entry.startswith(data_prefix) and not entry.endswith(".ipynb")
+    (kept if is_data else withheld).append(entry)
+    if is_data:
         zf.extract(entry, OUT)
 
+assert not any(".ipynb" in k or "_executed" in k for k in kept), f"solution leaked: {kept}"
+assert kept, "extracted nothing — check the layout before trusting this"
+
 print(f"{name}  {len(raw) / 1e6:.1f} MB")
-print(f"  extracted {sum(1 for k in kept if not k.endswith('/'))} data file(s)")
-print(f"  left in the archive: {[os.path.basename(s) for s in skipped if not s.endswith('/')]}")
-for entry in sorted(k for k in kept if not k.endswith("/")):
+print(f"  extracted {len(kept)} data file(s)")
+print(f"  left in the archive: {[os.path.basename(w) for w in withheld]}")
+for entry in sorted(kept):
     print(f"    {os.path.basename(entry)[:44]:46} {zf.getinfo(entry).file_size / 1e3:9.1f} KB")
 
 manifest = {"capsule": row["capsule_uuid"], "paper": row["paper"],
-            "categories": row["categories"], "extracted": len(kept), "withheld": len(skipped)}
+            "categories": row["categories"], "extracted": len(kept), "withheld": len(withheld)}
 with open(os.path.join(OUT, "manifest.json"), "w") as fh:
     json.dump(manifest, fh, indent=2)
 ```
@@ -223,8 +276,11 @@ A capsule is real working data — a gene-symbol table, a sample sheet with sex 
 and a GENCODE gene list. That is the point of the benchmark: the agent does bioinformatics, not
 trivia.
 
-**Capsules are not small.** This one is 5.4 MB compressed and unpacks to ~30 MB. Pull the ones
-you need, not all 64.
+**Budget from the distribution, not from this example.** Measured across all 64 on 2026-08-23:
+min 9 KB, **median 10.2 MB, max 481.3 MB**, 23 capsules over 100 MB, 5.91 GB for the set. The
+one above is 5.4 MB and unpacks to ~30 MB — near the small end. The largest referenced capsule
+is roughly 1 GB uncompressed, and the block above holds the whole archive in memory before
+extracting, so stream it to disk instead for anything of that size. Pull the ones you need.
 
 ## What this skill will not do
 
@@ -254,10 +310,14 @@ with urllib.request.urlopen(URL, timeout=120) as fh:
     rows = [json.loads(l) for l in fh.read().decode().splitlines() if l.strip()]
 
 # The graded fields are present and are deliberately not carried forward.
-assert GRADED <= set(rows[0]), "schema changed — re-check what counts as graded material"
+assert all(GRADED <= set(r) for r in rows), "a row is missing graded fields — recheck the split"
 assert "canary" in rows[0], "canary field gone — check the dataset card before proceeding"
 index = [{k: r[k] for k in SAFE if k in r} for r in rows]
-assert not (set().union(*(set(r) for r in index)) & GRADED), "graded field leaked into the projection"
+# SAFE and GRADED are disjoint literals, so asserting that here proves nothing. What is worth
+# checking is that no key exists upstream that neither list knows about — a new field would
+# otherwise be silently unclassified.
+unknown = set().union(*(set(r) for r in rows)) - SAFE - GRADED - {"canary"}
+assert not unknown, f"unclassified field(s) upstream: {sorted(unknown)} — classify before use"
 
 caps = {r["capsule_uuid"] for r in index}
 api = json.load(urllib.request.urlopen(
@@ -286,9 +346,9 @@ print("all assertions passed")
 Invariants — these hold whatever the maintainers republish, and a failure means this page is
 wrong:
 
-- The graded fields are **present in the raw rows and absent from the projection**. If the first
-  assertion fails the schema moved and the safe/graded split above needs rechecking before
-  anyone runs this.
+- The graded fields are **present on every row**, and **no upstream key is unclassified**. The
+  projection is an allowlist, so a field added upstream is excluded by default — it fails in the
+  safe direction, and the second assertion is what tells you it happened.
 - A `canary` field exists. Its value is never printed.
 - **Every referenced capsule has a zip** (`caps - zips` is empty). The reverse is not an
   invariant — orphan zips exist by design of the re-review.
