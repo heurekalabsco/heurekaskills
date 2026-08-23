@@ -12,11 +12,14 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-23
   against: anndata 0.13.2 / scanpy 1.12.3 / Python 3.12.11
-  executed: 8
+  executed: 7
   unverified: 2
   unverified_reason: >-
-    The Muon and PyTorch blocks need muon and torch, which the validating
-    environment does not install. Re-run them from a host that has both.
+    The scanpy clustering block needs leidenalg, which scanpy 1.12.3 keeps behind its
+    `leiden` extra, and the AnnLoader block needs torch. Both run once those are
+    installed. The Muon block is excluded from the denominator rather than counted
+    unverified — it references variables this page never creates, so it cannot run
+    standalone whether or not muon is present.
 ---
 # AnnData
 
@@ -52,9 +55,15 @@ The extras 0.13 publishes are `dask`, `lazy`, `gpu`, `cu11`, `cu12` and `cu13` �
 `cu*` ones pull CUDA wheels, so ask for them only on a GPU box. The contributor extras
 0.12 carried (`dev`, `test`, `doc`) were dropped, and asking for one now succeeds and
 installs nothing extra rather than failing — so a stale `[dev]` in a script keeps
-working while silently giving you none of what it used to. How visible that is depends
-on the installer: `pip` prints `WARNING: anndata 0.13.2 does not provide the extra
-'dev'`, while `uv pip install` — the command above — says nothing at all and exits 0.
+working while silently giving you none of what it used to. **Both installers warn**, and
+both still exit 0, so the failure is a line in a log rather than a broken build:
+
+```
+pip  WARNING: anndata 0.13.2 does not provide the extra 'dev'
+uv   warning: The package `anndata==0.13.2` does not have an extra named `dev`
+```
+
+Checked 2026-08-23 against pip 26.2.1 and uv 0.9.24, for `dev`, `test` and `doc`.
 
 Current API notes:
 - Use `anndata.io` for non-native `read_*` and `write_*` helpers. Top-level `anndata.read_h5ad` and `anndata.read_zarr` remain supported.
@@ -308,7 +317,7 @@ sc.pp.highly_variable_genes(adata, n_top_genes=2000)
 sc.pp.pca(adata, n_comps=50)
 sc.pp.neighbors(adata, n_neighbors=15)
 sc.tl.umap(adata)
-sc.tl.leiden(adata)
+sc.tl.leiden(adata)   # needs scanpy[leiden] — leidenalg is not in the base install
 
 # Visualization
 sc.pl.umap(adata, color=['cell_type', 'leiden'])
