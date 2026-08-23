@@ -1,6 +1,6 @@
 ---
 name: bixbench
-description: Access BixBench, a dataset of 205 open-ended bioinformatics questions paired with 64 data capsules taken from published papers' analysis notebooks. Load the index, browse questions by category and source paper, and pull a capsule's real data onto disk. A benchmark by origin, and a browsable corpus of worked analysis cases in its own right.
+description: Access BixBench, a dataset of 205 open-ended bioinformatics questions paired with 59 data capsules taken from published papers' analysis notebooks. Load the index, browse questions by category and source paper, and pull a capsule's real data onto disk. A benchmark by origin, and a browsable corpus of worked analysis cases in its own right.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
@@ -12,7 +12,7 @@ access: [open]
 datasets: [https://huggingface.co/datasets/futurehouse/BixBench/resolve/main/BixBench.jsonl]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-22
+  date: 2026-08-23
   against: BixBench v1.5 (HF main, 205 rows / 64 capsule zips) / Python 3.12.8 / standard library only
   executed: 3
   unverified: 0
@@ -86,7 +86,8 @@ What the fields carry:
 | `id` · `tag` · `version` · `short_id` · `question_id` | identifiers |
 | `canary` | see below |
 
-Nineteen papers across fifty-nine capsules, so several capsules come from the same study —
+Seventeen `paper` strings across fifty-nine capsules, so several capsules come from the same
+study —
 treat them as independent samples and you overstate your effective n.
 
 **One note on `canary`.** Every row carries a canary string: the convention that lets anyone
@@ -105,8 +106,8 @@ import collections
 def categories_of(row):
     """`categories` ships in TWO representations — some rows are a plain comma-joined
     string, others a Python list repr like "['Genomics', 'RNA-seq']". Splitting on commas
-    without normalising yields labels such as "['Whole Genome Sequencing (WGS)'" and counts
-    Genomics under two different keys, which silently halves it."""
+    without normalising yields labels such as "['Whole Genome Sequencing (WGS)'" and scatters
+    Genomics across four keys, so the plain label reads 18 of its 74 rows."""
     raw = str(row["categories"]).strip()
     if raw.startswith("[") and raw.endswith("]"):
         raw = raw[1:-1]
@@ -138,8 +139,9 @@ roughly one row in ten.
 
 **Normalise before counting.** The column holds two representations — most rows are a plain
 comma-joined string, some are a Python list repr. A naive `split(",")` yields labels like
-`['Whole Genome Sequencing (WGS)'` and files Genomics under two keys, dropping it from 74 to 47
-and changing which category looks largest. `## Try it` asserts against exactly that.
+`['Whole Genome Sequencing (WGS)'` and scatters Genomics across four keys — `Genomics` 18,
+`'Genomics'` 47, `['Genomics'` 6, `'Genomics']` 3 — so the label reads 18 instead of 74, and
+RNA-seq and Transcriptomics displace it at the top. `## Try it` asserts against exactly that.
 
 ## Reading the questions
 
@@ -203,8 +205,9 @@ remain. Guard against one sentinel and the other still slips through.
 
 Nor is 17 a count of publications. The field is not one identifier per row: three values pack a
 data repository and an article URL into a single comma-joined string, one DOI appears under two
-spellings with and without the `https://` prefix, and what it points at is a mix of DOIs (10),
-Zenodo and Dryad data records, and publisher article pages. Split on the commas and normalise
+spellings with and without the `https://` prefix, and what it points at is a mix of DOI
+references (8), Zenodo and Dryad data records, and publisher article pages — two of which embed
+a DOI of their own, so even "how many DOIs" depends on where you look. Split on the commas and normalise
 the spellings and you get 19 distinct references — *more* strings than you started with, not
 fewer. There is no single correct total to quote here, which is the point: any number you derive
 from this field depends on decisions you have to make yourself and state.
@@ -285,7 +288,9 @@ for n in sorted(files):
     print(f"  {n.split('/')[-1][:52]:54} {zf.getinfo(n).file_size / 1e3:9.1f} KB")
 
 with open(os.path.join(OUT, "manifest.json"), "w") as fh:
-    json.dump({"capsule": UUID, "paper": row["paper"],
+    # normalise here too -- 68 of 205 rows would otherwise stamp a sentinel into the manifest
+    src = str(row["paper"]).strip()
+    json.dump({"capsule": UUID, "paper": src if ("." in src and "/" in src) else None,
                "categories": row["categories"], "files": len(files)}, fh, indent=2)
 ```
 
@@ -316,7 +321,10 @@ every zip's central directory on 2026-08-23:
 Code assuming a fixed path breaks on about a third of the set. `extractall`, then walk what
 landed. All four odd ones are orphans, so index-driven work never meets them.
 
-**Budget from the distribution.** Measured across all 64: min 9 KB, **median 10.2 MB, max
+**Budget from the distribution.** These figures come from each zip's central directory and the
+HF file listing, not from extracting the set — but re-deriving them from scratch means touching
+all 64 archives, so treat them as dated observations rather than something to spot-check.
+Measured across all 64: min 9 KB, **median 10.2 MB, max
 481.3 MB**, 23 over 100 MB, **5.91 GB** for the set. The example above is near the small end.
 The largest referenced capsule is ~1 GB uncompressed, and this block holds the whole archive in
 memory before extracting — stream to disk for anything that size.
@@ -361,7 +369,13 @@ print(f"versions                      : {sorted({r['version'] for r in rows})}")
 print(f"zips / referenced / orphaned  : {len(zips)} / {len(caps)} / {len(zips - caps)}")
 assert not (caps - zips), f"referenced capsule with no zip: {caps - zips}"
 assert all(r["capsule_uuid"] in r["data_folder"] for r in rows), "data_folder no longer names the capsule"
-assert not ({"Not Available", ""} & papers), "a `paper` sentinel is being counted as a publication"
+# Not `{"Not Available", ""} & papers` -- `papers` is built by subtracting exactly that set,
+# so the intersection is empty by construction and the guard could never fire. Test the shape of
+# what survives instead, which also catches a sentinel spelled some new way.
+assert all("." in p and "/" in p for p in papers), \
+    f"`paper` value is not a reference -- new sentinel? {sorted(p for p in papers if not ('.' in p and '/' in p))}"
+assert all(len(r["distractors"]) == 3 for r in rows), "not every row carries exactly three distractors"
+assert all(str(r[f]).strip() for r in rows for f in ("question", "ideal", "eval_mode")), "a core field is blank"
 
 def categories_of(row):
     raw = str(row["categories"]).strip()
@@ -370,7 +384,12 @@ def categories_of(row):
     return [c.strip().strip("'\"") for c in raw.split(",") if c.strip().strip("'\"")]
 
 top = collections.Counter(c for r in rows for c in categories_of(r))
-assert "Genomics" in top and "'Genomics'" not in top, "categories not normalised — check both representations"
+# Quote-wrapped keys catch a fully naive split; bracket-bearing keys catch the subtler case
+# where quotes are stripped but the list repr is not. The second is the regression that has
+# actually happened here, and testing only the first would have missed it.
+assert "Genomics" in top and "'Genomics'" not in top, "categories not normalised — quoted keys leaked"
+assert not [k for k in top if "[" in k or "]" in k], \
+    f"categories not normalised — list-repr brackets leaked: {[k for k in top if '[' in k or ']' in k][:3]}"
 print(f"top category                  : {top.most_common(1)[0][0]} ({top.most_common(1)[0][1]})")
 print(f"categories per row (mean)     : {sum(top.values()) / len(rows):.1f}")
 print("all assertions passed")
