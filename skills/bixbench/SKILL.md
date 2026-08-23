@@ -201,14 +201,16 @@ on 11 more. A plain `len({r["paper"] for r in rows})` therefore returns 19 and r
 nineteen publications, when 68 of 205 rows name no source at all and only **17 distinct strings**
 remain. Guard against one sentinel and the other still slips through.
 
-Seventeen is generous too. One DOI appears under two spellings, with and without the `https://`
-prefix, and three values pack a data repository and an article URL into a single comma-joined
-string — so the honest figure is roughly **16 publications**, several reachable only by splitting
-a field that looks atomic.
+Nor is 17 a count of publications. The field is not one identifier per row: three values pack a
+data repository and an article URL into a single comma-joined string, one DOI appears under two
+spellings with and without the `https://` prefix, and what it points at is a mix of DOIs (10),
+Zenodo and Dryad data records, and publisher article pages. Split on the commas and normalise
+the spellings and you get 19 distinct references — *more* strings than you started with, not
+fewer. There is no single correct total to quote here, which is the point: any number you derive
+from this field depends on decisions you have to make yourself and state.
 
-Filter on `paper` and you silently drop a third of the set; group by it and everything collapses
-into ~16 buckets. Treat it as a hint, not a join key — `capsule_uuid` is the identifier that is
-actually complete.
+Filter on `paper` and you silently drop a third of the set. Treat it as a hint, not a join key —
+`capsule_uuid` is the identifier that is actually complete.
 
 Reading an item also means it is no longer a blind test of anything, which matters only if you
 later evaluate on the same items.
