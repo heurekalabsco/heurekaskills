@@ -55,8 +55,13 @@ BASE = "https://huggingface.co/datasets/futurehouse/BixBench/resolve/main"
 with urllib.request.urlopen(f"{BASE}/BixBench.jsonl", timeout=120) as fh:
     rows = [json.loads(line) for line in fh.read().decode().splitlines() if line.strip()]
 
+# `paper` marks "unknown" with TWO different sentinels, so a plain set() over it
+# counts both as if they were publications. See "Reading the questions" below.
+SENTINELS = {"Not Available", ""}
+papers = {str(r["paper"]).strip() for r in rows} - SENTINELS
+
 print(f"{len(rows)} questions | {len({r['capsule_uuid'] for r in rows})} capsules "
-      f"| {len({r['paper'] for r in rows})} source papers")
+      f"| {len(papers)} source papers")
 print(f"versions present: {sorted({r['version'] for r in rows})}")
 print(f"fields per row  : {len(rows[0])}")
 ```
@@ -64,7 +69,7 @@ print(f"fields per row  : {len(rows[0])}")
 Run 2026-08-23:
 
 ```
-205 questions | 59 capsules | 19 source papers
+205 questions | 59 capsules | 17 source papers
 versions present: ['1.5']
 fields per row  : 17
 ```
@@ -148,8 +153,9 @@ print(f"{len(hits)} questions tagged {WANT}, drawn from "
       f"{len({r['capsule_uuid'] for r in hits})} capsules\n")
 
 for r in hits[:3]:
-    # `paper` is the literal string "Not Available" on a third of the rows -- see below
-    src = r["paper"] if str(r["paper"]).strip() != "Not Available" else "source not recorded"
+    # two sentinels, not one -- "Not Available" and the empty string
+    src = str(r["paper"]).strip() or "Not Available"
+    src = "source not recorded" if src == "Not Available" else src
     print(f"[{r['short_id']}]  {src}")
     print(f"  capsule {r['capsule_uuid']}  ({r['eval_mode']})")
     print(f"  Q       {' '.join(str(r['question']).split())[:160]}")
@@ -189,11 +195,19 @@ A row carries the question, the reference answer in `ideal`, and exactly three w
 problems with their answers attached. `question`, `ideal`, `distractors` and `eval_mode` are
 populated on every row.
 
-**`paper` is not.** It holds the literal string `Not Available` on **68 of 205 rows**, and the
-137 that do carry a value resolve to just **17 distinct publications**. So a third of the corpus
-does not name where it came from, and the rest is far more concentrated than the row count
-suggests. Filter on it and you silently drop a third of the set; group by it and 17 buckets
-absorb everything. Treat it as a hint, not a join key — `capsule_uuid` is the identifier that is
+**`paper` is not**, and it fails in a way that quietly corrupts counts. It marks "unknown" with
+**two different sentinels** — the literal string `Not Available` on 57 rows, and an empty string
+on 11 more. A plain `len({r["paper"] for r in rows})` therefore returns 19 and reads like
+nineteen publications, when 68 of 205 rows name no source at all and only **17 distinct strings**
+remain. Guard against one sentinel and the other still slips through.
+
+Seventeen is generous too. One DOI appears under two spellings, with and without the `https://`
+prefix, and three values pack a data repository and an article URL into a single comma-joined
+string — so the honest figure is roughly **16 publications**, several reachable only by splitting
+a field that looks atomic.
+
+Filter on `paper` and you silently drop a third of the set; group by it and everything collapses
+into ~16 buckets. Treat it as a hint, not a join key — `capsule_uuid` is the identifier that is
 actually complete.
 
 Reading an item also means it is no longer a blind test of anything, which matters only if you
@@ -339,11 +353,13 @@ api = json.load(urllib.request.urlopen(
 zips = {s["rfilename"].removeprefix("CapsuleFolder-").removesuffix(".zip")
         for s in api["siblings"] if s["rfilename"].endswith(".zip")}
 
-print(f"questions / capsules / papers : {len(rows)} / {len(caps)} / {len({r['paper'] for r in rows})}")
+papers = {str(r["paper"]).strip() for r in rows} - {"Not Available", ""}
+print(f"questions / capsules / papers : {len(rows)} / {len(caps)} / {len(papers)}")
 print(f"versions                      : {sorted({r['version'] for r in rows})}")
 print(f"zips / referenced / orphaned  : {len(zips)} / {len(caps)} / {len(zips - caps)}")
 assert not (caps - zips), f"referenced capsule with no zip: {caps - zips}"
 assert all(r["capsule_uuid"] in r["data_folder"] for r in rows), "data_folder no longer names the capsule"
+assert not ({"Not Available", ""} & papers), "a `paper` sentinel is being counted as a publication"
 
 def categories_of(row):
     raw = str(row["categories"]).strip()
@@ -375,7 +391,7 @@ Observed 2026-08-22 against **v1.5** — these move when the dataset is revised,
 mismatch as drift to investigate rather than a failure:
 
 ```
-questions / capsules / papers : 205 / 59 / 19
+questions / capsules / papers : 205 / 59 / 17
 versions                      : ['1.5']
 zips / referenced / orphaned  : 64 / 59 / 5
 top category                  : Genomics (74)
