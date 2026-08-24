@@ -329,7 +329,10 @@ sorted_results.to_csv("sorted_results.csv")
 **Save DeseqDataSet:**
 ```python
 # Save as AnnData/H5AD for later inspection
-dds.to_picklable_anndata().write_h5ad("dds_result.h5ad")
+adata = dds.to_picklable_anndata()
+# uns["trend_coeffs"] is a pandas Series and h5ad will not write one.
+adata.uns["trend_coeffs"] = adata.uns["trend_coeffs"].to_numpy()
+adata.write_h5ad("dds_result.h5ad")
 ```
 
 **Load saved results:**
