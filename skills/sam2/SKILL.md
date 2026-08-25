@@ -118,7 +118,11 @@ def to_rgb8(plane, lo_pct=1.0, hi_pct=99.5):
 ```
 
 Prompting the same nucleus in the same image under four different conversions gives four
-different masks — measured on an already-8-bit field, so this is the *understated* case:
+different masks — measured on an already-8-bit field with `multimask_output=False`, so this
+is the *understated* case. (The `## Try it` block below prompts the same nucleus with
+`multimask_output=True` and reports all three candidates, which is why its numbers for the
+no-rescale row read 348 px / 0.5777 rather than 347 / 0.6149: a different call, not a
+different result.)
 
 | Conversion | Mask area (px) | Predicted IoU |
 |---|---|---|
@@ -127,8 +131,8 @@ different masks — measured on an already-8-bit field, so this is the *understa
 | 1st-99th percentile stretch | 336 | 0.6935 |
 | gain x2, clipped | 327 | 0.4284 |
 
-A 7% spread in area and a score that nearly doubles, from a step most pipelines treat as
-plumbing. Fix one conversion, record it next to the results, and do not change it between
+A 7% spread in area, and a predicted IoU that moves by 62% between the worst and best
+conversion, from a step most pipelines treat as plumbing. Fix one conversion, record it next to the results, and do not change it between
 conditions you intend to compare. Stretch to percentiles rather than min-max: one hot
 pixel sets the maximum and pushes every real structure toward black.
 
@@ -189,9 +193,10 @@ Same movie frame, same target nucleus, two prompt types:
 | single foreground point at the nucleus centroid | 1231 |
 | box, 13 x 19 px, around the same nucleus | 154 |
 
-The thresholded seed object is 77 px. The point prompt returned eight times that — the
-whole cluster of touching nuclei — and stayed there for all 21 frames. The box prompt
-returned a plausible single nucleus and tracked it.
+The thresholded seed object is 77 px. The box prompt returned 154 px — a plausible single
+nucleus with its rim — and tracked it. The point prompt returned 1231 px: sixteen times the
+seed, eight times the box, the whole cluster of touching nuclei, and it stayed there for all
+21 frames.
 
 A point says "something here". A box says "this much and no more", and on densely packed
 cells that is the only one of the two that answers the question you asked. Derive boxes
@@ -314,8 +319,9 @@ frame:  0    1    2   ...  17   18   19   20
 area:  154  129  131  ...  147  147  131  293
 ```
 
-Steady at 130-190 px through nineteen frames, then 293 px on the last one. Nothing errors,
-no id is added, and a per-frame area trace reads as a cell that suddenly doubled in size.
+Between 127 and 197 px through the first twenty frames, then 293 px on the last one.
+Nothing errors, no id is added, and a per-frame area trace reads as a cell that suddenly
+doubled in size.
 
 So for lineage work, SAM 2 gives you high-quality per-frame masks and nothing else. Detect
 division yourself — a step change in area, or a mask whose connected-component count goes

@@ -128,6 +128,8 @@ import numpy as np, tifffile
 import xml.etree.ElementTree as ET
 from cellpose import models
 
+path = "LuCa.tif"
+
 with tifffile.TiffFile(path) as tf:
     names = [(ET.fromstring(p.description).findtext("Name") or "").strip() for p in tf.pages]
     kinds = [ET.fromstring(p.description).findtext("ImageType") for p in tf.pages]
@@ -136,11 +138,16 @@ with tifffile.TiffFile(path) as tf:
 channels = [n for n, k in zip(names, kinds) if k == "FullResolution"]
 index_of = {n: i for i, n in enumerate(channels)}
 
-seg_input = np.stack([stack[index_of["DAPI"]],
-                      stack[index_of["CK (Opal 690)"]]])        # (C, Y, X)
+crop = stack[:, :700, :700]           # every count on this page is from this crop
+seg_input = np.stack([crop[index_of["DAPI"]],
+                      crop[index_of["CK (Opal 690)"]]])         # (C, Y, X)
 labels = models.CellposeModel(gpu=True).eval(seg_input, channel_axis=0, batch_size=8)[0]
 print(labels.shape, labels.dtype, int(labels.max()))            # (700, 700) uint16 1334
 ```
+
+The crop is deliberate and every number quoted on this page comes from it. `stack` here is
+`(8, 1400, 1868)`; segmenting all of it is 3.5x the work and gives a different count, so if
+you drop the crop, drop the expected numbers with it.
 
 `channel_axis=0` is what tells Cellpose the leading axis is channels rather than the first
 spatial axis. Omit it on a `(2, Y, X)` array and it interprets the stack as a two-row image.
@@ -182,11 +189,16 @@ markers = [n for n in channels if n not in ("DAPI", "Autofluorescence")]
 
 props = regionprops_table(labels, properties=("label", "centroid", "area"))
 X = np.column_stack([
-    regionprops_table(labels, intensity_image=stack[index_of[m]],
+    regionprops_table(labels, intensity_image=crop[index_of[m]],
                       properties=("intensity_mean",))["intensity_mean"]
     for m in markers
 ])
 ```
+
+`intensity_image` must be the same array the labels were derived from — `crop`, not
+`stack`. Pass the uncropped plane and skimage raises `ValueError: Label and intensity image
+shapes must match`, which at least fails loudly; pass a *differently* cropped plane of the
+same shape and it does not fail at all, and every intensity is measured in the wrong place.
 
 **Exclude the autofluorescence component and the nuclear stain from the marker matrix.**
 Autofluorescence is an unmixing artefact, not an antibody; DAPI is present on every cell
@@ -270,9 +282,12 @@ nothing you can name. Leave the second kind unnamed. `cluster_6` in a results ta
 honest; `Tumour subtype B` is a claim nobody made.
 
 **A marker in the panel is not a cell type in the data.** CD68's highest cluster mean here
-is 1.21, against a 99th-percentile whole-field intensity of 1.65 — the dimmest channel in
-the panel. No macrophage population separates at resolution 0.2, 0.5 or 1.0. That is a real
-result about this field and this panel, and it must be reported rather than papered over.
+is 1.21, against a 99th percentile of **per-cell mean** CD68 intensity of 1.65 across all
+1,334 cells — the dimmest channel in the panel. (Compare like with like here: the 99th
+percentile of raw CD68 *pixels* in the same crop is 2.7. A cluster mean is an average of
+per-cell averages, so it is only ever comparable to the per-cell distribution.) No
+macrophage population separates at resolution 0.2, 0.5 or 1.0. That is a real result about
+this field and this panel, and it must be reported rather than papered over.
 
 **Never take the argmax.** Every cluster has a highest marker whether or not any marker is
 elevated, so `means.idxmax(axis=1)` returns a full set of confident labels from a table
@@ -282,11 +297,23 @@ Then write the annotation as an explicit, auditable map — and surface it for a
 confirm, because on this data it is a proposal, not a measurement:
 
 ```python
+# Resolve ids from the marker table, never by typing them in — they move between runs.
+naming = {means["CD8"].idxmax(): "CD8 T cell",
+          means["FoxP3"].idxmax(): "Treg"}
+for cid in means.index[means["CK"] > 5]:            # the CK-high compartment
+    naming.setdefault(cid, "Tumour")
+
 a.obs["cell_type"] = (a.obs["cluster"]
-    .map({"0": "Tumour", "1": "Tumour", "3": "CD8 T cell", "8": "Treg"})
-    .astype("object").fillna("unassigned").astype("category"))
+    .map(naming).astype("object").fillna("unassigned").astype("category"))
+print(naming)
 print(a.obs.cell_type.value_counts().to_dict())
 ```
+
+Writing `{"0": "Tumour", "3": "CD8 T cell"}` by hand is the obvious thing to do and it is
+wrong on this data for the reason the section above gives: cluster numbering is not stable
+between runs, so a map typed from one run silently mislabels the next. Derive the ids from
+the marker table and the thresholds you chose, and print the map so the run records which
+ids it actually used.
 
 ## Neighborhoods, and where this hands off
 

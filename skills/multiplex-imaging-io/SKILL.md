@@ -62,10 +62,11 @@ import xml.etree.ElementTree as ET
 path = "LuCa-7color_1x1component_data.tif"
 with tifffile.TiffFile(path) as tf:
     names = [(ET.fromstring(p.description).findtext("Name") or "").strip() for p in tf.pages]
+    kinds = [ET.fromstring(p.description).findtext("ImageType") for p in tf.pages]
 
 print(names)
 # ['PDL1 (Opal 520)', 'CD8 (Opal 540)', 'FoxP3 (Opal 570)', 'CD68 (Opal 620)',
-#  'PD1 (Opal 650)', 'CK (Opal 690)', 'DAPI', 'Autofluorescence']
+#  'PD1 (Opal 650)', 'CK (Opal 690)', 'DAPI', 'Autofluorescence', '']
 ```
 
 **DAPI is channel 6.** Not 0. Akoya orders component pages by emission wavelength and
@@ -73,10 +74,17 @@ appends DAPI and the autofluorescence estimate at the end. Every tutorial that o
 `nuclei = img[0]` gets PD-L1 and segments an immune checkpoint marker as if it were
 chromatin.
 
+Note the ninth entry: an empty string. That is the thumbnail page, which carries no `Name`.
+It is the reason the map below is built from the pages the file calls `FullResolution`
+rather than from `tf.pages` — see *The page count is not the channel count* immediately
+below, and the tiled file there, where two more non-channel pages appear in the middle of
+the list rather than politely at the end.
+
 Build the map once and index through it everywhere:
 
 ```python
-index_of = {n: i for i, n in enumerate(names)}
+channels = [n for n, k in zip(names, kinds) if k == "FullResolution"]
+index_of = {n: i for i, n in enumerate(channels)}
 nuclei = index_of["DAPI"]                      # 6
 tumour = index_of["CK (Opal 690)"]             # 5
 ```
@@ -187,10 +195,15 @@ Two mechanisms, both driven through `tifffile`. The second needs `zarr` as well,
 why it is in the install line above.
 
 **Pick a pyramid level.** A pyramidal file's `series[0]` carries `levels`, each a halving.
-Run against the tiled 2x2 field from the sample set, which has two:
+Run against the tiled 2x2 field from the same public sample directory, which has two:
+
+```bash
+curl -L -o HandEcompressed_2x2.tif \
+  "https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/HandEcompressed_%5B11004%2C54205%5D_2x2component_data.tif"
+```
 
 ```python
-with tifffile.TiffFile("HandEcompressed_2x2component_data.tif") as tf:
+with tifffile.TiffFile("HandEcompressed_2x2.tif") as tf:
     s = tf.series[0]
     for i, lv in enumerate(s.levels):
         print(i, lv.shape)
@@ -215,7 +228,7 @@ reads only the tiles a slice touches:
 ```python
 import zarr
 
-with tifffile.TiffFile("HandEcompressed_2x2component_data.tif") as tf:
+with tifffile.TiffFile("HandEcompressed_2x2.tif") as tf:
     store = tf.series[0].aszarr(level=0)
     z = zarr.open(store, mode="r")
     print(z.shape, z.dtype, z.chunks)      # (2, 2784, 3728) float32 (1, 512, 512)
@@ -289,8 +302,10 @@ region = f.read_region(6, pos=(300, 100), shape=(60, 50), level=0)
 region.shape          # (50, 60) — that is (height, width)
 ```
 
-`pos` is `(x, y)`. `shape` is `(width, height)`. The array that comes back is
-`(row, column, channel)`, so it is `(height, width, channels)`. Passing a NumPy-style
+`pos` is `(x, y)`. `shape` is `(width, height)`. The array that comes back is row-major,
+so it is `(height, width)` for a single layer and `(height, width, channels)` when you ask
+for a list — a scalar `layers` argument drops the trailing axis, so code that always indexes
+`[..., 0]` breaks on one form and code that never does breaks on the other. Passing a NumPy-style
 `(rows, cols)` to `shape` silently returns a transposed region wherever the region is
 not square, and raises `ValueError: Requested region exceeds image dimensions` wherever
 the transposed extent runs off the edge — which is the lucky case, because it is the one

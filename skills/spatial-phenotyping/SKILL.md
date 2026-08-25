@@ -217,12 +217,18 @@ means = (pd.DataFrame(raw, index=a.obs_names, columns=a.var_names)
 print(means.round(2).to_string())
 ```
 
+`"cluster"` here is whatever you passed as `key_added` to `sc.tl.leiden`. A dataset that
+arrives with cell types already assigned uses whatever column the depositor chose — the
+MIBI-TOF example in `## Try it` calls it `Cluster` — so read the column name off `a.obs`
+rather than assuming this one.
+
 `np.asarray` on a sparse layer returns a 1-element object array and `pd.DataFrame` then
 fails with a shape mismatch rather than doing anything sensible — call `.toarray()` when
 `a.layers["raw"]` is sparse, which it will be on anything that came through scanpy.
 
 **A marker in the panel is not a cell type in the data.** In the same run CD68's best
-cluster mean is 1.30, against a 99th-percentile raw intensity of 1.65 across all cells —
+cluster mean is 1.30 in this run, against a 99th percentile of per-cell mean intensity of
+1.65 across all cells —
 the dimmest channel in the panel. CD8 by contrast reaches 3.75 in one cluster while sitting
 at 0.11-0.22 in every other. There is no macrophage cluster to find here, at any
 resolution, even though CD68 is in the panel and macrophages are in the tissue. Reporting
@@ -235,12 +241,19 @@ ones you cannot name unnamed, and say in the write-up which is which. An unnamed
 is honest. A cluster named from the argmax of six markers is not — the argmax is defined
 for every cluster whether or not any marker is elevated.
 
+Derive the map from the marker table rather than typing cluster ids, because the ids are an
+artefact of the run — they move when the seed, the library version or the accelerator
+changes, so a map written out by hand silently mislabels the next run:
+
 ```python
-a.obs["cell_type"] = a.obs["cluster"].map({
-    "3": "CD8 T cell",
-    "8": "Treg",
-    "0": "Tumour", "1": "Tumour", "7": "Tumour",
-}).astype("object").fillna("unassigned").astype("category")
+naming = {means["CD8"].idxmax(): "CD8 T cell",
+          means["FoxP3"].idxmax(): "Treg"}
+for cid in means.index[means["CK"] > 5]:          # the CK-high compartment
+    naming.setdefault(cid, "Tumour")
+
+a.obs["cell_type"] = (a.obs["cluster"]
+    .map(naming).astype("object").fillna("unassigned").astype("category"))
+print(naming)                                     # record which ids this run used
 ```
 
 ## Neighborhood enrichment
@@ -418,10 +431,18 @@ this is a commitment.
 ## What to write out
 
 ```python
+cats = list(a.obs["cell_type"].cat.categories)  # the axis order of the z matrix
+z = a.uns["cell_type_nhood_enrichment"]["zscore"]
+
 a.write_h5ad("spatial_analysis.h5ad")           # every annotation in .obs, portable
 frac.to_csv("per_roi_composition.csv")          # tidy, one row per ROI
 pd.DataFrame(z, index=cats, columns=cats).to_csv("nhood_enrichment_z.csv")
 ```
+
+`squidpy` returns the enrichment matrix as a bare array, and its rows are in the order of
+the cluster key's *categories* — not the order they appear in `obs`, and not sorted. Label
+the axes from `.cat.categories` at the point you write the file, or the CSV is a matrix of
+numbers whose rows nobody can identify later.
 
 Plus a short written summary saying which thresholds and resolutions were chosen and on
 what basis, which clusters were named and which were left unassigned, what the graph

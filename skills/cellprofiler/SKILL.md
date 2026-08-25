@@ -101,13 +101,16 @@ def modules(path):
     return [(int(m.group(2)), m.group(1), i)
             for i, line in enumerate(lines) if (m := HEADER.match(line))]
 
-print(modules("ExampleHuman.cppipe"))
+print([(n, name) for n, name, _ in modules("ExampleHuman.cppipe")])
 # [(1, 'Images'), (2, 'Metadata'), (3, 'NamesAndTypes'), (4, 'Groups'),
 #  (5, 'IdentifyPrimaryObjects'), (6, 'IdentifyPrimaryObjects'), (7, 'RelateObjects'),
 #  (8, 'IdentifySecondaryObjects'), (9, 'IdentifyTertiaryObjects'),
 #  (10, 'MeasureObjectIntensity'), (11, 'MeasureObjectSizeShape'),
 #  (12, 'OverlayOutlines'), (13, 'SaveImages'), (14, 'ExportToSpreadsheet')]
 ```
+
+The third element of each tuple is the line index, dropped in that print and used by
+`settings()` and `set_setting()` below to bound a module's block.
 
 ### The trap: a setting name is not a key
 
@@ -400,6 +403,8 @@ across only 19 distinct `Parent_Nuclei`; three nuclei carry two PH3 objects each
 the same pair of tables:
 
 ```python
+ph3 = pd.read_csv("out/PH3.csv")
+
 inner = nuc.merge(ph3, left_on=["ImageNumber", "ObjectNumber"],
                   right_on=["ImageNumber", "Parent_Nuclei"], suffixes=("", "_ph3"))
 left = nuc.merge(ph3, left_on=["ImageNumber", "ObjectNumber"],
@@ -448,6 +453,10 @@ docker pull cellprofiler/cellprofiler:4.2.8
 docker run --rm -v "$PWD":/data -w /data cellprofiler/cellprofiler:4.2.8 \
   -c -r -p ExampleHuman.cppipe -i /data/images -o /data/out
 ```
+
+Both blocks run from the `cp-tryit` directory the first one creates — the Python below
+reads `out/Image.csv` relative to it. If you are driving these as separate processes rather
+than one shell, set the working directory for the second one too.
 
 ```python
 import csv
@@ -503,7 +512,8 @@ Observed values, from a run on 25 Aug 2026 against the `4.2.8` image — these m
 CellProfiler changes a default or the example pipeline is updated:
 
 - `Count_Nuclei` 289, `Count_Cells` 289, `Count_Cytoplasm` 289, `Count_PH3` 22.
-- `Nuclei.csv` has 106 columns; mean nuclear area 127.9 px, median 115.
+- `Nuclei.csv` has 106 columns; mean nuclear area 127.9 px (the block prints the mean;
+  the median over the same column is 115).
 - `Threshold_FinalThreshold_Nuclei` 0.09860165.
 - Wall-clock about 8 s for the fourteen-module pipeline, under emulation on arm64.
 - `FileName_DNA` `...d0.tif`, `FileName_PH3` `...d1.tif`, `FileName_cellbody` `...d2.tif` —
