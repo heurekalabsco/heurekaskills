@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-25
   against: CellProfiler 4.2.8 (container image, linux/amd64 under emulation on arm64) / Python 3.12.8 for the pipeline-editing and CSV-joining code / CellProfiler ExampleHuman and ExampleIlluminationCorrection datasets
-  executed: 15
+  executed: 16
   unverified: 0
 ---
 
@@ -46,8 +46,11 @@ measured here at roughly 8 seconds for a three-image, fourteen-module pipeline, 
 proportionally more for a plate.
 
 If you do want the library rather than the application, `cellprofiler-core` carries the
-pipeline and measurement machinery without the GUI modules, and is the lighter of the two
-installs. It is still bound by the same pins.
+pipeline and measurement machinery without the GUI modules, and is genuinely lighter: at
+4.2.8.1 it asks for `scipy>=1.4.1` rather than `scipy==1.9.0`, drops `mysqlclient`
+entirely, and moves `wxPython` into an optional `wx` extra. What it keeps is
+`scikit-image==0.18.3` and `python-javabridge`, which is enough to make the install
+awkward on a current Python — lighter, not light.
 
 ## The headless invocation
 
@@ -170,11 +173,24 @@ Editing the nuclear threshold on ExampleHuman, running each variant, and reading
 | 1.4 | 0.09860165 | 0.13804231 | 289 |
 | 2.5 | 0.09860165 | 0.24650412 | 76 |
 
-Two things worth carrying away. `FinalThreshold` is exactly `correction x OrigThreshold`,
-which is how you confirm an edit landed in the module you meant. And a 40% increase in the
-threshold changed the count by nothing at all, while 2.5x removed three quarters of the
-objects — the response is not proportional, so the only way to know what a parameter did
-is to run it and read the count.
+Two things worth carrying away.
+
+`FinalThreshold` scales exactly with the correction factor, which is how you confirm an edit
+landed in the module you meant — but compare it against **another `FinalThreshold`**, not
+against `OrigThreshold` in the same row. CellProfiler exports `OrigThreshold` rounded to
+eight significant figures (`0.09860165`) while `FinalThreshold` carries full precision
+(`0.09860164672136307`), so `correction x OrigThreshold` misses by a few parts in a
+billion — harmless, and enough to fail a naive equality check:
+
+```python
+k, base = 2.5, 0.09860164672136307      # FinalThreshold at correction 1.0
+assert abs(0.24650411680340767 - k * base) < 1e-12          # passes
+assert abs(0.24650411680340767 - k * 0.09860165) < 1e-12    # fails by 8.2e-9
+```
+
+And a 40% increase in the threshold changed the count by nothing at all, while 2.5x removed
+three quarters of the objects — the response is not proportional, so the only way to know
+what a parameter did is to run it and read the count.
 
 ## Per-image metadata belongs in a LoadData CSV
 
@@ -247,10 +263,16 @@ for s in m.settings(): print('   ', s.text)
 "
 ```
 
-`prefs.set_headless()` has to run **before** the module import. Import first and the
-module pulls in wx, which raises `Unable to access the X Display, is $DISPLAY set
-properly?` in a container that has no display. The error names X11 and the cause is import
-order.
+`prefs.set_headless()` has to run **before** the module import. Import first, in a
+container with no display, and the process dies with:
+
+```
+Unable to access the X Display, is $DISPLAY set properly?
+```
+
+Confirmed by running the import both ways in the 4.2.8 image. The error names X11; the fix
+is import order. Set headless first in any script that touches `cellprofiler_core.modules`,
+including ones that never intend to render anything.
 
 Then run it:
 
@@ -503,8 +525,11 @@ Invariants — a failure means the skill is wrong:
   the other.
 - Every `Parent_Nuclei` in `PH3.csv` is an `ObjectNumber` present in `Nuclei.csv` —
   the parent link is what makes the per-object tables joinable at all.
-- With `Threshold correction factor` at 1.0, `Threshold_FinalThreshold_Nuclei` equals
-  `Threshold_OrigThreshold_Nuclei`. Set the factor to *k* and the ratio becomes exactly *k*.
+- With `Threshold correction factor` at 1.0, `Threshold_FinalThreshold_Nuclei` matches
+  `Threshold_OrigThreshold_Nuclei` to the eight significant figures `OrigThreshold` is
+  exported at. Set the factor to *k* and `FinalThreshold` scales by exactly *k* relative to
+  its own value at 1.0 — which is the comparison the Try-it assertion makes, with a
+  tolerance, rather than an equality against the rounded `OrigThreshold`.
 - `Experiment.csv` is written before any image is processed, so its presence proves
   nothing about whether the run produced data.
 

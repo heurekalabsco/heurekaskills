@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-25
   against: squidpy 1.8.3 / scanpy 1.12.3 / anndata 0.13.x / numpy 2.5.2 / pandas 3.x / Python 3.12.8 / squidpy MIBI-TOF example dataset (3309 cells, 36 markers, 3 ROIs, 2 donors)
-  executed: 17
+  executed: 18
   unverified: 1
   unverified_reason: >-
     The SPAC install block is not executed. SPAC is not published to PyPI or conda-forge
@@ -108,10 +108,21 @@ assert (lib[edges.row] != lib[edges.col]).sum() == 0
 
 Three lines, run once, and they close the failure mode entirely.
 
+`wrong` and `right` above are copies, made so the two can be compared. Everything from here
+on uses `a`, so build the graph on `a` itself before going further — otherwise the next
+call fails with `KeyError: Spatial connectivity key 'spatial_connectivities' not found in
+adata.obsp`:
+
+```python
+sq.gr.spatial_neighbors(a, library_key="library_id",
+                        coord_type="generic", delaunay=True)
+```
+
 One forward-compatibility note, because this page will outlive the version it was written
 against: squidpy 1.8.3 emits `FutureWarning: Calling spatial_neighbors is deprecated and
 will be removed in squidpy v1.9.0`, directing you to `spatial_neighbors_delaunay`,
-`spatial_neighbors_knn`, `spatial_neighbors_radius` or `spatial_neighbors_grid`. The
+`spatial_neighbors_knn`, `spatial_neighbors_radius`, `spatial_neighbors_grid` or
+`spatial_neighbors_from_builder`. The
 `library_key` argument and everything above about it carry over to the replacements — what
 changes is that the graph construction moves from a keyword into the function name, which
 is an improvement, because it stops the construction being an unstated default.
@@ -130,7 +141,13 @@ for roi in a.obs["library_id"].cat.categories:
 *view* does not raise: it runs, writes `Cluster_ripley_L` into the **view's** `uns`, and
 leaves the parent object untouched. The view is then discarded at the end of the loop
 iteration and the result goes nowhere. Verified on the dataset below — the parent's `uns`
-never gains the key. Copy, keep the copy, and read the result off it.
+never gains the key.
+
+It is not quite silent: the write emits an anndata `ImplicitModificationWarning` alongside a
+couple of pandas copy warnings, and the view actualizes into a real object in the process
+(`sub.is_view` flips to `False`). But a warning in a loop over twenty ROIs is not what stops
+anybody, and the missing result only shows up much later as an empty `uns`. Copy, keep the
+copy, and read the result off it.
 
 ## Transform intensities before you cluster them
 
@@ -211,11 +228,20 @@ None of that is visible in the clustering. You have to look at the marker means:
 
 ```python
 import numpy as np, pandas as pd
-raw = np.asarray(a.layers["raw"])                 # .toarray() if it is sparse
+from scipy.sparse import issparse
+
+layer = a.layers["raw"]
+raw = layer.toarray() if issparse(layer) else np.asarray(layer)
 means = (pd.DataFrame(raw, index=a.obs_names, columns=a.var_names)
            .groupby(a.obs["cluster"].values, observed=True).mean())
 print(means.round(2).to_string())
 ```
+
+The `issparse` branch is not defensive padding. Anything that has been through scanpy holds
+`X` — and therefore `layers["raw"]` — as a `csr_matrix`, and `np.asarray` on one of those
+does not densify it: it returns a 0-dimensional object array wrapping the matrix, and
+`pd.DataFrame` then fails with `ValueError: Must pass 2-d input. shape=()`. The MIBI-TOF
+object used below is sparse, so this is the default case, not the exception.
 
 `"cluster"` here is whatever you passed as `key_added` to `sc.tl.leiden`. A dataset that
 arrives with cell types already assigned uses whatever column the depositor chose — the
@@ -284,9 +310,26 @@ the same per-ROI graph, changing only the null:
 | pooled (no `library_key`) | 72.3 | 31.7 | 26.6 | 26.4 |
 | within each ROI | **63.3** | **23.3** | **17.8** | **24.2** |
 
-Up to 9.6 of z across the matrix, always in the direction that overstates the result — and
-the ranking moves too: CD4 T outranks CD8 T under the pooled null and falls below it under
-the correct one. Pass `library_key` to both calls.
+Up to 9.6 of z across the matrix — the largest single change is Myeloid_CD68's
+self-enrichment — and the ranking moves too: CD4 T outranks CD8 T under the pooled null and
+falls below it under the correct one.
+
+Two things to be precise about, because the obvious summary of this is wrong.
+
+**The direction is consistent on self-enrichment and not across the whole matrix.** Seven of
+the eight diagonal entries are larger under the pooled null; Endothelial is the exception,
+at 13.5 pooled against 13.8 per-ROI. Across all 64 entries it is close to a coin flip — 31
+larger, 33 smaller. So "the pooled null inflates everything" is not a claim you can make;
+"it inflates self-enrichment, which is usually what gets quoted" is.
+
+**The mechanism is the expected count, not the spread.** It is tempting to say the pooled
+null is more dispersed, and for the Epithelial self term it is not: the permutation standard
+deviation is 37.4 pooled against 38.2 per-ROI. What moves is the null *mean* — 1000.5 pooled
+against 1285.6 per-ROI, against an observed count of 3702. Shuffling labels across ROIs of
+different composition lowers the expected number of same-type adjacencies, so the observed
+count sits further above a null that was never the right one.
+
+Pass `library_key` to both calls.
 
 Three things to hold onto.
 

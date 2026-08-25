@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-25
   against: tifffile 2026.8.23 / mxtifffile 0.0.2 / numpy 2.5.2 / Python 3.12.8 / PerkinElmer Vectra LuCa-7color sample data (OME public sample set)
-  executed: 16
+  executed: 21
   unverified: 0
 ---
 
@@ -47,8 +47,15 @@ anything below.
 pip install tifffile imagecodecs numpy zarr pillow
 ```
 
-`imagecodecs` is not optional in practice: Akoya writes JPEG- and LZW-compressed pages,
-and without it `asarray()` raises on exactly the files you care about.
+`imagecodecs` is not optional in practice. Every page of all three Akoya sample files is
+LZW-compressed, and without it `asarray()` raises on exactly the files you care about:
+
+```
+ValueError: <COMPRESSION.LZW: 5> requires the 'imagecodecs' package
+```
+
+Akoya also writes JPEG-compressed scans — the vendor's own sample readme labels one of the
+whole-slide QPTIFFs "RGB, JPG compression" — which need it for the same reason.
 
 ## Never index channels by position
 
@@ -251,22 +258,39 @@ knowing about because the API it advertises is exactly what this page is about �
 the canonical public Vectra file, three of its four headline calls fail. Verified against
 version 0.0.2, the current release, on 25 Aug 2026:
 
+```bash
+pip install mxtifffile          # not needed for anything above; only for this section
+```
+
 ```python
 from mxtifffile import MxTiffFile
 
 f = MxTiffFile("LuCa-7color_1x1component_data.tif")
-f.format_id                 # 'qptiff'  — detection works
-f.get_fluorophores()        # all eight names — works
-f.get_markers()             # ['PDL1', None, None, None, None, None, None, None]
-f.print_channel_summary()   # TypeError: unsupported format string passed to NoneType.__format__
-f.read_region("DAPI", pos=(0, 0), shape=(256, 256))
-                            # ValueError: Biomarker 'DAPI' not found in this file
+print(f.format_id)              # 'qptiff'  — detection works
+print(f.get_fluorophores())     # all eight names — works
+print(f.get_markers())          # ['PDL1', None, None, None, None, None, None, None]
+
+for label, call in [("print_channel_summary", lambda: f.print_channel_summary()),
+                    ("read_region by name", lambda: f.read_region("DAPI", pos=(0, 0),
+                                                                  shape=(256, 256)))]:
+    try:
+        call()
+        print(label, "-> worked")
+    except Exception as e:
+        print(label, "->", type(e).__name__, e)
+# print_channel_summary -> TypeError unsupported format string passed to NoneType.__format__
+# read_region by name -> ValueError Biomarker 'DAPI' not found in this file
 ```
+
+The two failures are wrapped because the first one would otherwise end the block: written as
+plain statements, `print_channel_summary()` raises and the `read_region` line never runs, so
+you would see one of the two defects and assume the other was fine.
 
 The cause is a mapping choice, not a bug in the file. `mxtifffile` resolves a channel's
 marker from an XML element named `Marker`, and in Akoya's per-page XML that element only
 appears inside the `ScanProfile` block — which Akoya writes on **page 0 only**. Page 0's
-description is 14,823 characters; every other page's is about 1,970. So channel 0 gets a
+description is 14,823 characters against about 1,970 for the seven other channel pages
+(and 668 for the thumbnail). So channel 0 gets a
 marker and channels 1-7 get `None`, `read_region` by name resolves against that list, and
 `print_channel_summary` formats a `None` description.
 
@@ -311,12 +335,17 @@ not square, and raises `ValueError: Requested region exceeds image dimensions` w
 the transposed extent runs off the edge — which is the lucky case, because it is the one
 you notice.
 
-**On licensing, `mxtifffile` contradicts itself.** Its `pyproject.toml`, `setup.cfg`,
-README badge and PyPI classifiers all declare MIT; the `LICENSE` file in the repository is
-the GNU General Public License v3. Running it is unaffected either way. If you intend to
-vendor or redistribute it, that contradiction is unresolved upstream and is worth an issue
-before you rely on either reading. `qptifffile` is the same author's earlier package and
-its `LICENSE` file is empty; `mxtifffile` supersedes it.
+**On licensing, `mxtifffile` contradicts itself three ways.** Its `pyproject.toml`,
+`setup.cfg`, README badge and PyPI classifiers all declare MIT. The `LICENSE` file in the
+repository is the GNU General Public License v3, 35,823 bytes of it. And the `LICENSE`
+shipped inside the installed wheel, at
+`mxtifffile-0.0.2.dist-info/licenses/LICENSE`, is **zero bytes** — so the artifact you
+actually install states no terms at all.
+
+Running it is unaffected by any of that. If you intend to vendor or redistribute it, the
+contradiction is unresolved upstream and worth an issue before you rely on any one reading.
+`qptifffile` is the same author's earlier package and its `LICENSE` is empty too;
+`mxtifffile` supersedes it.
 
 Given all of the above, the `tifffile` route earlier on this page is the one to reach for
 first. It is BSD-3-Clause, unambiguous, has no name-resolution layer to go wrong, and is
@@ -344,9 +373,26 @@ A folder of single-channel TIFFs is the same problem with the names in the file 
 import re, glob, numpy as np, tifffile
 
 paths = sorted(glob.glob("cycle*/*.tif"))
-names = [re.search(r"_([A-Za-z0-9+-]+)\.tif$", p).group(1) for p in paths]
-stack = np.stack([tifffile.imread(p) for p in paths])     # (C, Y, X)
+if not paths:
+    raise SystemExit("no TIFFs matched cycle*/*.tif — check the directory layout")
+
+pattern = re.compile(r"_([A-Za-z0-9+-]+)\.tif$")
+names, keep = [], []
+for path in paths:
+    m = pattern.search(path)
+    if m is None:
+        raise ValueError(f"cannot read a marker name out of {path!r} — fix the pattern "
+                         "rather than letting this file be dropped or misnamed")
+    names.append(m.group(1))
+    keep.append(path)
+
+stack = np.stack([tifffile.imread(p) for p in keep])      # (C, Y, X)
 ```
+
+Raise on a filename the pattern does not match, rather than skipping it. A skipped file
+shifts every channel after it by one, which is the same silent mislabelling this whole page
+is about — and `re.search(...).group(1)` on a non-match raises `AttributeError: 'NoneType'
+object has no attribute 'group'`, which is a confusing way to learn it.
 
 Sort the paths explicitly. Directory order is filesystem order, and `cycle10` sorts
 before `cycle2` under every default. The pairing of `names` to `stack` is only as good as
