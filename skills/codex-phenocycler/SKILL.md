@@ -62,8 +62,14 @@ the worked path below uses it. It is not a claim that it segments better than Me
 membrane-based whole-cell segmentation on multiplex data, Mesmer is the stronger published
 result — only that it is a path every reader can actually take.
 
+The one thing to budget for is size: the weights come from the ungated public
+`mouseland/cellpose-sam` repository on Hugging Face, under BSD-3-Clause, and the current
+checkpoint is **1.2 GB**. It is fetched on first use into `~/.cellpose/models` and cached
+there, with no token — but a first run on a fresh machine is a large download before
+anything segments.
+
 ```bash
-pip install cellpose tifffile imagecodecs scikit-image anndata scanpy squidpy
+pip install cellpose tifffile imagecodecs scikit-image anndata scanpy squidpy igraph
 ```
 
 A GPU helps and is not required: `cellpose.core.use_gpu()` reports what it found, and CUDA
@@ -327,7 +333,7 @@ stain that is not channel 0, a real membrane marker, and a per-page pixel size.
 account. About a minute on a GPU or Apple MPS, a few minutes on CPU.
 
 ```bash
-pip install cellpose tifffile imagecodecs scikit-image anndata scanpy squidpy
+pip install cellpose tifffile imagecodecs scikit-image anndata scanpy squidpy igraph
 curl -L -o LuCa.tif \
   "https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/LuCa-7color_%5B13860%2C52919%5D_1x1component_data.tif"
 ```

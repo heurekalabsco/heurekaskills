@@ -108,6 +108,14 @@ assert (lib[edges.row] != lib[edges.col]).sum() == 0
 
 Three lines, run once, and they close the failure mode entirely.
 
+One forward-compatibility note, because this page will outlive the version it was written
+against: squidpy 1.8.3 emits `FutureWarning: Calling spatial_neighbors is deprecated and
+will be removed in squidpy v1.9.0`, directing you to `spatial_neighbors_delaunay`,
+`spatial_neighbors_knn`, `spatial_neighbors_radius` or `spatial_neighbors_grid`. The
+`library_key` argument and everything above about it carry over to the replacements — what
+changes is that the graph construction moves from a keyword into the function name, which
+is an improvement, because it stops the construction being an unstated default.
+
 The same rule covers functions that have no `library_key` argument. `sq.gr.ripley` and
 `sq.gr.co_occurrence` compute over the whole object, so subset per image and loop:
 
@@ -118,7 +126,11 @@ for roi in a.obs["library_id"].cat.categories:
     ...
 ```
 
-`.copy()` matters — a view raises on write, and these functions write into `uns`.
+`.copy()` matters, and not for the reason you would guess. `sq.gr.ripley` on an AnnData
+*view* does not raise: it runs, writes `Cluster_ripley_L` into the **view's** `uns`, and
+leaves the parent object untouched. The view is then discarded at the end of the loop
+iteration and the result goes nowhere. Verified on the dataset below — the parent's `uns`
+never gains the key. Copy, keep the copy, and read the result off it.
 
 ## Transform intensities before you cluster them
 
@@ -238,13 +250,30 @@ answers it by permuting cluster labels over the fixed graph and comparing the ob
 adjacency count to the null:
 
 ```python
-sq.gr.nhood_enrichment(a, cluster_key="cell_type", seed=0, n_perms=1000)
+sq.gr.nhood_enrichment(a, cluster_key="cell_type", library_key="library_id",
+                       seed=0, n_perms=1000)
 z = a.uns["cell_type_nhood_enrichment"]["zscore"]
 ```
 
 The matrix is symmetric, and its diagonal is self-enrichment — how strongly a type sits
-with its own kind. On the MIBI-TOF data with the correct per-ROI graph: Epithelial 72.3,
-Fibroblast 31.7, CD4 T 26.6, CD8 T 26.4.
+with its own kind. On the MIBI-TOF data, with the per-ROI graph *and* the per-ROI null:
+Epithelial 63.3, other immune 24.8, CD8 T 24.2, Fibroblast 23.3.
+
+**`library_key` belongs here too, and it is a separate fix from the graph.** Building the
+graph per ROI stops cells on different slides from being neighbours. It does not stop the
+*permutation* from moving a label out of one ROI and into another — and when the ROIs have
+different compositions, as they do here (Epithelial runs 0.102 to 0.391 across the three),
+a pooled null is more dispersed than any single ROI and the z-scores inflate. Measured on
+the same per-ROI graph, changing only the null:
+
+| Permutation | Epithelial | Fibroblast | CD4 T | CD8 T |
+|---|---|---|---|---|
+| pooled (no `library_key`) | 72.3 | 31.7 | 26.6 | 26.4 |
+| within each ROI | **63.3** | **23.3** | **17.8** | **24.2** |
+
+Up to 9.6 of z across the matrix, always in the direction that overstates the result — and
+the ranking moves too: CD4 T outranks CD8 T under the pooled null and falls below it under
+the correct one. Pass `library_key` to both calls.
 
 Three things to hold onto.
 
@@ -410,7 +439,7 @@ that makes the replication question concrete.
 **Run.** Self-contained:
 
 ```bash
-pip install squidpy scanpy anndata
+pip install squidpy scanpy anndata igraph
 curl -L -O https://exampledata.scverse.org/squidpy/mibitof.h5ad
 ```
 
@@ -484,7 +513,11 @@ rebuilds the example or squidpy changes its default graph:
 - All three ROIs span roughly x 1-1021, y 1-1021.
 - Pooled graph 19,792 edges, **13,276 crossing an ROI boundary**. Per-ROI graph 19,720
   edges, 0 crossing.
-- Epithelial self-enrichment z: 19.0 pooled, **72.3** per-ROI.
+- Epithelial self-enrichment z: 19.0 pooled graph, **72.3** per-ROI graph. Both hold the
+  *null* pooled, so this pair isolates the graph effect — which is what the block is
+  testing. Fixing the null as well, as *Neighborhood enrichment* above says you should,
+  takes the per-ROI-graph figure from 72.3 down to 63.3. The two corrections are
+  independent and both point the same way.
 - Epithelial fraction by ROI: point16 0.206, point23 0.102, point8 0.391.
 
 **Across other data.** The graph check, the arcsinh transform, the resolution comparison

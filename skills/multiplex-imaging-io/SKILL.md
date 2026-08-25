@@ -44,7 +44,7 @@ and whether a resolution pyramid is present.
 anything below.
 
 ```bash
-pip install tifffile imagecodecs numpy
+pip install tifffile imagecodecs numpy zarr pillow
 ```
 
 `imagecodecs` is not optional in practice: Akoya writes JPEG- and LZW-compressed pages,
@@ -183,7 +183,8 @@ A PhenoCycler scan is on the order of 10^5 pixels on a side across dozens of cha
 At `uint16` that is hundreds of gigabytes decompressed. `asarray()` on the full-resolution
 series is not a slow path, it is a path that does not complete.
 
-Two mechanisms, both in `tifffile`, neither requiring another dependency.
+Two mechanisms, both driven through `tifffile`. The second needs `zarr` as well, which is
+why it is in the install line above.
 
 **Pick a pyramid level.** A pyramidal file's `series[0]` carries `levels`, each a halving.
 Run against the tiled 2x2 field from the sample set, which has two:
@@ -435,7 +436,7 @@ rather than putting it in a quick test.
 **Run.** Self-contained, no other setup:
 
 ```bash
-pip install tifffile imagecodecs numpy
+pip install tifffile imagecodecs numpy zarr pillow
 curl -L -o LuCa-7color_1x1component_data.tif \
   "https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/LuCa-7color_%5B13860%2C52919%5D_1x1component_data.tif"
 ```

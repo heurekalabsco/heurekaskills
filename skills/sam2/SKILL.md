@@ -209,14 +209,14 @@ Run against the ExampleHuman DNA field, where CellProfiler's published pipeline 
 
 | Settings | Masks | Wall clock (CPU) | Median area | Field-sized masks (>5000 px) |
 |---|---|---|---|---|
-| defaults (`points_per_side=32`) | **141** | 17-18 s | 123 px | 0 |
+| defaults (`points_per_side=32`) | **141** | 16-18 s | 123 px | 0 |
 | `points_per_side=64`, `pred_iou_thresh=0.5`, `stability_score_thresh=0.8`, `min_mask_region_area=20` | **369** | 67 s | 110 px | 1 |
 
 At defaults SAM 2 finds fewer than half the nuclei, returns no obviously wrong object, and
 gives you a tidy table of 141 rows with a sensible size distribution. Nothing in the output
 says that 148 cells are missing. The cause is the default thresholds: `pred_iou_thresh` is
-0.88 and `stability_score_thresh` is 0.95, and — as the section above shows — the model's
-predicted IoU for a real nucleus sits nearer 0.6.
+0.8 and `stability_score_thresh` is 0.95, and — as the section above shows — the model's
+predicted IoU for a real nucleus sits nearer 0.6, below both.
 
 Relaxing them recovers the count and admits one 255,975-pixel mask of the background, which
 is why an area filter belongs after every automatic run, not instead of one.
@@ -455,7 +455,7 @@ Observed values, from a CPU run on 25 Aug 2026 against the `092824` checkpoints 
   0.8212 / 0.0020 / 0.1579.
 - nucleus prompt at (384, 261), pixel value 97: areas 927 / 141 / 348, scores 0.1207 /
   0.2993 / 0.5777.
-- automatic generation at defaults: 141 masks, about 18 s, median area 123 px, no mask
+- automatic generation at defaults: 141 masks, 16-18 s across runs, median area 123 px, no mask
   above 5000 px. Against 289 nuclei from CellProfiler.
 
 **Across other data.** The same prompting code was run on the Drosophila GFP-histone
