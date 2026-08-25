@@ -36,7 +36,9 @@ anonymously from Meta's public file host: no account, no token, no access reques
 
 What you do need: **Python 3.10 or newer**, **PyTorch 2.5.1 or newer** with a matching
 torchvision, and enough patience for CPU inference if you have no GPU. Times measured on
-CPU are quoted throughout so you can size the work before starting it.
+CPU are quoted throughout so you can size the work before starting it. They are given as
+ranges because they move with machine load — the same generator run took 17 s on an idle
+laptop and 22 s on a busy one. The **counts** do not move: 141 masks at defaults on both.
 
 ### Do not `pip install sam2`
 
@@ -129,10 +131,14 @@ different result.)
 | raw `uint8`, no rescale | 347 | 0.6149 |
 | min-max stretch | 350 | 0.6600 |
 | 1st-99th percentile stretch | 336 | 0.6935 |
+| 1st-99.5th percentile — `to_rgb8` above, as written | 312 | 0.6811 |
 | gain x2, clipped | 327 | 0.4284 |
 
-A 7% spread in area, and a predicted IoU that moves by 62% between the worst and best
-conversion, from a step most pipelines treat as plumbing. Fix one conversion, record it next to the results, and do not change it between
+A 12% spread in area, and a predicted IoU that moves by 62% between the worst and best
+conversion, from a step most pipelines treat as plumbing. Note the two percentile rows:
+moving the upper clip from the 99th to the 99.5th percentile — half a percentile — moves
+the mask by 24 px. `to_rgb8` defaults to 99.5; there is nothing special about that number
+and you should choose it deliberately. Fix one conversion, record it next to the results, and do not change it between
 conditions you intend to compare. Stretch to percentiles rather than min-max: one hot
 pixel sets the maximum and pushes every real structure toward black.
 
@@ -142,9 +148,12 @@ byte-identical masks — so any variation you see is coming from your preprocess
 ## Prompting a single image
 
 ```python
-import numpy as np, torch
+import numpy as np, torch, tifffile
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+plane = tifffile.imread("dna.tif")             # your single-channel image
+rgb = np.stack([plane] * 3, axis=-1) if plane.dtype == np.uint8 else to_rgb8(plane)
 
 model = build_sam2("configs/sam2.1/sam2.1_hiera_t.yaml",
                    "sam2.1_hiera_tiny.pt", device="cpu")
@@ -214,8 +223,8 @@ Run against the ExampleHuman DNA field, where CellProfiler's published pipeline 
 
 | Settings | Masks | Wall clock (CPU) | Median area | Field-sized masks (>5000 px) |
 |---|---|---|---|---|
-| defaults (`points_per_side=32`) | **141** | 16-18 s | 123 px | 0 |
-| `points_per_side=64`, `pred_iou_thresh=0.5`, `stability_score_thresh=0.8`, `min_mask_region_area=20` | **369** | 67 s | 110 px | 1 |
+| defaults (`points_per_side=32`) | **141** | 17-22 s | 123 px | 0 |
+| `points_per_side=64`, `pred_iou_thresh=0.5`, `stability_score_thresh=0.8`, `min_mask_region_area=20` | **369** | 67-88 s | 110 px | 1 |
 
 At defaults SAM 2 finds fewer than half the nuclei, returns no obviously wrong object, and
 gives you a tidy table of 141 rows with a sensible size distribution. Nothing in the output
@@ -268,10 +277,23 @@ the same model on the same image, and only one of them is close.
 The video predictor keeps a memory of the object across frames, which is what makes it a
 tracker rather than a per-frame segmenter.
 
-**It reads only an MP4 file or a directory of JPEGs.** A folder of TIFFs — what every
-time-lapse microscope produces — raises `NotImplementedError: Only MP4 video and JPEG
-folder are supported at this moment`. The JPEGs must be named `<frame_index>.jpg`, numbered
-from 0.
+**It reads only an MP4 file or a directory of JPEGs**, and the two ways of getting that
+wrong fail differently. Hand it a *file* it cannot read and you get the honest error:
+
+```
+NotImplementedError: Only MP4 video and JPEG folder are supported at this moment
+```
+
+Hand it a *directory* full of TIFFs — which is what every time-lapse microscope produces —
+and you get this instead:
+
+```
+RuntimeError: no images found in frames
+```
+
+which is a confusing thing to read about a directory containing twenty-one images. It globs
+for JPEGs, finds none, and reports the directory as empty. The JPEGs must also be named
+`<frame_index>.jpg`, numbered from 0.
 
 ```python
 import glob, numpy as np, tifffile
@@ -306,7 +328,7 @@ for frame_idx, obj_ids, logits in predictor.propagate_in_video(state):
 
 `propagate_in_video` yields logits, not masks: threshold at 0 to get the mask.
 `offload_video_to_cpu=True` keeps the decoded frames off the GPU, which is what lets a
-long movie fit at all. Twenty-one 264x542 frames propagate in about 18 s on CPU.
+long movie fit at all. Twenty-one 264x542 frames propagate in 18-25 s on CPU.
 
 ### SAM 2 does not know about cell division
 
@@ -358,6 +380,12 @@ useful: at the settings that recovered the count above, 12.8% of covered pixels 
 two or more masks and the deepest stack was five. Painting without the guard silently
 reassigns those pixels, so every area depends on iteration order. Resolving largest-first,
 first-writer-wins, at least makes it deterministic and stateable.
+
+Watch the count through this step. On the relaxed run, 369 masks survive the area filter as
+365, and painting them leaves **324** labels — 41 masks were entirely covered by a larger
+one painted before them and vanished. That is the right outcome for nested duplicates, and
+it is also the point at which "the generator found 369 cells" quietly stops being true.
+Report the number of labels you measured, not the number of masks you generated.
 
 Fill holes per label rather than on the union. `binary_fill_holes(label > 0)` returns a
 boolean of the filled union, and multiplying it back by `label` leaves the filled pixels at
@@ -461,7 +489,7 @@ Observed values, from a CPU run on 25 Aug 2026 against the `092824` checkpoints 
   0.8212 / 0.0020 / 0.1579.
 - nucleus prompt at (384, 261), pixel value 97: areas 927 / 141 / 348, scores 0.1207 /
   0.2993 / 0.5777.
-- automatic generation at defaults: 141 masks, 16-18 s across runs, median area 123 px, no mask
+- automatic generation at defaults: 141 masks, 17-22 s across runs, median area 123 px, no mask
   above 5000 px. Against 289 nuclei from CellProfiler.
 
 **Across other data.** The same prompting code was run on the Drosophila GFP-histone
