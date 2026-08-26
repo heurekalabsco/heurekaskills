@@ -214,7 +214,7 @@ result = pb.merge(lf).collect(engine="streaming")
 For gradual migration, install with pandas support:
 
 ```bash
-uv pip install "polars-bio[pandas]==0.33.1"
+uv pip install "polars-bio[pandas]==0.34.0"
 ```
 
 This enables conversion between pandas and Polars DataFrames:
