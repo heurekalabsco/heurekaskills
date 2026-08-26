@@ -38,8 +38,12 @@ NOTICE                # attribution for every adapted skill
 
 ```bash
 npm install
-npm run validate      # exactly what CI runs on the PR — run it before pushing
+npm run validate        # format + public-tier boundary
+npm run check-versions  # every changed skill carries a version bump
 ```
+
+Both run on the PR, so run both before pushing. `check-versions` compares against
+`origin/main` by default; pass a ref to compare against something else.
 
 ## Frontmatter contract
 
@@ -95,8 +99,10 @@ reader receives changes.** That means `SKILL.md` *and* the `references/*.md` a s
 alongside it — those are published too, so an edit to one of them moves the version in
 `SKILL.md` exactly as a body edit would. CI enforces it: `scripts/check-versions.js`
 compares every file under a changed skill against the merge base and fails the PR if
-anything moved and the number did not, or if the number went backwards. A version-only edit
-is not a content change and needs no second bump.
+anything moved and the number did not. It also fails the PR if the number went **backwards**,
+whether or not anything else changed — a partial revert or a bad rebase takes a version back
+one line at a time, and the check exists to notice. A version-only edit is not a content
+change and needs no second bump.
 
 - **Minor** — a revision round. New or rewritten sections, a corrected claim, a changed
   recommendation, a re-verification that moved the numbers. This is the common case, and it

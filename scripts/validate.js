@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import {
   listSkillDirs, listSkillFiles, parseFrontmatterNaive,
-  CATEGORIES, SLUG_RE, ALLOWED_EXTENSIONS,
+  CATEGORIES, SLUG_RE, VERSION_RE, ALLOWED_EXTENSIONS,
   MAX_COVERS, MAX_PAPERS, ACCESS_LEVELS, PAPER_ID_RE, CLIENT_READ_KEYS,
   hasSection, sectionBody,
 } from './lib.js';
@@ -167,9 +167,7 @@ for (const slug of slugs) {
   const version = String(fm.version ?? '').trim();
   if (!version) {
     err(slug, 'version is required — it is the only signal a reader has that this page changed');
-  } else if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
-    // No leading zeros: `1.02.0` and `1.2.0` are the same release to a human and different
-    // strings to everything else, which is how two versions of one skill end up in a table.
+  } else if (!VERSION_RE.test(version)) {
     err(slug, `version "${version.slice(0, 20)}" must be MAJOR.MINOR.PATCH without leading zeros (e.g. 1.2.0)`);
   }
 

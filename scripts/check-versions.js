@@ -22,24 +22,44 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { VERSION_RE } from './lib.js';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const base = process.argv[2] || process.env.BASE_REF || 'origin/main';
 
+// stderr is discarded: `git show <base>:<path>` for a file the PR adds writes a `fatal:` to
+// the log, and a stack of those printed directly above a green check reads like a failure
+// that was ignored. Absence is an expected answer here, not an error.
 const git = (...args) => {
   try {
-    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
     return '';
+  }
+};
+
+// Distinguish "this path did not exist at the base" from "git failed and returned nothing".
+// Without it an empty result is ambiguous and the file is waved through as a new skill —
+// a swallow that fails open, which is the wrong direction for a gate.
+const existsAt = (ref, file) => {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${ref}:${file}`],
+                 { cwd: ROOT, stdio: ['ignore', 'ignore', 'ignore'] });
+    return true;
+  } catch {
+    return false;
   }
 };
 
 // The merge base, so a branch that is merely behind main is not judged against its future.
 const mergeBase = git('merge-base', base, 'HEAD').trim();
 if (!mergeBase) {
-  console.error(`could not resolve a merge base with ${base} — is the history shallow? ` +
-                'CI needs fetch-depth: 0 for this check.');
+  console.error(`could not resolve a merge base between "${base}" and HEAD.`);
+  console.error('Two usual causes: the ref does not exist here — on workflow_dispatch,');
+  console.error('actions/checkout fetches only the selected branch, so origin/main is absent');
+  console.error('unless you dispatched on main — or the clone is shallow and needs');
+  console.error('fetch-depth: 0. Pass an explicit base: node scripts/check-versions.js <ref>.');
   process.exit(2);
 }
 
@@ -51,7 +71,6 @@ const versionOf = (text) => {
   return (fm[1].match(/^version:\s*(\S+)\s*$/m) || [])[1] || null;
 };
 
-const SEMVER = /^\d+\.\d+\.\d+$/;
 const parse = (v) => v.split('.').map(Number);
 const isAfter = (a, b) => {                       // strictly greater, component-wise
   const [x, y] = [parse(a), parse(b)];
@@ -76,13 +95,25 @@ let checked = 0;
 
 for (const slug of [...touched.keys()].sort()) {
   const file = `skills/${slug}/SKILL.md`;
+  if (!existsAt(mergeBase, file)) continue;       // newly added skill — 1.0.0 is correct
   const before = git('show', `${mergeBase}:${file}`);
-  if (!before) continue;                          // newly added skill — 1.0.0 is correct
   let after;
   try {
     after = fs.readFileSync(path.join(ROOT, file), 'utf8');
   } catch {
     continue;                                     // skill deleted in this branch
+  }
+
+  const [oldV, newV] = [versionOf(before), versionOf(after)];
+
+  // A regression is checked FIRST and unconditionally. Gating it behind "did the content
+  // change" would let a bad rebase or a partial revert walk a version backwards in silence,
+  // and print a tick saying the opposite — precisely the false green this exists to stop.
+  // The 19 version-only lines this gate was built to protect are exactly what such a revert
+  // takes back, one line at a time.
+  if (oldV && newV && VERSION_RE.test(oldV) && VERSION_RE.test(newV) && isAfter(oldV, newV)) {
+    problems.push(`${slug}: version went backwards, ${oldV} -> ${newV}`);
+    continue;
   }
 
   // Did anything a reader receives actually change? Compare every published file under the
@@ -95,7 +126,7 @@ for (const slug of [...touched.keys()].sort()) {
 
   let contentChanged = false;
   for (const f of allFiles) {
-    const b = git('show', `${mergeBase}:${f}`);
+    const b = existsAt(mergeBase, f) ? git('show', `${mergeBase}:${f}`) : '';
     let a = '';
     try { a = fs.readFileSync(path.join(ROOT, f), 'utf8'); } catch { a = ''; }
     if (f === file ? strip(b) !== strip(a) : b !== a) { contentChanged = true; break; }
@@ -103,17 +134,14 @@ for (const slug of [...touched.keys()].sort()) {
   if (!contentChanged) continue;                  // version-only edit, or no real change
   checked += 1;
 
-  const [oldV, newV] = [versionOf(before), versionOf(after)];
   if (!newV) {
     problems.push(`${slug}: content changed and there is no version in the frontmatter`);
-  } else if (!SEMVER.test(newV)) {
+  } else if (!VERSION_RE.test(newV)) {
     problems.push(`${slug}: version "${newV.slice(0, 20)}" is not MAJOR.MINOR.PATCH`);
-  } else if (!oldV || !SEMVER.test(oldV)) {
+  } else if (!oldV || !VERSION_RE.test(oldV)) {
     continue;                                     // base was malformed; the new one is fine
   } else if (oldV === newV) {
     problems.push(`${slug}: content changed but version is still ${newV} — bump it`);
-  } else if (!isAfter(newV, oldV)) {
-    problems.push(`${slug}: version went backwards, ${oldV} -> ${newV}`);
   }
 }
 
