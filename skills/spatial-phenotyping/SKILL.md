@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-26
   against: squidpy 1.8.3 / scanpy 1.12.3 / spac 0.9.3 (git, plus parmap) / anndata 0.13.x / numpy 2.5.2 / pandas 3.x / Python 3.12.8 / squidpy MIBI-TOF example dataset (3309 cells, 36 markers, 3 ROIs, 2 donors)
-  executed: 20
+  executed: 21
   unverified: 0
 ---
 
@@ -226,6 +226,16 @@ compartment into four clusters whose means differ in nothing nameable.
 None of that is visible in the clustering. You have to look at the marker means:
 
 ```python
+import scanpy as sc
+
+sc.pp.neighbors(a, n_neighbors=15, random_state=0)
+sc.tl.leiden(a, resolution=0.5, key_added="cluster",
+             flavor="igraph", n_iterations=2, random_state=0)
+```
+
+Then look at what each cluster contains, before naming anything:
+
+```python
 import numpy as np, pandas as pd
 from scipy.sparse import issparse
 
@@ -247,10 +257,6 @@ arrives with cell types already assigned uses whatever column the depositor chos
 MIBI-TOF example in `## Try it` calls it `Cluster` — so read the column name off `a.obs`
 rather than assuming this one.
 
-`np.asarray` on a sparse layer returns a 1-element object array and `pd.DataFrame` then
-fails with a shape mismatch rather than doing anything sensible — call `.toarray()` when
-`a.layers["raw"]` is sparse, which it will be on anything that came through scanpy.
-
 **A marker in the panel is not a cell type in the data.** In the same run CD68's best
 cluster mean is 1.30 in this run — 1.21 to 1.30 across runs — against a 99th percentile of
 per-cell mean intensity of 1.65 across all cells —
@@ -270,16 +276,53 @@ Derive the map from the marker table rather than typing cluster ids, because the
 artefact of the run — they move when the seed, the library version or the accelerator
 changes, so a map written out by hand silently mislabels the next run:
 
+A raw threshold does not travel — it depends on the scale, and half the objects you meet
+have already been transformed by somebody. Score the *separation* instead, which does:
+
 ```python
-naming = {means["CD8"].idxmax(): "CD8 T cell",
-          means["FoxP3"].idxmax(): "Treg"}
-for cid in means.index[means["CK"] > 5]:          # the CK-high compartment
-    naming.setdefault(cid, "Tumour")
+def separation(means, marker):
+    # how far the top cluster sits above the rest, in across-cluster SDs
+    col = means[marker]
+    top = col.idxmax()
+    rest = col.drop(top)
+    return top, (col[top] - rest.mean()) / rest.std()
+
+naming = {}
+for marker, label in [("CD8", "CD8 T cell"), ("CD68", "Macrophage"),
+                      ("CD4", "CD4 T cell"), ("CK", "Epithelial")]:
+    cid, sep = separation(means, marker)
+    print(f"{marker:5s} top cluster {cid}  separation {sep:.2f} SD")
+    if sep >= 2:                                  # your bar, stated once, applied to all
+        naming.setdefault(cid, label)
 
 a.obs["cell_type"] = (a.obs["cluster"]
     .map(naming).astype("object").fillna("unassigned").astype("category"))
 print(naming)                                     # record which ids this run used
 ```
+
+On the MIBI-TOF object that prints:
+
+```
+CD8   top cluster 4  separation 2.06 SD
+CD68  top cluster 6  separation 1.89 SD
+CD4   top cluster 6  separation 1.93 SD
+CK    top cluster 8  separation 1.83 SD
+```
+
+**One cluster of nine gets a name, and 2,989 of 3,309 cells stay unassigned.** That is this
+section's argument made concrete rather than asserted. All four markers have a top cluster —
+`idxmax` always does — and three of the four fall short of a bar set before looking. Naming
+from `idxmax` alone would have shipped four cell types, three of them unsupported.
+
+Two honest caveats. The bar of 2 SD is a choice, not a law; state yours and apply it to
+every marker, rather than per marker after seeing the answer. And this object arrives
+pre-normalised, so its separations are compressed — on genuinely raw data from a
+well-designed panel, more markers clear the bar. Where a published annotation exists, as it
+does here in `obs["Cluster"]`, cross-tabulate against it rather than replacing it.
+
+Substitute your own panel's markers, and if a name you expect raises `KeyError`, that is the
+panel telling you it does not contain that marker — worth knowing before you go looking for
+the cell type.
 
 ## Neighborhood enrichment
 

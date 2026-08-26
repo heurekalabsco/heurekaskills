@@ -178,8 +178,8 @@ Two things worth carrying away.
 `FinalThreshold` scales exactly with the correction factor, which is how you confirm an edit
 landed in the module you meant — but compare it against **another `FinalThreshold`**, not
 against `OrigThreshold` in the same row. CellProfiler exports `OrigThreshold` rounded to
-eight significant figures (`0.09860165`) while `FinalThreshold` carries full precision
-(`0.09860164672136307`), so `correction x OrigThreshold` misses by a few parts in a
+eight decimal places (`0.09860165`, seven significant figures) while `FinalThreshold` carries
+full precision (`0.09860164672136307`), so `correction x OrigThreshold` misses by a few parts in a
 billion — harmless, and enough to fail a naive equality check:
 
 ```python
@@ -526,10 +526,11 @@ Invariants — a failure means the skill is wrong:
 - Every `Parent_Nuclei` in `PH3.csv` is an `ObjectNumber` present in `Nuclei.csv` —
   the parent link is what makes the per-object tables joinable at all.
 - With `Threshold correction factor` at 1.0, `Threshold_FinalThreshold_Nuclei` matches
-  `Threshold_OrigThreshold_Nuclei` to the eight significant figures `OrigThreshold` is
-  exported at. Set the factor to *k* and `FinalThreshold` scales by exactly *k* relative to
-  its own value at 1.0 — which is the comparison the Try-it assertion makes, with a
-  tolerance, rather than an equality against the rounded `OrigThreshold`.
+  `Threshold_OrigThreshold_Nuclei` to the eight decimal places `OrigThreshold` is exported
+  at — which is what the Try-it block asserts, at a `1e-6` tolerance, because an exact
+  equality would fail on the rounding. Separately, and not asserted in that block: set the
+  factor to *k* and `FinalThreshold` scales by exactly *k* relative to **its own** value at
+  1.0, which is the comparison to use when checking that an edit landed.
 - `Experiment.csv` is written before any image is processed, so its presence proves
   nothing about whether the run produced data.
 
