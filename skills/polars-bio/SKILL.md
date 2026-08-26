@@ -5,11 +5,20 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
-try-it: pending
+version: 1.2.0
 tags: [genomic-intervals, bed, vcf, polars, file-io]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+datasets: []
+verified:
+  date: 2026-08-26
+  against: polars-bio 0.34.0 / polars 1.44.1 / Python 3.11.15 / bioframe 0.8.0
+  executed: 38
+  unverified: 19
+  unverified_reason: >-
+    Each needs a format-specific input the validating environment could not synthesise —
+    a BigBed track, a VCF Zarr store, a Hi-C pairs file, a CRAM plus its reference, or a
+    VCF carrying AF/DP INFO and GQ FORMAT fields. Re-run with a set of real sample files
+    in those formats; everything else in the skill executes against inline-generated data.
 ---
 # polars-bio
 
@@ -42,13 +51,13 @@ Use this skill when:
 Requires Python 3.11–3.14 (see [PyPI](https://pypi.org/project/polars-bio/)).
 
 ```bash
-uv pip install "polars-bio==0.33.1"
+uv pip install "polars-bio==0.34.0"
 ```
 
 For pandas compatibility (pandas ≥3.0):
 
 ```bash
-uv pip install "polars-bio[pandas]==0.33.1"
+uv pip install "polars-bio[pandas]==0.34.0"
 ```
 
 Nothing else is needed — the wheel bundles the Rust engine and its Polars runtime.
@@ -371,7 +380,23 @@ DataFusion streaming is enabled by default for interval operations, processing d
 
 9. **CRAM has separate functions:** Use `read_cram`/`scan_cram`/`register_cram` for CRAM files (not `read_bam`). CRAM functions require a `reference_path` parameter.
 
-10. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
+10. **A BED3 file reads as zero rows, and nothing raises.** `read_bed` / `scan_bed` /
+    `register_bed` project every BED to a fixed four-column schema — `chrom`, `start`,
+    `end`, `name` — and a file with only the three mandatory columns has no `name` field,
+    so every record fails to parse. The failure is *logged* by the Rust layer
+    (`Error reading record from BED file` on stderr) and then swallowed: you get an empty
+    DataFrame, not an exception. BED4 through BED12 all read correctly, so the fix is to
+    give the file a name column:
+
+    ```bash
+    awk 'BEGIN{OFS="\t"} {print $1,$2,$3,(NF>3?$4:"r"NR)}' three_col.bed > four_col.bed
+    ```
+
+    Check `df.height` after reading any BED you did not write yourself. A zero-row result
+    from a non-empty file means this, not an empty interval set. Observed on 0.33.1 and
+    0.34.0 alike, so it is long-standing behaviour rather than a recent regression.
+
+11. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
 
 ## Best Practices
 
@@ -396,6 +421,85 @@ DataFusion streaming is enabled by default for interval operations, processing d
    ```
 
 6. **Prefer functional API for single operations, method-chaining for pipelines:** Use `pb.overlap()` for one-off operations and `.lazy().pb.overlap()` when building multi-step pipelines.
+
+## Try it
+
+A self-contained check that this skill still works. No account, no key, no network beyond
+installing the package.
+
+**Data** — generated inline by the block below (`datasets: []`). polars-bio is a file-format
+and interval-arithmetic library, so the input that determines its behaviour is the *shape* of
+a BED file, not the contents of any particular public dataset. Two files are written that
+differ only in column count, which is exactly the axis Pitfall 10 turns on. Nothing here can
+rot behind a URL.
+
+**Run** — in a fresh empty directory, after `uv pip install "polars-bio==0.34.0"`:
+
+```python
+import polars as pl
+import polars_bio as pb
+
+# --- Data: the same three intervals as BED3 and as BED6 --------------------
+rows = [("chr1", 0, 5), ("chr1", 4, 8), ("chr1", 21, 29)]
+with open("three.bed", "w") as f:                    # chrom, start, end
+    for c, s, e in rows:
+        f.write(f"{c}\t{s}\t{e}\n")
+with open("six.bed", "w") as f:                      # + name, score, strand
+    for i, (c, s, e) in enumerate(rows, 1):
+        f.write(f"{c}\t{s}\t{e}\tr{i}\t0\t+\n")
+
+three, six = pb.read_bed("three.bed"), pb.read_bed("six.bed")
+print("BED3 rows :", three.height, "   <- Pitfall 10")
+print("BED6 rows :", six.height)
+print("schema    :", six.columns)
+print("dtypes    :", [str(t) for t in six.dtypes])
+
+# --- Coordinates: BED is 0-based half-open, polars-bio returns 1-based -----
+raw = pb.read_bed("six.bed", use_zero_based=True)
+print("file 0-based start :", raw.row(0)[1], "| default 1-based start :", six.row(0)[1])
+
+# --- Interval arithmetic on a known answer --------------------------------
+target = pl.DataFrame({"chrom": ["chr1", "chr1"], "start": [3, 25], "end": [8, 28]})
+target.config_meta.set(coordinate_system_zero_based=False)
+merged = pb.merge(six.lazy().select("chrom", "start", "end")).collect().sort("start")
+hits   = pb.count_overlaps(six.lazy().select("chrom", "start", "end"), target).collect()
+print("merged    :", merged.select("start", "end").rows())
+print("overlaps  :", hits["count"].to_list())
+
+# --- INVARIANTS: these hold across versions --------------------------------
+assert six.height == 3, "a BED6 file must round-trip all three records"
+assert six.row(0)[1] == 1 and raw.row(0)[1] == 0, "0-based file start 0 -> 1-based 1"
+assert six.row(0)[2] == 5, "end is unchanged by the 0-based -> 1-based shift"
+assert merged.height == 2, "intervals 1-5 and 5-8 are bookended and must merge"
+assert merged.select("start", "end").rows() == [(1, 8), (22, 29)]
+assert hits["count"].to_list() == [1, 1, 1], "each interval meets exactly one target"
+assert three.height <= six.height, "BED3 can never yield more records than BED6"
+
+# --- OBSERVED 2026-08-26, polars-bio 0.34.0: drift, not failure ------------
+print()
+print("BED3 rows observed:", three.height, "(expected 0 on 0.33.1 and 0.34.0)")
+print("column count      :", len(six.columns), "(expected 4 — score/strand are dropped)")
+```
+
+**Expect** — the invariants above are assertions and must pass. The two values below are
+*observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug:
+
+```
+BED3 rows : 0    <- Pitfall 10
+BED6 rows : 3
+schema    : ['chrom', 'start', 'end', 'name']
+dtypes    : ['String', 'UInt32', 'UInt32', 'String']
+file 0-based start : 0 | default 1-based start : 1
+merged    : [(1, 8), (22, 29)]
+overlaps  : [1, 1, 1]
+
+BED3 rows observed: 0 (expected 0 on 0.33.1 and 0.34.0)
+column count      : 4 (expected 4 — score/strand are dropped)
+```
+
+If `BED3 rows` prints `3`, upstream has fixed the record-parsing bug and Pitfall 10 should be
+retired. If the schema grows past four columns, the extended-field note in
+`references/file_io.md` needs updating with it.
 
 ## Resources
 

@@ -46,7 +46,10 @@ Not all functions support all parameters. SAM functions lack cloud parameters. F
 
 ### read_bed / scan_bed
 
-Read BED files. Columns are auto-detected (BED3 through BED12). BED files use 0-based half-open coordinates; polars-bio attaches coordinate metadata automatically.
+Read BED files. BED4 through BED12 are accepted; **BED3 is not** — see the warning below.
+BED files use 0-based half-open coordinates; polars-bio converts to its 1-based default on
+read and attaches coordinate metadata automatically. Pass `use_zero_based=True` to keep the
+file's own coordinates instead.
 
 ```python
 import polars_bio as pb
@@ -58,15 +61,36 @@ df = pb.read_bed("regions.bed")
 lf = pb.scan_bed("regions.bed")
 ```
 
-### Column Schema (BED3)
+### Column Schema
+
+The reader projects **every** BED to the same four columns regardless of how many the file
+carries. Fields beyond the fourth are parsed but not returned — `score`, `strand`,
+`thickStart`, `thickEnd`, `itemRgb`, `blockCount`, `blockSizes` and `blockStarts` are all
+dropped. Read them with a plain `pl.read_csv(..., separator="\t", has_header=False)` if you
+need them.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `chrom` | String | Chromosome name |
-| `start` | Int64 | Start position |
-| `end` | Int64 | End position |
+| `start` | UInt32 | Start position (1-based by default) |
+| `end` | UInt32 | End position |
+| `name` | String | Feature name (BED column 4) |
 
-Extended BED fields (auto-detected) add: `name`, `score`, `strand`, `thickStart`, `thickEnd`, `itemRgb`, `blockCount`, `blockSizes`, `blockStarts`.
+### A BED3 file reads as zero rows, silently
+
+Because `name` is part of the fixed schema, a file with only the three mandatory columns
+fails to parse on every record. The Rust layer logs `Error reading record from BED file` to
+stderr and the call then returns an **empty DataFrame** — no exception is raised, so a BED3
+input looks like an empty interval set rather than an error.
+
+```bash
+# Give a BED3 file a name column before reading it
+awk 'BEGIN{OFS="\t"} {print $1,$2,$3,(NF>3?$4:"r"NR)}' three_col.bed > four_col.bed
+```
+
+Confirmed identical on polars-bio 0.33.1 and 0.34.0 (2026-08-26), so this is long-standing
+behaviour rather than a recent regression. Check `df.height` after reading any BED you did
+not write yourself.
 
 ## VCF Format
 
@@ -479,14 +503,25 @@ parse the column yourself with `str.split("\t")`.
 
 ### read_table / scan_table
 
-Read tab-delimited files with custom schema. Useful for non-standard formats or bioframe-compatible tables.
+Read tab-delimited files. Useful for non-standard formats or bioframe-compatible tables.
+
+**The `schema=` parameter does not work.** It is present in the signature
+(`read_table(path, schema: Dict = None, **kwargs)`) but any dict raises
+`TypeError: unhashable type: 'dict'`, whether the values are Python types or Polars dtypes.
+Confirmed on 0.33.1 and 0.34.0 (2026-08-26). Read without it and rename — dtypes are inferred
+correctly, so only the names need supplying:
 
 ```python
 import polars_bio as pb
 
-df = pb.read_table("custom.tsv", schema={"chrom": str, "start": int, "end": int, "name": str})
-lf = pb.scan_table("custom.tsv", schema={"chrom": str, "start": int, "end": int})
+NAMES = ["chrom", "start", "end", "name"]
+rename = {f"column_{i + 1}": n for i, n in enumerate(NAMES)}
+
+df = pb.read_table("custom.tsv").rename(rename)
+lf = pb.scan_table("custom.tsv").rename(rename)
 ```
+
+Without the rename, columns arrive as `column_1`, `column_2`, … in file order.
 
 ## Cloud Storage
 

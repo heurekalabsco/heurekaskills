@@ -52,7 +52,10 @@ Convert the DeseqDataSet to an AnnData object that can be serialized.
 
 **Usage:**
 ```python
-dds.to_picklable_anndata().write_h5ad("result_adata.h5ad")
+adata = dds.to_picklable_anndata()
+# uns["trend_coeffs"] comes back as a pandas Series; h5ad cannot write one.
+adata.uns["trend_coeffs"] = adata.uns["trend_coeffs"].to_numpy()
+adata.write_h5ad("result_adata.h5ad")
 ```
 
 Only load pickle files from trusted sources. Prefer `.h5ad` or CSV for exchanging results between tools or collaborators.
