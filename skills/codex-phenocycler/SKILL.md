@@ -142,6 +142,12 @@ Those hashes reproduce exactly across sessions on the same machine, which is wha
 this a mechanism rather than an anecdote — and it is why a run that happened to start on one
 device will report the *other* device as the unstable one.
 
+**Building a fresh model does not reset it.** Instantiate a second `CellposeModel` halfway
+through a process and its first call returns the warmed-up value, not the cold one. Nor does
+`batch_size` change it — 4 and 8 give the same two hashes and the same difference. Whatever
+is being warmed lives in the process, not in the model object, so the obvious workarounds do
+not work and saving the mask remains the answer.
+
 That single fact explains a set of observations that otherwise look contradictory, and it is
 worth stating because the obvious summaries are both wrong. "MPS is unreliable" is wrong;
 "use the CPU for reproducibility" is wrong. What is true is that a **one-shot script gives a
