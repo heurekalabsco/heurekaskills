@@ -9,7 +9,7 @@ tags: [spatial, single-cell, multiplex-imaging, h5ad, statistics]
 datasets: [https://exampledata.scverse.org/squidpy/mibitof.h5ad]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-25
+  date: 2026-08-26
   against: squidpy 1.8.3 / scanpy 1.12.3 / anndata 0.13.x / numpy 2.5.2 / pandas 3.x / Python 3.12.8 / squidpy MIBI-TOF example dataset (3309 cells, 36 markers, 3 ROIs, 2 donors)
   executed: 18
   unverified: 1

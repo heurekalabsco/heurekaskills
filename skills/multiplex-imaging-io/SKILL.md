@@ -9,7 +9,7 @@ tags: [microscopy, multiplex-imaging, file-io, qptiff, image-analysis]
 datasets: [https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/LuCa-7color_%5B13860%2C52919%5D_1x1component_data.tif]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-25
+  date: 2026-08-26
   against: tifffile 2026.8.23 / mxtifffile 0.0.2 / numpy 2.5.2 / Python 3.12.8 / PerkinElmer Vectra LuCa-7color sample data (OME public sample set)
   executed: 21
   unverified: 0

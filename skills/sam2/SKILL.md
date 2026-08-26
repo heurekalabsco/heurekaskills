@@ -9,7 +9,7 @@ tags: [segmentation, image-analysis, microscopy, sam2, time-lapse]
 datasets: [https://raw.githubusercontent.com/CellProfiler/examples/master/ExampleHuman/images/AS_09125_050116030001_D03f00d0.tif, https://raw.githubusercontent.com/CellProfiler/examples/master/ExampleTrackObjects/images/Sequence1/DrosophilaEmbryo_GFPHistone_0000.tif, https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-25
+  date: 2026-08-26
   against: SAM 2.1 checkpoints dated 092824 / repository package SAM-2 1.0 installed from source at facebookresearch/sam2 main / torch 2.13.0, torchvision 0.28.0, Python 3.12.8 / CPU device on arm64 macOS / CellProfiler ExampleHuman and ExampleTrackObjects images
   executed: 11
   unverified: 0

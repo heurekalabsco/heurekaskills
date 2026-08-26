@@ -9,7 +9,7 @@ tags: [microscopy, multiplex-imaging, segmentation, spatial, single-cell]
 datasets: [https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/LuCa-7color_%5B13860%2C52919%5D_1x1component_data.tif]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-25
+  date: 2026-08-26
   against: cellpose 4.2.1.1 (Cellpose-SAM) on MPS / tifffile 2026.8.23 / scikit-image 0.26.x / anndata 0.13.x / scanpy 1.12.3 / squidpy 1.8.3 / numpy 2.5.2 / Python 3.12.8 / PerkinElmer Vectra LuCa-7color component field
   executed: 11
   unverified: 0
@@ -117,7 +117,7 @@ of your panel.
 ### Do not count on segmentation being bitwise reproducible
 
 Running the identical two-channel input through the identical model, repeatedly, on one
-machine:
+machine, across two sessions a day apart:
 
 | | Object count | Label image identical between runs |
 |---|---|---|
@@ -482,16 +482,17 @@ Invariants — a failure means the skill is wrong:
   annotation step has to survive.
 
 Observed values, from a run on 25 Aug 2026 against cellpose 4.2.1.1 on Apple MPS — these
-move with the Cellpose model version, and, per the determinism section above, slightly
-between runs on a GPU:
+move with the Cellpose model version and, per the determinism section above, between runs
+on either device:
 
 - 8 channels; DAPI at index 6; 0.498 um/pixel; 6 markers after exclusions.
 - 700x700 crop: **1424** objects from DAPI alone, **1334** from DAPI + CK. On CPU the
   DAPI + CK count is 1335.
 - Median cell area 47.7 um^2.
-- Leiden at 0.5: 11 clusters. Highest cluster mean per marker — PDL1 9.42, CD8 3.75,
-  FoxP3 2.75, CD68 1.21, PD1 19.44, CK 9.14. Across two runs these varied in the second
-  significant figure (FoxP3 2.75-2.96, CK 8.79-9.14) while the ordering never changed.
+- Leiden at 0.5: 11 clusters in this run. Highest cluster mean per marker — PDL1 9.42,
+  CD8 3.75, FoxP3 2.75, CD68 1.21, PD1 19.44, CK 9.14. Across three runs the count was 11
+  or 12 and each mean moved in the second significant figure, to the spread tabulated
+  above, while the ordering never changed.
 - One CD8-high cluster at 3.75 against 0.11-0.22 elsewhere; one FoxP3-high cluster; three
   CK-high clusters that are mutually indistinguishable. Cluster *numbers* are not stable
   between runs — match clusters by their marker profile, not by id.

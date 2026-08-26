@@ -9,7 +9,7 @@ tags: [microscopy, image-analysis, segmentation, cellprofiler, cell-counting]
 datasets: [https://raw.githubusercontent.com/CellProfiler/examples/master/ExampleHuman/ExampleHuman.cppipe, https://raw.githubusercontent.com/CellProfiler/examples/master/ExampleHuman/images/AS_09125_050116030001_D03f00d0.tif]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-25
+  date: 2026-08-26
   against: CellProfiler 4.2.8 (container image, linux/amd64 under emulation on arm64) / Python 3.12.8 for the pipeline-editing and CSV-joining code / CellProfiler ExampleHuman and ExampleIlluminationCorrection datasets
   executed: 16
   unverified: 0
