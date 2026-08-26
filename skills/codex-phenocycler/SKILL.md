@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-26
   against: cellpose 4.2.1.1 (Cellpose-SAM) on MPS / tifffile 2026.8.23 / scikit-image 0.26.x / anndata 0.13.x / scanpy 1.12.3 / squidpy 1.8.3 / numpy 2.5.2 / Python 3.12.8 / PerkinElmer Vectra LuCa-7color component field
-  executed: 11
+  executed: 12
   unverified: 0
 ---
 
@@ -114,28 +114,35 @@ cytoplasmic measurement means something. Never pick these channels by index — 
 by marker name, because the position of DAPI is a property of the vendor's export and not
 of your panel.
 
-### Do not count on segmentation being bitwise reproducible
+### The first segmentation in a process differs from every one after it
 
-Running the identical two-channel input through the identical model, repeatedly, on one
-machine, across two sessions a day apart:
+Run the identical two-channel input through the identical model four times in one process,
+and the result is not what you would guess:
 
-| | Object count | Label image identical between runs |
-|---|---|---|
-| Apple MPS | 1334, every time | varies between sessions — identical in one, 1 of 3 runs differing in another |
-| CPU | 1335, every time | varies between sessions — bitwise identical in one, 587 pixels differing in another |
-| MPS vs CPU | 1334 vs 1335 | never — 145,341 pixels differ |
+| Device | Object count | eval 1 vs 2 | eval 1 vs 3 | eval 1 vs 4 | evals 2, 3, 4 |
+|---|---|---|---|---|---|
+| CPU | 1335 throughout | 587 px differ | 587 | 587 | byte-identical |
+| Apple MPS | 1334 throughout | 7,203 px differ | 7,203 | 7,203 | byte-identical |
 
-The **counts** are stable within a device. The **masks** are not reliably stable on either,
-and which device looks well-behaved changed between sessions on the same hardware, so
-"use the CPU for reproducibility" is not advice this data supports. Across devices the
-disagreement is one object in 1335 — 0.07%, nothing for a composition estimate — but
-145,341 differing pixels, which is plenty for a per-cell measurement.
+**The model is deterministic. The first call is not.** Whichever device runs first in a
+fresh process produces a mask that every subsequent call disagrees with, by an identical
+amount each time, after which the result never moves again. Object counts are unaffected
+throughout — this changes boundaries, not detections.
 
-So: **segment once, save the label image, and measure from the saved labels.** That single
-habit makes the question moot. Re-running segmentation inside a downstream script means the
-numbers move a little every time and nobody can tell whether a change came from the analysis
-or from the accelerator. Record the device alongside the model version, and treat any
-per-cell number as reproducible only against a saved mask.
+That single fact explains a set of observations that otherwise look contradictory, and it is
+worth stating because the obvious summaries are both wrong. "MPS is unreliable" is wrong;
+"use the CPU for reproducibility" is wrong. What is true is that a **one-shot script gives a
+different answer from the same code called twice**, on either device.
+
+The two devices also disagree with each other, and more than they disagree with themselves:
+1334 objects against 1335, and 145,341 differing pixels. One object in 1335 is 0.07% and
+nothing for a composition estimate; 145,341 pixels is plenty for a per-cell measurement.
+
+So: **segment once, save the label image, and measure from the saved labels.** That habit
+makes all of the above moot, which is why it is the recommendation rather than a warm-up
+call. Re-running segmentation inside a downstream script means the first number you ever
+computed is the one you can never reproduce. Record the device alongside the model version,
+and treat any per-cell measurement as reproducible only against a saved mask.
 
 ```python
 import numpy as np, tifffile
@@ -188,7 +195,20 @@ tile_labels = clear_border(labels)           # drops objects touching this tile'
 ```
 
 On the 700x700 crop below that drops 1335 objects to 1242 on CPU and 1334 to 1241 on MPS —
-**7% of the cells sit on the border of a single tile**, either way. That is the fraction you must recover from neighbouring tiles,
+**7% of the cells sit on the border of a single tile**, either way.
+
+**Count the labels, not the maximum, after this step.** `clear_border` zeroes the border
+objects but does not renumber what is left, so the highest label survives even when the
+object it named did not:
+
+```python
+print(int(tile_labels.max()))                       # 1334 — the old top label, still there
+print(len(set(np.unique(tile_labels)) - {0}))       # 1242 — the objects that remain
+```
+
+Every other block on this page reports `int(labels.max())`, which is correct only while the
+labels are consecutive. Follow that convention past `clear_border` and you overcount by 92
+cells — 7%, in the direction that hides the border loss you just performed. That is the fraction you must recover from neighbouring tiles,
 and it is why the overlap has to be real rather than nominal: with no overlap you would
 simply have lost them.
 
@@ -296,7 +316,7 @@ two on MPS and one on CPU — the outcome moved like this:
 
 | | clusters | PDL1 | CD8 | FoxP3 | CD68 | PD1 | CK |
 |---|---|---|---|---|---|---|---|
-| spread across three runs | 11-12 | 9.42-10.08 | 3.71-3.75 | 2.75-3.29 | 1.21-1.29 | 19.44-19.45 | 9.14-9.27 |
+| spread across three runs | 11-12 | 9.42-10.08 | 3.71-3.75 | 2.75-3.29 | 1.21-1.30 | 19.44-19.45 | 9.14-9.27 |
 
 What survives is what you should be willing to report: CD8 separates into one cluster at
 roughly fifteen times its baseline elsewhere, FoxP3 separates into one, PD1 is the brightest
@@ -312,7 +332,8 @@ nothing you can name. Leave the second kind unnamed. `cluster_6` in a results ta
 honest; `Tumour subtype B` is a claim nobody made.
 
 **A marker in the panel is not a cell type in the data.** CD68's highest cluster mean here
-is 1.21, against a 99th percentile of **per-cell mean** CD68 intensity of 1.65 across all
+is 1.21 in this run and never above 1.30 in any, against a 99th percentile of **per-cell
+mean** CD68 intensity of 1.65 across all
 1,334 cells — the dimmest channel in the panel. (Compare like with like here: the 99th
 percentile of raw CD68 *pixels* in the same crop is 2.7. A cluster mean is an average of
 per-cell averages, so it is only ever comparable to the per-cell distribution.) No
@@ -482,8 +503,8 @@ Invariants — a failure means the skill is wrong:
   annotation step has to survive.
 
 Observed values, from a run on 25 Aug 2026 against cellpose 4.2.1.1 on Apple MPS — these
-move with the Cellpose model version and, per the determinism section above, between runs
-on either device:
+move with the Cellpose model version, with the device, and, per the determinism section
+above, between a process's first segmentation and its later ones:
 
 - 8 channels; DAPI at index 6; 0.498 um/pixel; 6 markers after exclusions.
 - 700x700 crop: **1424** objects from DAPI alone, **1334** from DAPI + CK. On CPU the
