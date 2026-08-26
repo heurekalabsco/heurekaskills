@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
+version: 1.2.0
 tags: [doe, randomization, blocking, factorial, study-design]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash

@@ -5,7 +5,7 @@ category: models
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
+version: 1.3.0
 try-it: pending
 tags: [protein-language-model, esm3, esmc, embeddings, structure-prediction]
 allowed-tools: Read, Write, Edit, Bash

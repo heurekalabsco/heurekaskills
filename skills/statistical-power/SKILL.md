@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
+version: 1.2.0
 tags: [power-analysis, sample-size, effect-size, study-planning]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash

@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # check-versions.js needs the merge base
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -16,3 +18,10 @@ jobs:
       - run: npm ci
       - name: Validate skill format + public-tier boundary
         run: npm run validate
+
+      - name: Every changed skill carries a version bump
+        run: npm run check-versions
+        env:
+          # A concrete SHA always resolves; origin/<branch> may not exist after the
+          # merge-commit checkout a pull_request event produces.
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}

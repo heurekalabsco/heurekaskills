@@ -4,7 +4,7 @@ description: Quantify fluorescence microscopy images — open acquisition format
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [microscopy, image-analysis, segmentation, cell-counting, scikit-image]
 datasets: [https://gitlab.com/scikit-image/data/-/raw/45e2cec9a2ebd24354beccf293e81dabc6220bbe/cells3d-with-metadata.tif]
 allowed-tools: Read, Write, Edit, Bash

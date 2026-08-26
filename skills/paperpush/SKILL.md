@@ -5,7 +5,7 @@ category: communication
 license: BSD-2-Clause
 author: Pachter Lab (adapted by Heureka Labs)
 attribution: https://github.com/pachterlab/paperpush
-version: 1.0.0
+version: 1.2.0
 try-it: pending
 tags: [manuscript, preprint, submission, publishing]
 allowed-tools: Read, Write, Edit, Bash

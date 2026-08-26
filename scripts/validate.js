@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import {
   listSkillDirs, listSkillFiles, parseFrontmatterNaive,
-  CATEGORIES, SLUG_RE, ALLOWED_EXTENSIONS,
+  CATEGORIES, SLUG_RE, VERSION_RE, ALLOWED_EXTENSIONS,
   MAX_COVERS, MAX_PAPERS, ACCESS_LEVELS, PAPER_ID_RE, CLIENT_READ_KEYS,
   hasSection, sectionBody,
 } from './lib.js';
@@ -155,6 +155,20 @@ for (const slug of slugs) {
     err(slug, 'license is required');
   } else if (!licenceAcceptable(licence)) {
     err(slug, `license "${licence}" is not permitted — no branch of it is fully covered by ${LICENCES.join(', ')}`);
+  }
+
+  // 3b-ii. Version. Required, and MAJOR.MINOR.PATCH so it sorts and compares.
+  //     `version` is the only signal a reader or an installing client has that a published
+  //     page changed underneath them, which makes an absent or malformed one worse than a
+  //     stale one: stale is wrong, absent is unanswerable. `pathway-cca-coessentiality`
+  //     shipped with no `version` key at all and nothing noticed, because nothing looked.
+  //     What this cannot check is whether the number was bumped when the body changed —
+  //     that needs the diff, and lives in scripts/check-versions.js.
+  const version = String(fm.version ?? '').trim();
+  if (!version) {
+    err(slug, 'version is required — it is the only signal a reader has that this page changed');
+  } else if (!VERSION_RE.test(version)) {
+    err(slug, `version "${version.slice(0, 20)}" must be MAJOR.MINOR.PATCH without leading zeros (e.g. 1.2.0)`);
   }
 
   // 3c. Description budget. Every installed skill's description is loaded into every
