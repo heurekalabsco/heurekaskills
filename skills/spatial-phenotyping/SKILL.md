@@ -10,16 +10,9 @@ datasets: [https://exampledata.scverse.org/squidpy/mibitof.h5ad]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-26
-  against: squidpy 1.8.3 / scanpy 1.12.3 / anndata 0.13.x / numpy 2.5.2 / pandas 3.x / Python 3.12.8 / squidpy MIBI-TOF example dataset (3309 cells, 36 markers, 3 ROIs, 2 donors)
-  executed: 18
-  unverified: 1
-  unverified_reason: >-
-    The SPAC install block is not executed. SPAC is not published to PyPI or conda-forge
-    and its documented install is a conda environment built from the repository, pinned
-    to a custom package channel; the validating environment installs from PyPI only.
-    Everything the block would set up has an executed squidpy equivalent on this page.
-    Re-run it from a conda environment created with the repository's own
-    environment.yml.
+  against: squidpy 1.8.3 / scanpy 1.12.3 / spac 0.9.3 (git, plus parmap) / anndata 0.13.x / numpy 2.5.2 / pandas 3.x / Python 3.12.8 / squidpy MIBI-TOF example dataset (3309 cells, 36 markers, 3 ROIs, 2 donors)
+  executed: 20
+  unverified: 0
 ---
 
 # Spatial statistics on segmented multiplex data
@@ -462,20 +455,48 @@ Then:
 - **SPAC** (BSD-3-Clause, Frederick National Laboratory) wraps this ground with a
   consistent API and a Shiny front end, and is the package behind the platform paper at
   doi 10.1186/s12859-025-06339-2 and the software paper at doi 10.21105/joss.08787. It is
-  **not on PyPI or conda-forge**: the documented install is a conda environment built from
-  the repository, which additionally configures a custom package channel for a pinned
-  `scimap` build.
+  **not on PyPI or conda-forge** — confirmed 26 Aug 2026 — so it installs from the
+  repository.
+
+Its README documents a conda environment built from a feature branch against a custom
+package channel. That is more machinery than it needs — pip installs it straight from the
+repository into an ordinary Python 3.12 environment:
 
 ```bash
-# SPAC — from the repository, not from PyPI
-git clone https://github.com/FNLCR-DMAP/SCSAWorkflow.git && cd SCSAWorkflow
-conda env create -f environment.yml && conda activate spac
-pip install -e .
+pip install "git+https://github.com/FNLCR-DMAP/SCSAWorkflow.git"
+pip install parmap        # not declared, and two submodules need it
 ```
 
-Because all three read and write the same `AnnData`, the choice is about ergonomics rather
-than capability, and they compose. Keep the object as the interchange format and none of
-this is a commitment.
+The second line is not optional and is not documented upstream. Without it,
+`spac.transformations` and `spac.utag_functions` both raise `ModuleNotFoundError: No module
+named 'parmap'` on import, while the other six submodules load fine — so you discover it
+partway through a workflow rather than at install time.
+
+Treat the README's version numbers with suspicion while you are there: it states "Latest
+released version is v0.9.0" where the repository tags v0.9.2 and `setup.py` declares 0.9.3.
+
+**SPAC has the same per-image trap, under a different keyword.** Its neighbourhood profiler
+takes `regions=`, which does what `library_key` does in squidpy, and is equally optional:
+
+```python
+import anndata as ad, numpy as np
+import spac.spatial_analysis as sa
+
+a = ad.read_h5ad("mibitof.h5ad")
+sa.neighborhood_profile(a, phenotypes="Cluster", spatial_key="spatial",
+                        distances=[0, 25, 50, 100], regions="library_id")
+profile = np.asarray(a.obsm["neighborhood_profile"])   # (3309, 8, 3) cells x types x shells
+```
+
+Drop `regions="library_id"` on this dataset and the profiler counts **328,638** neighbours
+instead of **121,268** — 207,370 of them across ROI boundaries, and **every one of the
+3,309 cells** gets a different profile. Same failure as the graph section above, same
+silence, a different parameter name to remember.
+
+That is the argument for reading this page rather than any one library's docs: three
+packages, three spellings of the same guard, all of them opt-in. Because all three read and
+write the same `AnnData`, the choice between them is about ergonomics rather than
+capability, and they compose — but the guard is yours to remember in every one.
 
 ## What to write out
 
