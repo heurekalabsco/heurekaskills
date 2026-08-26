@@ -35,12 +35,15 @@ back-end), and SAM 2 training code are licensed under Apache 2.0". The weights d
 anonymously from Meta's public file host: no account, no token, no access request.
 
 What you do need: **Python 3.10 or newer**, **PyTorch 2.5.1 or newer** with a matching
-torchvision, and enough patience for CPU inference if you have no GPU. Times measured on CPU are quoted throughout so you can size the work before starting it,
-but treat them as an order of magnitude rather than a benchmark. The same default generator
-run has been measured between 17 s and 28 s on one laptop depending on load, and slower
-again inside a container. What does **not** move is the output: 141 masks at defaults, and
-an identical area trace, across every one of those runs. If your counts differ, that is a
-finding; if your times differ, that is your machine.
+torchvision, and enough patience for CPU inference if you have no GPU. **On timings.** This page gives orders of magnitude, not benchmarks, and deliberately so.
+The same default generator call on the same image has been measured anywhere from 17 s to
+35 s across machines and load levels, and the relaxed settings from 67 s to 136 s. Quoting a
+tight range invites you to treat a slower machine as a fault, so measure your own once and
+plan from that.
+
+What does **not** move is the output. Across every one of those runs: 141 masks at defaults,
+369 relaxed, and a byte-identical 21-frame area trace. **If your counts differ, that is a
+finding. If your times differ, that is your hardware.**
 
 ### Do not `pip install sam2`
 
@@ -225,8 +228,8 @@ Run against the ExampleHuman DNA field, where CellProfiler's published pipeline 
 
 | Settings | Masks | Wall clock (CPU) | Median area | Field-sized masks (>5000 px) |
 |---|---|---|---|---|
-| defaults (`points_per_side=32`) | **141** | ~20-30 s | 123 px | 0 |
-| `points_per_side=64`, `pred_iou_thresh=0.5`, `stability_score_thresh=0.8`, `min_mask_region_area=20` | **369** | ~70-95 s | 110 px | 1 |
+| defaults (`points_per_side=32`) | **141** | tens of seconds | 123 px | 0 |
+| `points_per_side=64`, `pred_iou_thresh=0.5`, `stability_score_thresh=0.8`, `min_mask_region_area=20` | **369** | a few minutes | 110 px | 1 |
 
 At defaults SAM 2 finds fewer than half the nuclei, returns no obviously wrong object, and
 gives you a tidy table of 141 rows with a sensible size distribution. Nothing in the output
@@ -330,7 +333,7 @@ for frame_idx, obj_ids, logits in predictor.propagate_in_video(state):
 
 `propagate_in_video` yields logits, not masks: threshold at 0 to get the mask.
 `offload_video_to_cpu=True` keeps the decoded frames off the GPU, which is what lets a
-long movie fit at all. Twenty-one 264x542 frames propagate in roughly 20-30 s on CPU.
+long movie fit at all. Twenty-one 264x542 frames propagate in well under a minute on CPU.
 
 ### SAM 2 does not know about cell division
 
@@ -491,7 +494,7 @@ Observed values, from a CPU run on 25 Aug 2026 against the `092824` checkpoints 
   0.8212 / 0.0020 / 0.1579.
 - nucleus prompt at (384, 261), pixel value 97: areas 927 / 141 / 348, scores 0.1207 /
   0.2993 / 0.5777.
-- automatic generation at defaults: 141 masks, roughly 20-30 s, median area 123 px, no mask
+- automatic generation at defaults: 141 masks, median area 123 px, no mask
   above 5000 px. Against 289 nuclei from CellProfiler.
 
 **Across other data.** The same prompting code was run on the Drosophila GFP-histone

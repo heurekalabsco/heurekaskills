@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-26
   against: squidpy 1.8.3 / scanpy 1.12.3 / spac 0.9.3 (git, plus parmap) / anndata 0.13.x / numpy 2.5.2 / pandas 3.x / Python 3.12.8 / squidpy MIBI-TOF example dataset (3309 cells, 36 markers, 3 ROIs, 2 donors)
-  executed: 21
+  executed: 22
   unverified: 0
 ---
 
@@ -39,11 +39,15 @@ another naming the **patient or specimen**.
 
 ```python
 import anndata as ad
-a = ad.read_h5ad("cells.h5ad")
-a                       # AnnData object with n_obs x n_vars = 3309 x 36
-a.obsm["spatial"].shape # (3309, 2)
-a.obs[["library_id", "donor"]].value_counts()
+a = ad.read_h5ad("mibitof.h5ad")   # or whatever your segmentation step wrote
+print(a)                           # AnnData object with n_obs x n_vars = 3309 x 36
+print(a.obsm["spatial"].shape)     # (3309, 2)
+print(a.obs[["library_id", "donor"]].value_counts())
 ```
+
+Every block on this page runs against that file, which `## Try it` at the end downloads —
+so you can read the page straight through with a live object in front of you rather than
+substituting your own as you go.
 
 Keep every annotation in `.obs` and every embedding in `.obsm`. That is what makes the
 object portable to any scverse tool and what makes the file the analysis rather than a
@@ -314,11 +318,35 @@ section's argument made concrete rather than asserted. All four markers have a t
 `idxmax` always does — and three of the four fall short of a bar set before looking. Naming
 from `idxmax` alone would have shipped four cell types, three of them unsupported.
 
-Two honest caveats. The bar of 2 SD is a choice, not a law; state yours and apply it to
-every marker, rather than per marker after seeing the answer. And this object arrives
-pre-normalised, so its separations are compressed — on genuinely raw data from a
-well-designed panel, more markers clear the bar. Where a published annotation exists, as it
-does here in `obs["Cluster"]`, cross-tabulate against it rather than replacing it.
+**And then check the one name you did give.** This dataset ships a published annotation in
+`obs["Cluster"]`, so the claim is testable:
+
+```python
+ct = pd.crosstab(a.obs["cluster"], a.obs["Cluster"])
+for cid, label in naming.items():
+    counts = ct.loc[cid].sort_values(ascending=False)
+    print(f'{label} (cluster {cid}) is {counts.max() / counts.sum():.1%} {counts.idxmax()}')
+    print(counts.to_string())
+# CD8 T cell (cluster 4) is 31.6% Tcell_CD8
+# Tcell_CD8 101 · Tcell_CD4 96 · Imm_other 40 · Endothelial 37
+# Myeloid_CD68 19 · Myeloid_CD11c 16 · Fibroblast 7 · Epithelial 4
+```
+
+The cluster that cleared the bar is **31.6% CD8 T cells**. It is not a CD8 T cell
+population; it is a mixed immune cluster whose CD8 mean happens to lead. So the separation
+score ranked correctly and validated nothing — which is the honest limit of it, and the
+reason to cross-tabulate against a published annotation wherever one exists rather than
+replacing it.
+
+Three caveats on the score itself, none of which the bar fixes. It is a heuristic
+effect-size over unweighted cluster means, not a statistical test. It depends on how many
+clusters you have, so changing the Leiden resolution changes every separation value. And it
+ignores cluster size, so a tiny cluster of outliers scores like a real population. Use it to
+rank candidates for inspection; do not use it to decide.
+
+The 2 SD bar is likewise a choice, not a law — state yours and apply it to every marker
+rather than per marker after seeing the answer. And this object arrives pre-normalised, so
+its separations are compressed relative to raw data from a well-designed panel.
 
 Substitute your own panel's markers, and if a name you expect raises `KeyError`, that is the
 panel telling you it does not contain that marker — worth knowing before you go looking for
@@ -525,10 +553,10 @@ takes `regions=`, which does what `library_key` does in squidpy, and is equally 
 import anndata as ad, numpy as np
 import spac.spatial_analysis as sa
 
-a = ad.read_h5ad("mibitof.h5ad")
-sa.neighborhood_profile(a, phenotypes="Cluster", spatial_key="spatial",
+sp = ad.read_h5ad("mibitof.h5ad")          # a separate object, so `a` above is untouched
+sa.neighborhood_profile(sp, phenotypes="Cluster", spatial_key="spatial",
                         distances=[0, 25, 50, 100], regions="library_id")
-profile = np.asarray(a.obsm["neighborhood_profile"])   # (3309, 8, 3) cells x types x shells
+profile = np.asarray(sp.obsm["neighborhood_profile"])  # (3309, 8, 3) cells x types x shells
 ```
 
 Drop `regions="library_id"` on this dataset and the profiler counts **328,638** neighbours

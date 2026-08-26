@@ -124,10 +124,23 @@ and the result is not what you would guess:
 | CPU | 1335 throughout | 587 px differ | 587 | 587 | byte-identical |
 | Apple MPS | 1334 throughout | 7,203 px differ | 7,203 | 7,203 | byte-identical |
 
-**The model is deterministic. The first call is not.** Whichever device runs first in a
-fresh process produces a mask that every subsequent call disagrees with, by an identical
-amount each time, after which the result never moves again. Object counts are unaffected
-throughout — this changes boundaries, not detections.
+**The model is deterministic. The first call in a process is not.** Whichever device runs
+first in a fresh process produces a mask that every subsequent call disagrees with, by an
+identical amount each time, after which the result never moves again. Object counts are
+unaffected throughout — this changes boundaries, not detections.
+
+The warm-up is a property of the **process**, not of the device or the model object. Run two
+CPU calls first and *then* build an MPS model, and MPS's first call already returns the
+value its second call would have given:
+
+| Process | first call | second call | differ |
+|---|---|---|---|
+| MPS from cold | `e10850f6…` | `b97be840…` | 7,203 px |
+| CPU from cold, then MPS | MPS gives `b97be840…` | `b97be840…` | **0 px** |
+
+Those hashes reproduce exactly across sessions on the same machine, which is what makes
+this a mechanism rather than an anecdote — and it is why a run that happened to start on one
+device will report the *other* device as the unstable one.
 
 That single fact explains a set of observations that otherwise look contradictory, and it is
 worth stating because the obvious summaries are both wrong. "MPS is unreliable" is wrong;
@@ -198,17 +211,23 @@ On the 700x700 crop below that drops 1335 objects to 1242 on CPU and 1334 to 124
 **7% of the cells sit on the border of a single tile**, either way.
 
 **Count the labels, not the maximum, after this step.** `clear_border` zeroes the border
-objects but does not renumber what is left, so the highest label survives even when the
-object it named did not:
+objects but does not renumber the survivors, so `.max()` becomes the highest label that
+happens to remain — a number with no relation to how many objects are left:
 
 ```python
-print(int(tile_labels.max()))                       # 1334 — the old top label, still there
+print(int(labels.max()))                            # 1335 — consecutive, so this is the count
+print(int(tile_labels.max()))                       # 1334 — highest survivor, NOT the count
 print(len(set(np.unique(tile_labels)) - {0}))       # 1242 — the objects that remain
 ```
 
+On this crop label 1335 sat on the border and was removed, and 1334 did not, so `.max()`
+drops by exactly one while 93 objects disappear. It could as easily have dropped by nothing
+or by fifty; the value is whatever the highest surviving label happens to be.
+
 Every other block on this page reports `int(labels.max())`, which is correct only while the
-labels are consecutive. Follow that convention past `clear_border` and you overcount by 92
-cells — 7%, in the direction that hides the border loss you just performed. That is the fraction you must recover from neighbouring tiles,
+labels are consecutive — they are, straight out of Cellpose, and they are not after this.
+Follow that convention past `clear_border` and you overcount by 92 cells, 7%, in the
+direction that hides the border loss you just performed. That is the fraction you must recover from neighbouring tiles,
 and it is why the overlap has to be real rather than nominal: with no overlap you would
 simply have lost them.
 
