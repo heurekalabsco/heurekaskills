@@ -5,11 +5,15 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
-try-it: pending
+version: 1.2.0
 tags: [microbiome, diversity, unifrac, ordination, permanova]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+datasets: []
+verified:
+  date: 2026-08-25
+  against: scikit-bio 0.7.3 / NumPy 2.4.6 / pandas 3.0.5 / Python 3.11.15
+  executed: 33
+  unverified: 0
 ---
 # scikit-bio
 
@@ -246,6 +250,11 @@ rarefied = subsample_counts(counts_matrix[0], n=10)
 
 **Important notes:**
 - Counts must be integers representing abundances, not relative frequencies
+- **`shannon` returns nats, not bits.** `base` defaults to `None`, which means the natural
+  logarithm, so an evenly-populated four-taxon sample scores `ln(4) = 1.3863` and not `2.0`.
+  Tools that report Shannon in bits sit a constant factor away on every sample
+  (`bits = nats / ln 2`) — pass `base=2` to compare against them. Nothing warns you; the
+  numbers are simply on a different scale
 - The phylogenetic-metric argument is `taxa=` (renamed from `otu_ids` in 0.6.0; the old name is a deprecated alias); `observed_otus` is now `observed_features` (or `sobs`)
 - `counts_matrix` may be any table-like input (NumPy array, pandas/polars DataFrame, BIOM `Table`, or AnnData) via the dispatch system
 - Phylogenetic metrics (Faith's PD, UniFrac) require tree and taxa-to-tip mapping
@@ -591,6 +600,129 @@ Requires Python 3.10+ and NumPy 2.0+. Pre-compiled wheels are published for each
 2. **Phylogenetic analysis**: Read sequences → Align → Build distance matrix → Construct tree → Calculate phylogenetic distances
 3. **Sequence processing**: Read FASTQ → Quality filter → Trim/clean → Find motifs → Translate → Write FASTA
 4. **Comparative genomics**: Read sequences → Pairwise alignment → Calculate distances → Build tree → Analyze clades
+
+## Try it
+
+A self-contained check that this skill still works. No account, no key, no network beyond
+installing the library.
+
+**Data** — generated inline, which is why `datasets:` is empty. Nothing here is fetched
+because nothing here *can* rot behind a URL: what is being checked is the library's own
+behaviour, and every figure below is either a mathematical identity or a seeded computation.
+Three of the four checks need a community whose true answer is known in advance — a four-tip
+tree with hand-chosen branch lengths — and a downloaded table cannot give you that.
+
+**Run** — `uv pip install "scikit-bio==0.7.3"`, then:
+
+```python
+import numpy as np
+from skbio import DNA, DistanceMatrix, TreeNode
+from skbio.diversity import alpha_diversity, beta_diversity
+from skbio.stats.distance import permanova, permdisp
+from skbio.stats.ordination import pcoa
+
+# --- a four-tip tree whose branch lengths make every figure below exact -------
+tree = TreeNode.read(["((OTU1:0.1,OTU2:0.2)n1:0.3,(OTU3:0.15,OTU4:0.25)n2:0.35);"])
+taxa = ["OTU1", "OTU2", "OTU3", "OTU4"]
+total_bl = sum(n.length for n in tree.traverse() if n.length is not None)
+
+counts = np.array([[1, 1, 1, 1],     # every tip
+                   [1, 1, 0, 0],     # left clade only
+                   [0, 0, 1, 1],     # right clade only
+                   [1, 1, 0, 0]])    # left clade again
+ids = ["all", "left", "right", "left_copy"]
+
+# INVARIANTS — these hold in every version, and a failure means the skill is wrong.
+pd_ = alpha_diversity("faith_pd", counts, ids=ids, tree=tree, taxa=taxa)
+assert pd_["all"] == total_bl and abs(total_bl - 1.35) < 1e-12   # PD of every tip == total branch length
+assert abs(pd_["left"] - 0.6) < 1e-12 and abs(pd_["right"] - 0.75) < 1e-12
+
+uf = beta_diversity("unweighted_unifrac", counts, ids=ids, tree=tree, taxa=taxa)
+assert uf["left", "left_copy"] == 0.0            # identical communities
+assert uf["left", "right"] == 1.0                # clades sharing only the root
+
+sh = alpha_diversity("shannon", counts, ids=ids)
+assert abs(sh["all"] - np.log(4)) < 1e-12        # NATS, not bits — base defaults to e
+assert alpha_diversity("shannon", counts, ids=ids, base=2)["all"] == 2.0
+
+print(f"faith_pd all/left/right : {pd_['all']} / {pd_['left']} / {pd_['right']}")
+print(f"unifrac identical/disjoint: {uf['left', 'left_copy']} / {uf['left', 'right']}")
+print(f"shannon(all) nats/bits  : {sh['all']:.6f} / "
+      f"{alpha_diversity('shannon', counts, ids=ids, base=2)['all']:.6f}")
+
+# --- the capture-group trap: no parentheses, no matches, no error -------------
+seq = DNA("ATGAAATCGATGCCCTAG")
+assert list(seq.find_with_regex("ATG[ACGT]{3}")) == []          # silent miss
+hits = [str(seq[m]) for m in seq.find_with_regex("(ATG[ACGT]{3})")]
+assert hits == ["ATGAAA", "ATGCCC"]
+print(f"find_with_regex ungrouped/grouped: 0 / {len(hits)} {hits}")
+
+# --- the permdisp trap: fewer than 10 samples, default dimensions -------------
+rng = np.random.default_rng(7)
+x = rng.random((6, 4))
+x[3:] += 1.5                                     # two separated groups of three
+d = np.abs(x[:, None, :] - x[None, :, :]).sum(-1)
+np.fill_diagonal(d, 0.0)
+dm = DistanceMatrix(d, ids=[f"S{i}" for i in range(6)])
+grouping = ["control"] * 3 + ["treated"] * 3
+
+try:
+    permdisp(dm, grouping, permutations=99, seed=42)
+    raise AssertionError("permdisp no longer refuses a 6-sample matrix — re-read the note")
+except ValueError as e:
+    assert "cannot extend distance matrix size" in str(e)
+    print(f"permdisp default dimensions: ValueError({e})")
+
+disp = permdisp(dm, grouping, permutations=99, seed=42, dimensions=0)
+
+# OBSERVED VALUES — scikit-bio 0.7.3, NumPy 2.4.6, seeded; a mismatch is drift to
+# investigate, not necessarily a bug.
+res = permanova(dm, grouping, permutations=999, seed=42)
+ord_ = pcoa(dm)
+print(f"permanova pseudo-F / p  : {res['test statistic']:.6f} / {res['p-value']:.3f}")
+print(f"permdisp  F / p         : {disp['test statistic']:.6f} / {disp['p-value']:.3f}")
+print(f"pcoa PC1 proportion     : {ord_.proportion_explained.iloc[0]:.6f}")
+assert abs(res["test statistic"] - 37.805704) < 1e-6
+assert abs(ord_.proportion_explained.iloc[0] - 0.958988) < 1e-6
+
+# p bottoms out at 0.1 here and no seed changes that: 3-vs-3 admits only
+# C(6,3)/2 = 10 distinct labellings, so 1/10 is the smallest p reachable.
+assert res["p-value"] == 0.099
+```
+
+**Expect** — exactly this, and the script exits non-zero if any assertion fails:
+
+```
+faith_pd all/left/right : 1.35 / 0.6000000000000001 / 0.75
+unifrac identical/disjoint: 0.0 / 1.0
+shannon(all) nats/bits  : 1.386294 / 2.000000
+find_with_regex ungrouped/grouped: 0 / 2 ['ATGAAA', 'ATGCCC']
+permdisp default dimensions: ValueError(Invalid operation: cannot extend distance matrix size.)
+permanova pseudo-F / p  : 37.805704 / 0.099
+permdisp  F / p         : 0.000329 / 1.000
+pcoa PC1 proportion     : 0.958988
+```
+
+What each line is worth, because the two kinds fail differently:
+
+- **Invariants.** Faith's PD over a sample holding every tip *is* the tree's total branch
+  length, so `1.35`, `0.6` and `0.75` are readable straight off the Newick string.
+  Unweighted UniFrac is the unshared fraction of observed branch length, so identical
+  communities score `0.0` and two clades meeting only at the root score `1.0` — nothing
+  in between is possible for these inputs. Shannon of an even four-taxon sample is `ln(4)`.
+  A change in any of these means the skill is wrong, not that upstream moved.
+- **Traps, asserted rather than described.** `find_with_regex` without a capture group
+  returns nothing and raises nothing — the check pins the silent-miss behaviour so a future
+  fix upstream is visible rather than invisible. `permdisp` is asserted to *fail* on a
+  6-sample matrix with its default `dimensions=10`: that failure is the documented 0.7.3
+  behaviour, so the day it stops failing, the note above it is stale.
+- **Observed values** are seeded, so they reproduce exactly on 0.7.3 and are drift to
+  investigate if they move. Note the p-value floor: 3-vs-3 has only `C(6,3)/2 = 10` distinct
+  labellings, so the smallest p any permutation test can return here is `0.1`, whatever
+  `permutations=` says. Exhaustive enumeration of all 20 labellings puts 2 at or above the
+  observed pseudo-F — an exact p of `0.100`, which the 999-permutation estimate reports as
+  `0.099`. Small designs cannot produce small permutation p-values, and that is a property
+  of the test rather than of the data.
 
 ## Reference Documentation
 
