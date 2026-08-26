@@ -50,12 +50,21 @@ institution and staying inside it, that is a route you can take, and the paper i
 reference for the method. If you are anywhere else, it is not, and no amount of tooling
 changes that. Read the licence yourself before installing it.
 
-**DeepCell's Mesmer needs an account token.** `deepcell-tf` itself is Apache-2.0, but the
-model weights are fetched with a `DEEPCELL_ACCESS_TOKEN` obtained by registering at
-`users.deepcell.org`. That is an ordinary requirement — any reader can register — but it is
-a requirement, and it belongs in your setup notes rather than being discovered at the
-segmentation step. `multiplex-imaging-pipeline` (MIT) wraps it as `segment-ome`, and its
-last release predates the numpy 2 transition, so expect to pin an environment for it.
+**DeepCell's Mesmer is non-commercial too, and the token is not the reason.** The
+`deepcell-tf` code ships a `LICENSE` whose text is unmodified Apache 2.0, though the
+project's own README badge and licence section call it "modified APACHE2". The weights are
+a separate question and the documentation answers it directly:
+
+> DeepCell models and training datasets are licensed under a modified Apache license for
+> non-commercial academic use only. An API key for accessing datasets and models can be
+> obtained at https://users.deepcell.org/login/
+
+So the `DEEPCELL_ACCESS_TOKEN` is an access mechanism sitting on top of a use restriction.
+Registering is easy and does not change what you may do with the model afterwards. For
+commercial work that puts Mesmer in the same category as SPACEc rather than in the
+"ordinary requirement" category, which is worth knowing before you build a pipeline around
+it. `multiplex-imaging-pipeline` (MIT) wraps it as `segment-ome`; its last release was
+7 May 2024, before numpy 2.0.0 landed that June, so expect to pin an environment for it.
 
 **Cellpose is BSD-3-Clause, on PyPI, and downloads its weights anonymously.** That is why
 the worked path below uses it. It is not a claim that it segments better than Mesmer — for
@@ -105,23 +114,28 @@ cytoplasmic measurement means something. Never pick these channels by index — 
 by marker name, because the position of DAPI is a property of the vendor's export and not
 of your panel.
 
-### Segmentation is reproducible on CPU and not on a GPU
+### Do not count on segmentation being bitwise reproducible
 
-Running the identical two-channel input through the identical model three times:
+Running the identical two-channel input through the identical model, repeatedly, on one
+machine:
 
-| Device | Object count | Label image identical between runs |
+| | Object count | Label image identical between runs |
 |---|---|---|
-| Apple MPS | 1334, 1334, 1334 | **no** — run 1 differed from run 2 |
-| CPU | 1335, 1335 | yes, bitwise |
+| Apple MPS | 1334, every time | varies between sessions — identical in one, 1 of 3 runs differing in another |
+| CPU | 1335, every time | varies between sessions — bitwise identical in one, 587 pixels differing in another |
+| MPS vs CPU | 1334 vs 1335 | never — 145,341 pixels differ |
 
-The counts agree and the masks do not, and CPU finds one object that MPS does not. That is
-a 0.07% difference, which is nothing for a composition estimate and is not nothing for a
-result someone will try to reproduce exactly.
+The **counts** are stable within a device. The **masks** are not reliably stable on either,
+and which device looks well-behaved changed between sessions on the same hardware, so
+"use the CPU for reproducibility" is not advice this data supports. Across devices the
+disagreement is one object in 1335 — 0.07%, nothing for a composition estimate — but
+145,341 differing pixels, which is plenty for a per-cell measurement.
 
-So: **segment once, save the label image, and measure from the saved labels.** Re-running
-segmentation as part of a downstream script means the numbers move slightly every time and
-nobody can tell whether a change came from the analysis or the accelerator. Record the
-device alongside the model version.
+So: **segment once, save the label image, and measure from the saved labels.** That single
+habit makes the question moot. Re-running segmentation inside a downstream script means the
+numbers move a little every time and nobody can tell whether a change came from the analysis
+or from the accelerator. Record the device alongside the model version, and treat any
+per-cell number as reproducible only against a saved mask.
 
 ```python
 import numpy as np, tifffile
@@ -134,7 +148,9 @@ with tifffile.TiffFile(path) as tf:
     names = [(ET.fromstring(p.description).findtext("Name") or "").strip() for p in tf.pages]
     kinds = [ET.fromstring(p.description).findtext("ImageType") for p in tf.pages]
     stack = tf.series[0].asarray()
+    num, den = tf.pages[0].tags["XResolution"].value
 
+um_px = 1e4 / (num / den)             # 0.498 — needed for every area and coordinate below
 channels = [n for n, k in zip(names, kinds) if k == "FullResolution"]
 index_of = {n: i for i, n in enumerate(channels)}
 
@@ -168,11 +184,11 @@ sit in the interior.
 ```python
 from skimage.segmentation import clear_border
 
-tile_labels = clear_border(tile_labels)      # drops objects touching this tile's edge
+tile_labels = clear_border(labels)           # drops objects touching this tile's edge
 ```
 
-On the 700x700 crop below that drops 1335 objects to 1242 — **7% of the cells sit on the
-border of a single tile**. That is the fraction you must recover from neighbouring tiles,
+On the 700x700 crop below that drops 1335 objects to 1242 on CPU and 1334 to 1241 on MPS —
+**7% of the cells sit on the border of a single tile**, either way. That is the fraction you must recover from neighbouring tiles,
 and it is why the overlap has to be real rather than nominal: with no overlap you would
 simply have lost them.
 
@@ -261,9 +277,9 @@ means = (pd.DataFrame(np.asarray(a.layers["raw"]), index=a.obs_names, columns=a.
 print(means.round(2).to_string())
 ```
 
-On the Vectra field, resolution 0.5 gives 11 clusters and the table contains rows like
-these — quoted by what they contain rather than by cluster number, because the numbering is
-not stable across runs on a GPU:
+On the Vectra field, resolution 0.5 gives 11 or 12 clusters depending on the run, and the
+table contains rows like these — quoted by what they contain rather than by cluster number,
+because neither the numbering nor the count is stable:
 
 ```
     PDL1   CD8  FoxP3  CD68    PD1    CK
@@ -273,6 +289,20 @@ not stable across runs on a GPU:
     3.90  3.75   0.37  0.24   5.81   1.13      <- CD8-high: cytotoxic T cell
     4.66  0.13   2.75  0.54  10.46   0.60      <- FoxP3-high: regulatory T cell
 ```
+
+**Read that table as one run, not as the answer.** Because the segmentation upstream is not
+reproducible, nothing downstream of it is either. Across three runs of this same pipeline —
+two on MPS and one on CPU — the outcome moved like this:
+
+| | clusters | PDL1 | CD8 | FoxP3 | CD68 | PD1 | CK |
+|---|---|---|---|---|---|---|---|
+| spread across three runs | 11-12 | 9.42-10.08 | 3.71-3.75 | 2.75-3.29 | 1.21-1.29 | 19.44-19.45 | 9.14-9.27 |
+
+What survives is what you should be willing to report: CD8 separates into one cluster at
+roughly fifteen times its baseline elsewhere, FoxP3 separates into one, PD1 is the brightest
+channel in the panel, and CD68 never rises above about 1.3 in any cluster in any run. What
+does not survive is the cluster count, the ordering of the ids, and the second decimal place
+of any mean. Quote the first kind; date and version-stamp the second.
 
 Three things that table tells you and the clustering does not.
 

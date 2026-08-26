@@ -219,6 +219,12 @@ also where cell types get invented. Measured on a Cellpose-segmented Vectra 7-co
 | 0.5 | 11 | 3.75 / 2.96 / 1.30 |
 | 1.0 | 14 | 3.71 / 2.80 / 1.21 |
 
+Those are one run's figures. The segmentation that produced the object is not reproducible
+run to run, so neither is the clustering on top of it: repeating the same pipeline gives
+11 or 12 clusters at resolution 0.5 and moves each mean in the second significant figure —
+FoxP3 between 2.75 and 3.29, CD68 between 1.21 and 1.30. The comparison between resolutions
+holds; the individual numbers are a snapshot.
+
 At 0.2 the FoxP3 cells are absorbed into other clusters and no cluster's FoxP3 mean gets
 above 1. At 0.5 a FoxP3-high cluster separates cleanly at 2.96. Going on to 1.0 adds three
 more clusters and no new marker separation at all — it splits the CK-high tumour
@@ -253,8 +259,8 @@ fails with a shape mismatch rather than doing anything sensible — call `.toarr
 `a.layers["raw"]` is sparse, which it will be on anything that came through scanpy.
 
 **A marker in the panel is not a cell type in the data.** In the same run CD68's best
-cluster mean is 1.30 in this run, against a 99th percentile of per-cell mean intensity of
-1.65 across all cells —
+cluster mean is 1.30 in this run — 1.21 to 1.30 across runs — against a 99th percentile of
+per-cell mean intensity of 1.65 across all cells —
 the dimmest channel in the panel. CD8 by contrast reaches 3.75 in one cluster while sitting
 at 0.11-0.22 in every other. There is no macrophage cluster to find here, at any
 resolution, even though CD68 is in the panel and macrophages are in the tissue. Reporting
