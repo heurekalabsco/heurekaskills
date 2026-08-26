@@ -88,6 +88,37 @@ Traps that will fail CI or, worse, fail silently in a client:
   `rnaseq`, `structure-prediction` vs `protein-structure`). New vocabulary is fine when
   the subject is genuinely new; a fifth spelling of an existing idea is not.
 
+### Versioning
+
+`version` is `MAJOR.MINOR.PATCH`, it starts at `1.0.0`, and **it moves whenever the
+published page changes.** CI enforces that: `scripts/check-versions.js` compares every
+changed `SKILL.md` against the merge base and fails the PR if the body moved and the number
+did not, or if the number went backwards.
+
+- **Minor** — a revision round. New or rewritten sections, a corrected claim, a changed
+  recommendation, a re-verification that moved the numbers. This is the common case, and it
+  is what a drift sweep produces.
+- **Patch** — a typo, a dead link, a formatting fix. Nothing that changes what the page
+  tells a reader to do.
+- **Major** — reserved. A skill that changes what it is about should be a new slug, not a
+  `2.0.0`, because installers key on the name.
+
+Bump once per publication, not once per commit: five commits on a branch that merge together
+are one revision and one minor bump.
+
+The reason to care is narrow and worth stating. Nobody reads this number for its own sake —
+it is the only signal a reader or an installing client has that a page they already have
+changed underneath them. A stale version tells them nothing changed when something did, and
+that is indistinguishable from the truth until they diff it themselves.
+
+This went wrong at scale before the check existed. Nineteen of forty-one skills had
+accumulated content changes across as many as four separate publications with no bump
+between them, and one had shipped with no `version` field at all. Not carelessness: the
+routine that does most of the updating was told to refresh `verified:` on every skill it
+touched and was never told about `version:`, so it did precisely what it was asked. A rule
+that lives only in a contributor's memory decays to whoever happens to remember it, which is
+why this one is a script.
+
 ### Categories
 
 | category | for |

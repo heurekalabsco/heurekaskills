@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.3.0
 tags: [h5ad, single-cell, data-format, scverse]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash

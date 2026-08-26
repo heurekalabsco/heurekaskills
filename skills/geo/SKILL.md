@@ -4,7 +4,7 @@ description: Find, triage and download public gene expression datasets from NCBI
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.2.0
 tags: [geo, rna-seq, transcriptomics, public-data, entrez]
 covers: [geo, gse, gsm, gds, gpl, rna-seq, microarray, scRNA-seq, spatial transcriptomics, expression, transcriptomics, counts matrix, series matrix, superseries, multi-platform, soft, aging, senescence, skeletal muscle, liver, brain, heart, kidney, blood, pbmc, lung, cancer, human, mouse, e-utilities]
 papers: [PMID:11752295, PMID:23193258, PMID:27008011, PMID:17496320, PMID:36516485, PMID:31862890]

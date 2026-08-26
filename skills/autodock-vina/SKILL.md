@@ -4,7 +4,7 @@ description: Molecular docking with AutoDock Vina — receptor and ligand prepar
 category: models
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.2.0
 try-it: pending
 tags: [molecular-docking, autodock, vina, structure-based, virtual-screening]
 allowed-tools: Read, Write, Edit, Bash

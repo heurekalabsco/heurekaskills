@@ -4,7 +4,7 @@ description: Search and retrieve studies from EBI BioStudies, the archive holdin
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [arrayexpress, rna-seq, transcriptomics, public-data, microarray]
 covers: [arrayexpress, biostudies, E-MTAB, E-GEOD, E-MEXP, S-BIAD, S-BSST, EMPIAR, rna-seq, scRNA-seq, single cell, microarray, functional genomics, transcriptomics, gene expression, differential expression, MAGE-TAB, SDRF, h5ad, ENA, fastq, EMBL-EBI, bioimages, cryo-EM, heart, lymphatic endothelial cells, human, mouse, cardiac inflammation, EFO]
 papers: [PMID:33211879, PMID:42167442, PMID:29069414, PMID:26700850, PMID:30357387, PMID:25361974, PMID:12519949, PMID:17087822]
