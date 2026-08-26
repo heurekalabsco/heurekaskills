@@ -84,8 +84,15 @@ const isAfter = (a, b) => {                       // strictly greater, component
 // hand a developer running this before committing a clean pass on work that has not been
 // checked — a false green, which is the one outcome worth engineering against.
 // Every file under a skill counts, not just SKILL.md: see the note at the top.
+// Tracked changes plus untracked additions. `git diff` cannot see a file that has never
+// been added, so a contributor who writes a new references/*.md and runs this before
+// `git add` would otherwise get a clean pass on work the gate has not looked at — the same
+// false green that reading the working tree instead of HEAD was meant to close.
+const untracked = () => git('ls-files', '--others', '--exclude-standard', 'skills')
+  .split('\n').filter(Boolean);
+
 const touched = new Map();                        // slug -> did any published file change
-for (const f of git('diff', '--name-only', mergeBase).split('\n')) {
+for (const f of [...git('diff', '--name-only', mergeBase).split('\n'), ...untracked()]) {
   const m = /^skills\/([^/]+)\//.exec(f);
   if (m) touched.set(m[1], true);
 }
@@ -119,7 +126,10 @@ for (const slug of [...touched.keys()].sort()) {
   // Did anything a reader receives actually change? Compare every published file under the
   // skill, with SKILL.md's version line stripped so a pure bump is not itself "a change".
   const strip = (s) => s.replace(/^version:.*$/m, '');
-  const filesNow = git('ls-files', `skills/${slug}`).split('\n').filter(Boolean);
+  const filesNow = [
+    ...git('ls-files', `skills/${slug}`).split('\n'),
+    ...git('ls-files', '--others', '--exclude-standard', `skills/${slug}`).split('\n'),
+  ].filter(Boolean);
   const filesBefore = git('ls-tree', '-r', '--name-only', mergeBase, `skills/${slug}`)
     .split('\n').filter(Boolean);
   const allFiles = [...new Set([...filesNow, ...filesBefore])].sort();

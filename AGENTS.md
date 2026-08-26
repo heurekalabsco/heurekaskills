@@ -115,6 +115,13 @@ change and needs no second bump.
 Bump once per publication, not once per commit: five commits on a branch that merge together
 are one revision and one minor bump.
 
+**What the check actually enforces, and what it does not.** `check-versions.js` verifies that
+the number moved and that it moved *forward*. It cannot tell a revision from a typo, so
+minor-versus-patch, the `1.0.0` start and the no-`2.0.0` rule are conventions review holds
+you to, not gates — a patch bump for a full rewrite passes CI. Knowing which half is
+mechanical matters: the gate stops you shipping a stale number, and nothing but a reader
+stops you shipping a misleading one.
+
 The reason to care is narrow and worth stating. Nobody reads this number for its own sake —
 it is the only signal a reader or an installing client has that a page they already have
 changed underneath them. A stale version tells them nothing changed when something did, and
