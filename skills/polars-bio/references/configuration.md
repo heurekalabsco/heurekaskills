@@ -85,6 +85,7 @@ df = pb.read_bed("regions.bed", use_zero_based=True)
 
 ```python
 import polars as pl
+import polars_bio as pb  # required: registers the .config_meta accessor on DataFrame
 
 df = pl.DataFrame({"chrom": ["chr1"], "start": [1], "end": [100]})
 df.config_meta.set(coordinate_system_zero_based=False)  # 1-based
