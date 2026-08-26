@@ -5,11 +5,20 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.0.0
-try-it: pending
+version: 1.1.0
 tags: [rna-seq, differential-expression, deseq2, statistics]
+datasets: [https://raw.githubusercontent.com/owkin/PyDESeq2/main/datasets/synthetic/test_counts.csv, https://raw.githubusercontent.com/owkin/PyDESeq2/main/datasets/synthetic/test_metadata.csv]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-08-24
+  against: pydeseq2 0.5.4 / anndata 0.12.19 / pandas 2.3.3 / numpy 2.4.6 / Python 3.11.15
+  executed: 60
+  unverified: 2
+  unverified_reason: >-
+    Two blocks in references/workflow_guide.md cannot execute by construction — each carries
+    a literal `...` standing in for a design or an interaction contrast vector the reader
+    supplies. Rewriting them as complete worked examples, against metadata that actually
+    carries an interaction term, is what would make them runnable.
 ---
 # PyDESeq2
 
@@ -67,8 +76,9 @@ ds = DeseqStats(
 )
 ds.summary()
 
-# 5. Access results
-results = ds.results_df
+# 5. Access results — .copy() matters: lfc_shrink() overwrites results_df in place,
+#    so without it this name would follow the shrunk values later.
+results = ds.results_df.copy()
 significant = results[results.padj < 0.05]
 print(f"Found {len(significant)} significant genes")
 ```
@@ -98,11 +108,18 @@ plotting — keep the unshrunk table for the p-values you report.
 # Shrink the log2 fold changes for ranking/visualization.
 # The coefficient name comes from the design, not the contrast: inspect
 # dds.obsm["design_matrix"].columns if you are unsure what to pass.
+# lfc_shrink() rewrites ds.results_df IN PLACE — it returns nothing, and any name
+# still bound to ds.results_df now sees shrunk values. That is why step 5 copied.
 ds.lfc_shrink(coeff="condition[T.treated]")
 shrunk = ds.results_df
 
 results.to_csv("deseq2_results.csv")          # unshrunk — report these stats
-dds.to_picklable_anndata().write_h5ad("dds.h5ad")   # portable full object
+
+# to_picklable_anndata() leaves uns["trend_coeffs"] as a pandas Series, which the
+# h5ad writer refuses (IORegistryError). Convert it first.
+adata = dds.to_picklable_anndata()
+adata.uns["trend_coeffs"] = adata.uns["trend_coeffs"].to_numpy()
+adata.write_h5ad("dds.h5ad")                  # portable full object
 ```
 
 A volcano plot off the shrunk table:
@@ -306,6 +323,139 @@ print(ds.results_df.nsmallest(20, "pvalue"))
 - Insufficient sample size
 - Technical issues (batch effects, outliers)
 
+## Try it
+
+A self-contained check that this skill still works. No account, no key, no GPU — but it
+does need network access the first time, which is the part worth knowing about.
+
+**Data** — the synthetic bulk RNA-seq matrix PyDESeq2 uses for its own CI: 100 samples ×
+10 genes of integer counts, with `condition` in {A, B} and `group` in {X, Y}.
+
+    https://raw.githubusercontent.com/owkin/PyDESeq2/main/datasets/synthetic/test_counts.csv
+    https://raw.githubusercontent.com/owkin/PyDESeq2/main/datasets/synthetic/test_metadata.csv
+
+`load_example_data()` looks local but is not. It first tries a `datasets/` directory beside
+the installed package; a wheel does not ship one, so on any `pip install` it falls back to
+fetching those two URLs. Offline, it raises a URL error rather than returning data. The
+library still hardcodes the `owkin` path even though the project moved to `scverse` in
+December 2025 — GitHub redirects it, and that redirect is what the URLs above probe. The
+data is MIT, like the package. Last confirmed reachable 2026-08-24.
+
+```bash
+pip install "pydeseq2==0.5.4"
+```
+
+```python
+import numpy as np
+from pydeseq2.dds import DeseqDataSet
+from pydeseq2.ds import DeseqStats
+from pydeseq2.utils import load_example_data
+
+# Orientation is the trap: DESeq2 wants samples x genes, and most count files ship
+# genes x samples. load_example_data already returns samples x genes.
+counts = load_example_data("raw_counts")       # 100 samples x 10 genes, integer
+metadata = load_example_data("metadata")       # condition in {A, B}, group in {X, Y}
+print("counts  :", counts.shape, counts.to_numpy().dtype)
+print("metadata:", metadata.shape, sorted(metadata["condition"].unique()))
+
+dds = DeseqDataSet(counts=counts, metadata=metadata, design="~condition", quiet=True)
+dds.deseq2()
+
+ds = DeseqStats(dds, contrast=["condition", "B", "A"], quiet=True)
+ds.summary()
+res = ds.results_df.copy()          # copy: lfc_shrink() overwrites results_df in place
+
+print("columns :", list(res.columns))
+print("genes   :", len(res), "| padj < 0.05:", int((res.padj < 0.05).sum()))
+print("size factors: %.3f - %.3f" % (dds.obs["size_factors"].min(), dds.obs["size_factors"].max()))
+print("design matrix:", list(dds.obsm["design_matrix"].columns))
+print(res.round(4).to_string())
+
+# lfc_shrink takes a DESIGN MATRIX column, not the contrast triple.
+ds.lfc_shrink(coeff="condition[T.B]")
+shrunk = ds.results_df
+print("shrunk LFC range: %.3f - %.3f" % (shrunk.log2FoldChange.min(), shrunk.log2FoldChange.max()))
+
+try:
+    ds.lfc_shrink(coeff="condition_B_vs_A")
+    raise SystemExit("expected a KeyError for a contrast-shaped coeff")
+except KeyError:
+    print("contrast-shaped coeff -> KeyError, as it should")
+
+# Exporting the fitted object: uns["trend_coeffs"] is a pandas Series, which h5ad
+# cannot write. Convert it or write_h5ad raises IORegistryError.
+adata = dds.to_picklable_anndata()
+print("trend_coeffs is a", type(adata.uns["trend_coeffs"]).__name__,
+      "->", np.round(adata.uns["trend_coeffs"].to_numpy(), 4))
+adata.uns["trend_coeffs"] = adata.uns["trend_coeffs"].to_numpy()
+adata.write_h5ad("dds.h5ad")
+print("wrote dds.h5ad after converting trend_coeffs")
+
+# --- invariants -------------------------------------------------------------
+assert counts.shape == (100, 10) and metadata.shape == (100, 2)
+assert list(res.columns) == ["baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"]
+assert len(res) == counts.shape[1]                      # one row per gene
+assert (dds.obs["size_factors"] > 0).all()
+assert list(dds.obsm["design_matrix"].columns) == ["Intercept", "condition[T.B]"]
+d = res.dropna(subset=["padj"])
+assert (d.padj >= d.pvalue - 1e-12).all()               # BH is never below the raw p
+assert (shrunk.log2FoldChange.abs() <= res.log2FoldChange.abs() + 1e-9).all()
+assert res.pvalue.equals(shrunk.pvalue)                 # shrinkage does not touch p-values
+
+# --- observed 2026-08-24, pydeseq2 0.5.4 ------------------------------------
+assert int((res.padj < 0.05).sum()) == 3
+assert sorted(res.index[res.padj < 0.05]) == ["gene2", "gene4", "gene5"]
+assert abs(res.loc["gene5", "log2FoldChange"] - 0.5821) < 1e-3
+print("OK")
+```
+
+**Expect**
+
+Invariants — these hold across versions, and a failure means the skill is wrong:
+
+- `results_df` carries exactly `baseMean, log2FoldChange, lfcSE, stat, pvalue, padj`, one
+  row per **gene** — 10 here, from a 100 × 10 matrix. If you get 100 rows, the counts went
+  in transposed.
+- The design matrix column is `condition[T.B]`, not the contrast `["condition","B","A"]`.
+  `lfc_shrink()` takes the former; passing the latter raises `KeyError`. This is the single
+  most common way to get stuck, so the block asserts both directions.
+- `lfc_shrink()` returns `None` and rewrites `results_df` **in place**. Without the `.copy()`
+  above, `res` and `shrunk` are the same object and any "unshrunk" figure you report is
+  shrunk. The two assertions comparing them are meaningless without it.
+- Shrinkage moves `log2FoldChange` toward zero and leaves `pvalue` untouched.
+- `padj >= pvalue` everywhere Benjamini-Hochberg returned a value.
+- All size factors are positive.
+- `to_picklable_anndata()` hands back `uns["trend_coeffs"]` as a pandas Series, and
+  `write_h5ad` rejects it with `IORegistryError`. Convert to an array first.
+
+Observed 2026-08-24 against **pydeseq2 0.5.4** — the dataset is fixed and the fit is
+deterministic, so these should reproduce exactly; a change means upstream drifted:
+
+```
+counts  : (100, 10) int64
+metadata: (100, 2) ['A', 'B']
+columns : ['baseMean', 'log2FoldChange', 'lfcSE', 'stat', 'pvalue', 'padj']
+genes   : 10 | padj < 0.05: 3
+size factors: 0.620 - 1.850
+design matrix: ['Intercept', 'condition[T.B]']
+        baseMean  log2FoldChange   lfcSE    stat  pvalue    padj
+gene1     8.5413          0.6328  0.2891  2.1889  0.0286  0.0641
+gene2    21.2812          0.5386  0.1500  3.5912  0.0003  0.0016
+gene3     5.0101         -0.6328  0.2952 -2.1435  0.0321  0.0641
+gene4   100.5180         -0.4121  0.1186 -3.4739  0.0005  0.0017
+gene5    27.1425          0.5821  0.1547  3.7624  0.0002  0.0016
+gene6     5.4130          0.0015  0.3103  0.0047  0.9963  0.9963
+gene7    28.2940          0.1343  0.1499  0.8959  0.3703  0.4114
+gene8    40.3583         -0.2707  0.1364 -1.9843  0.0472  0.0787
+gene9    37.1662         -0.2127  0.1332 -1.5964  0.1104  0.1431
+gene10   11.5893          0.3860  0.2446  1.5782  0.1145  0.1431
+shrunk LFC range: -0.396 - 0.522
+contrast-shaped coeff -> KeyError, as it should
+trend_coeffs is a Series -> [0.0861 4.8285]
+wrote dds.h5ad after converting trend_coeffs
+OK
+```
+
 ## Reference Documentation
 
 For comprehensive details beyond this workflow-oriented guide:
@@ -335,7 +485,9 @@ Load these references into context when users need:
 
 7. **Contrast specification:** The format is `[variable, test_level, reference_level]` where test_level is compared against reference_level.
 
-8. **Save intermediate objects:** Prefer `dds.to_picklable_anndata().write_h5ad("dds_result.h5ad")` for portable outputs. Only load pickle files that you created yourself and trust.
+8. **Save intermediate objects:** Prefer `.h5ad` over pickle for portable outputs, converting `uns["trend_coeffs"]` to an array first — `to_picklable_anndata()` leaves it a pandas Series and the h5ad writer rejects that. Only load pickle files that you created yourself and trust.
+
+9. **`lfc_shrink()` mutates:** it returns `None` and rewrites `ds.results_df` in place. Copy the unshrunk table before calling it, or the "unshrunk" numbers you report will be shrunk ones.
 
 ## Installation and Requirements
 

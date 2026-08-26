@@ -148,7 +148,9 @@ ds.lfc_shrink(coeff="condition[T.treated]")  # Applies apeGLM shrinkage
 Save results and intermediate objects:
 
 ```python
-# Export results as CSV
+# Export results as CSV. If Step 5 ran, these log2FoldChange values are the shrunk
+# ones — lfc_shrink() rewrites results_df in place. Copy the table before shrinking
+# if you need both.
 ds.results_df.to_csv("deseq2_results.csv")
 
 # Save significant genes only
@@ -156,7 +158,9 @@ significant = ds.results_df[ds.results_df.padj < 0.05]
 significant.to_csv("significant_genes.csv")
 
 # Save a portable AnnData object for later inspection
-dds.to_picklable_anndata().write_h5ad("dds_result.h5ad")
+adata = dds.to_picklable_anndata()
+adata.uns["trend_coeffs"] = adata.uns["trend_coeffs"].to_numpy()  # Series -> array
+adata.write_h5ad("dds_result.h5ad")
 ```
 
 Avoid loading pickle files from untrusted sources. For exchange between agents, pipelines, or collaborators, prefer CSV results and `.h5ad` AnnData files.
