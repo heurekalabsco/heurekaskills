@@ -12,8 +12,13 @@
 // any skill it touched and never told about `version:`, so it dutifully did exactly that.
 // A rule nobody is reminded of is a rule that decays to whoever happens to remember it.
 //
-// Exits non-zero when a SKILL.md changed and its version did not, or when a version moved
-// backwards. Exits zero for new skills, deletions, and reference-only edits.
+// Exits non-zero when a skill's published files changed and its version did not, or when a
+// version moved backwards. Exits zero for new skills and for deletions.
+//
+// "Published files" means everything under skills/<slug>/, not just SKILL.md. 19 of the
+// skills here also ship references/*.md, and the site serves them — so a references-only
+// edit changes what a reader gets and has to move the version too. An earlier draft of this
+// script watched SKILL.md alone and let 84 published files through unchecked.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,12 +43,20 @@ if (!mergeBase) {
   process.exit(2);
 }
 
-const versionOf = (text) => (text.match(/^version:\s*(\S+)/m) || [])[1] || null;
-const parse = (v) => (v || '').split('.').map((n) => parseInt(n, 10));
+// Read `version` from the frontmatter block only. Matching `^version:` anywhere in the file
+// would pick up a line inside a fenced example and compare the wrong number.
+const versionOf = (text) => {
+  const fm = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!fm) return null;
+  return (fm[1].match(/^version:\s*(\S+)\s*$/m) || [])[1] || null;
+};
+
+const SEMVER = /^\d+\.\d+\.\d+$/;
+const parse = (v) => v.split('.').map(Number);
 const isAfter = (a, b) => {                       // strictly greater, component-wise
   const [x, y] = [parse(a), parse(b)];
   for (let i = 0; i < 3; i += 1) {
-    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    if (x[i] !== y[i]) return x[i] > y[i];
   }
   return false;
 };
@@ -51,33 +64,52 @@ const isAfter = (a, b) => {                       // strictly greater, component
 // Working tree, not HEAD. Comparing `mergeBase...HEAD` would ignore uncommitted edits and
 // hand a developer running this before committing a clean pass on work that has not been
 // checked — a false green, which is the one outcome worth engineering against.
-const changed = git('diff', '--name-only', mergeBase)
-  .split('\n')
-  .filter((f) => /^skills\/[^/]+\/SKILL\.md$/.test(f));
+// Every file under a skill counts, not just SKILL.md: see the note at the top.
+const touched = new Map();                        // slug -> did any published file change
+for (const f of git('diff', '--name-only', mergeBase).split('\n')) {
+  const m = /^skills\/([^/]+)\//.exec(f);
+  if (m) touched.set(m[1], true);
+}
 
 const problems = [];
 let checked = 0;
 
-for (const file of changed) {
+for (const slug of [...touched.keys()].sort()) {
+  const file = `skills/${slug}/SKILL.md`;
   const before = git('show', `${mergeBase}:${file}`);
   if (!before) continue;                          // newly added skill — 1.0.0 is correct
   let after;
   try {
     after = fs.readFileSync(path.join(ROOT, file), 'utf8');
   } catch {
-    continue;                                     // deleted
+    continue;                                     // skill deleted in this branch
   }
+
+  // Did anything a reader receives actually change? Compare every published file under the
+  // skill, with SKILL.md's version line stripped so a pure bump is not itself "a change".
+  const strip = (s) => s.replace(/^version:.*$/m, '');
+  const filesNow = git('ls-files', `skills/${slug}`).split('\n').filter(Boolean);
+  const filesBefore = git('ls-tree', '-r', '--name-only', mergeBase, `skills/${slug}`)
+    .split('\n').filter(Boolean);
+  const allFiles = [...new Set([...filesNow, ...filesBefore])].sort();
+
+  let contentChanged = false;
+  for (const f of allFiles) {
+    const b = git('show', `${mergeBase}:${f}`);
+    let a = '';
+    try { a = fs.readFileSync(path.join(ROOT, f), 'utf8'); } catch { a = ''; }
+    if (f === file ? strip(b) !== strip(a) : b !== a) { contentChanged = true; break; }
+  }
+  if (!contentChanged) continue;                  // version-only edit, or no real change
   checked += 1;
 
   const [oldV, newV] = [versionOf(before), versionOf(after)];
-  const slug = file.split('/')[1];
-
-  // A pure version bump is not a content change; strip the field before comparing bodies.
-  const strip = (t) => t.replace(/^version:.*$/m, '');
-  if (strip(before) === strip(after)) continue;   // frontmatter-only version edit
-
   if (!newV) {
-    problems.push(`${slug}: content changed and there is no version field`);
+    problems.push(`${slug}: content changed and there is no version in the frontmatter`);
+  } else if (!SEMVER.test(newV)) {
+    problems.push(`${slug}: version "${newV.slice(0, 20)}" is not MAJOR.MINOR.PATCH`);
+  } else if (!oldV || !SEMVER.test(oldV)) {
+    continue;                                     // base was malformed; the new one is fine
   } else if (oldV === newV) {
     problems.push(`${slug}: content changed but version is still ${newV} — bump it`);
   } else if (!isAfter(newV, oldV)) {
@@ -93,4 +125,6 @@ if (problems.length) {
   process.exit(1);
 }
 
-console.log(`✓ ${checked} changed skill(s) carry a version bump (base ${base})`);
+const touchedCount = touched.size;
+console.log(`✓ ${checked} of ${touchedCount} touched skill(s) changed content, and each carries `
+            + `a version bump (base ${base})`);

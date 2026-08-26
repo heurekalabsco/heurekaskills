@@ -90,10 +90,13 @@ Traps that will fail CI or, worse, fail silently in a client:
 
 ### Versioning
 
-`version` is `MAJOR.MINOR.PATCH`, it starts at `1.0.0`, and **it moves whenever the
-published page changes.** CI enforces that: `scripts/check-versions.js` compares every
-changed `SKILL.md` against the merge base and fails the PR if the body moved and the number
-did not, or if the number went backwards.
+`version` is `MAJOR.MINOR.PATCH`, it starts at `1.0.0`, and **it moves whenever anything the
+reader receives changes.** That means `SKILL.md` *and* the `references/*.md` a skill ships
+alongside it — those are published too, so an edit to one of them moves the version in
+`SKILL.md` exactly as a body edit would. CI enforces it: `scripts/check-versions.js`
+compares every file under a changed skill against the merge base and fails the PR if
+anything moved and the number did not, or if the number went backwards. A version-only edit
+is not a content change and needs no second bump.
 
 - **Minor** — a revision round. New or rewritten sections, a corrected claim, a changed
   recommendation, a re-verification that moved the numbers. This is the common case, and it
