@@ -6,12 +6,12 @@ license: CC-BY-4.0
 author: Heureka Labs
 version: 1.0.0
 tags: [microscopy, multiplex-imaging, file-io, qptiff, image-analysis]
-datasets: [https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/LuCa-7color_%5B13860%2C52919%5D_1x1component_data.tif]
+datasets: [https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_fields/LuCa-7color_%5B13860%2C52919%5D_1x1component_data.tif, https://downloads.openmicroscopy.org/images/Vectra-QPTIFF/perkinelmer/PKI_scans/LuCa-7color_Scan1.qptiff]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-26
-  against: tifffile 2026.8.23 / mxtifffile 0.0.2 / numpy 2.5.2 / Python 3.12.8 / PerkinElmer Vectra LuCa-7color sample data (OME public sample set)
-  executed: 21
+  against: tifffile 2026.8.23 / mxtifffile 0.0.2 / zarr 3.3.0 / numpy 2.5.2 / Python 3.12.8 / four PerkinElmer Vectra files from the OME public sample set — three component fields and the 2.09 GB LuCa-7color_Scan1.qptiff whole-slide scan
+  executed: 23
   unverified: 0
 ---
 
@@ -96,8 +96,32 @@ nuclei = index_of["DAPI"]                      # 6
 tumour = index_of["CK (Opal 690)"]             # 5
 ```
 
-Two things to notice about that name list, both of which bite when you try to match
-against a panel table.
+**And on a raw scan there are no marker names at all.** The same specimen's whole-slide
+`LuCa-7color_Scan1.qptiff` names its five channels for the filters they were acquired
+through:
+
+```python
+# component file, after inForm unmixing
+['PDL1 (Opal 520)', 'CD8 (Opal 540)', 'FoxP3 (Opal 570)', 'CD68 (Opal 620)',
+ 'PD1 (Opal 650)', 'CK (Opal 690)', 'DAPI', 'Autofluorescence']   # DAPI is index 6
+
+# raw scan, same specimen, before unmixing
+['DAPI', 'FITC', 'CY3', 'Texas Red', 'CY5']                        # DAPI is index 0
+```
+
+Two files from one slide, eight channels against five, and DAPI at index 6 in one and index
+0 in the other. Hardcoding either position is wrong for the other, which is the argument for
+the name map in one line.
+
+It is also the limit of the name map: on the raw scan `index_of["CD8 (Opal 540)"]` cannot
+succeed, because the marker-to-fluorophore assignment is not in the file. It lives in the
+run's panel table, and a seven-colour panel does not fit in five filters — that is what the
+spectral unmixing step resolves. If you are handed a scan rather than component data and
+asked for CD8, the answer is not a channel index; it is that the file has to go through
+inForm, or its equivalent, first.
+
+Two more things to notice about the component name list, both of which bite when you try to
+match against a panel table.
 
 **The names carry the fluorophore, not just the marker.** `CD8 (Opal 540)` will not
 match a panel row that says `CD8`. Split on the parenthesis when you need the bare
@@ -145,8 +169,16 @@ print(len(channels))              # 8
 ```
 
 The values `ImageType` takes across the Akoya sample set are `FullResolution`,
-`ReducedResolution` and `Thumbnail`. Filter to the first and the count is right whatever
-else the file happens to carry.
+`ReducedResolution`, `Thumbnail`, `Overview` and `Label`. Filter to the first and the count
+is right whatever else the file happens to carry — and on a whole-slide scan it carries a
+lot. The 2.09 GB `LuCa-7color_Scan1.qptiff` has **33 pages across 4 series** for **5
+channels**: 5 `FullResolution`, 25 `ReducedResolution` pyramid pages, plus one each of
+`Thumbnail`, `Overview` and `Label`.
+
+**`Label` is the slide label photograph.** On clinical material that image routinely carries
+a specimen barcode, an accession number, or a handwritten name. It travels inside the same
+file as the pixel data, so anything you copy, share or deposit takes it along. Read it
+deliberately, and check it before the file leaves your institution.
 
 ## Pixel size, in micrometres, from the file
 
@@ -194,15 +226,41 @@ with tifffile.TiffFile("image.ome.tif") as tf:
 
 ## Reading a region instead of a slide
 
-A PhenoCycler scan is on the order of 10^5 pixels on a side across dozens of channels.
-At `uint16` that is hundreds of gigabytes decompressed. `asarray()` on the full-resolution
-series is not a slow path, it is a path that does not complete.
+Whole-slide scans are large enough that reading level 0 is not a slow path but a path that
+does not complete. The public `LuCa-7color_Scan1.qptiff` is a modest one — 34,560 x 24,960
+pixels across 5 channels, `uint8` — and that is already **4.3 GB** decompressed. A
+PhenoCycler run with dozens of channels at 16 bits is one to two orders of magnitude past
+it. Measured on that file:
+
+| Read | Result | Time |
+|---|---|---|
+| `series[0].asarray()` — level 0 | 4.3 GB | do not |
+| `series[0].levels[-1].asarray()` — level 5 | 4.2 MB, `(5, 1080, 780)` | under 0.1 s |
+| a 512 x 512 region of all 5 channels at level 0, via Zarr | `(5, 512, 512)` | under 0.1 s |
+
+The last two are the whole technique: the overview costs nothing, and a full-resolution
+region costs nothing *provided* you slice rather than load.
 
 Two mechanisms, both driven through `tifffile`. The second needs `zarr` as well, which is
 why it is in the install line above.
 
 **Pick a pyramid level.** A pyramidal file's `series[0]` carries `levels`, each a halving.
-Run against the tiled 2x2 field from the same public sample directory, which has two:
+The whole-slide scan has six:
+
+```python
+with tifffile.TiffFile("LuCa-7color_Scan1.qptiff") as tf:
+    for i, lv in enumerate(tf.series[0].levels):
+        print(i, lv.shape)
+    # 0 (5, 34560, 24960)
+    # 1 (5, 17280, 12480)
+    # 2 (5, 8640, 6240)
+    # 3 (5, 4320, 3120)
+    # 4 (5, 2160, 1560)
+    # 5 (5, 1080, 780)
+```
+
+The same code on the tiled 2x2 field from the same public directory, which has two, so you
+can exercise it without the 2 GB download:
 
 ```bash
 curl -L -o HandEcompressed_2x2.tif \
@@ -462,8 +520,10 @@ renders every real structure black, which reads as a dead channel.
 
 ## Dtype, and what the numbers mean
 
-Raw Akoya and CODEX acquisitions are `uint16`. inForm's unmixed components are `float32`
-in normalised counts — the sample file above runs 0 to 29.36 on DAPI, not 0 to 65535.
+Do not assume a bit depth. Across the three Akoya files on this page: inForm's unmixed
+components are `float32` in normalised counts — the component file runs 0 to 29.36 on DAPI,
+not 0 to 65535 — while the whole-slide scan from the same specimen is `uint8`. CODEX
+acquisitions are commonly `uint16`. Three files, three ranges, one vendor.
 
 Two consequences. Anything that assumes a 16-bit range — `img / 65535`, a `uint8` cast, a
 threshold of 1000 — is wrong on component data by three orders of magnitude. And an
@@ -579,10 +639,13 @@ that could break it:
 | `LuCa-7color_[13860,52919]_1x1component_data.tif` | 9 | 8 x FullResolution, Thumbnail | 8 | strips | 0.4980 |
 | `HnE_3_1x1component_data.tif` | 3 | 2 x FullResolution, Thumbnail | 2 | strips | 0.4989 |
 | `HandEcompressed_[11004,54205]_2x2component_data.tif` | 5 | 2 x FullResolution, Thumbnail, 2 x ReducedResolution | 2 | tiled | 0.4989 |
+| `PKI_scans/LuCa-7color_Scan1.qptiff` | 33 | 5 x FullResolution, 25 x ReducedResolution, Thumbnail, Overview, Label | 5 | tiled 512 | 0.4980 |
 
 The `ImageType` filter, the `XResolution` conversion and the series-versus-pages
-distinction hold on all three. Three things do not generalise, and each is why the code
-above is written the way it is: the channel count, the position of any given marker — the
-H&E files are `['Eosin', 'Hematoxylin']`, with no DAPI at all — and the page count, which
-the tiled file inflates with two `ReducedResolution` pyramid pages that are neither
-channels nor the thumbnail.
+distinction hold on all four. Four things do not generalise, and each is why the code above
+is written the way it is: the channel count; the position of any given marker — the H&E
+files are `['Eosin', 'Hematoxylin']` with no DAPI at all, and the scan puts DAPI at 0 where
+the component file puts it at 6; the page count, which the scan inflates from 5 channels to
+33 pages; and the dtype, which is `float32` on the component files and `uint8` on the scan.
+Nothing about a vendor's format is constant except that its own XML will tell you, if you
+read it.
