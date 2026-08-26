@@ -47,8 +47,9 @@ anything below.
 pip install tifffile imagecodecs numpy zarr pillow
 ```
 
-`imagecodecs` is not optional in practice. Every page of all three Akoya sample files is
-LZW-compressed, and without it `asarray()` raises on exactly the files you care about:
+`imagecodecs` is not optional in practice. Every page of all four Akoya sample files is
+LZW-compressed — including all 33 pages of the whole-slide scan — and without it
+`asarray()` raises on exactly the files you care about:
 
 ```
 ValueError: <COMPRESSION.LZW: 5> requires the 'imagecodecs' package
@@ -302,7 +303,9 @@ with tifffile.TiffFile("HandEcompressed_2x2.tif") as tf:
 ```
 
 The chunk shape is the file's own tile grid — `(1, 512, 512)` here — so a slice aligned to
-it reads exactly the tiles it needs. A slice that straddles tile boundaries reads the
+it reads exactly the tiles it needs. Read the chunk shape rather than assuming it: on the
+whole-slide scan, levels 0 to 4 are tiled 512 x 512 but the smallest level is written as
+strips, so the chunking is not uniform across the pyramid even within one file. A slice that straddles tile boundaries reads the
 straddled tiles in full and discards the remainder, which is correct but not free.
 
 The order of the axes in that slice is whatever `series.axes` said — check it, do not
@@ -520,22 +523,41 @@ renders every real structure black, which reads as a dead channel.
 
 ## Dtype, and what the numbers mean
 
-Do not assume a bit depth. Across the three Akoya files on this page: inForm's unmixed
-components are `float32` in normalised counts — the component file runs 0 to 29.36 on DAPI,
-not 0 to 65535 — while the whole-slide scan from the same specimen is `uint8`. CODEX
-acquisitions are commonly `uint16`. Three files, three ranges, one vendor.
+Do not assume a bit depth. Across the four Akoya files on this page: inForm's unmixed
+components are `float32` in normalised counts — the component file runs 0 to 29.36 on the
+DAPI plane, not 0 to 65535 — while the whole-slide scan from the same specimen is `uint8`.
+CODEX acquisitions are commonly `uint16`. One vendor, one specimen, three different ranges.
 
 Two consequences. Anything that assumes a 16-bit range — `img / 65535`, a `uint8` cast, a
 threshold of 1000 — is wrong on component data by three orders of magnitude. And an
 intensity is comparable across cells within one image, comparable across images only after
-the cross-slide correction the analysis stage does, and never comparable across markers:
-each channel's scale is set by its own antibody, exposure and unmixing.
+the cross-slide correction the analysis stage does, and never comparable across markers.
+
+**Check the range per channel, not over the stack.** The two are different numbers and the
+stack-wide one is the less useful of them:
 
 ```python
 import numpy as np
-print(stack.dtype, float(stack.min()), float(stack.max()))    # float32 0.0 29.357
-print(np.percentile(stack[index_of["DAPI"]], [50, 99]))
+print(stack.dtype, float(stack.min()), float(stack.max()))
+# float32 0.0 77.25         <- the whole stack: this is PD1, not DAPI
+
+for name, i in index_of.items():
+    plane = stack[i]
+    print(f"{name:22s} max {plane.max():6.2f}  median {np.median(plane):6.3f}")
+# PDL1 (Opal 520)         max  55.04 ...
+# CD8 (Opal 540)          max  32.93 ...
+# FoxP3 (Opal 570)        max  17.14 ...
+# CD68 (Opal 620)         max  10.99 ...
+# PD1 (Opal 650)          max  77.25 ...
+# CK (Opal 690)           max  34.10 ...
+# DAPI                    max  29.36 ...
+# Autofluorescence        max  21.31 ...
 ```
+
+Seven-fold between the dimmest channel and the brightest, on one field, from one exposure
+series. That spread is the reason a threshold chosen on one marker is meaningless on
+another, and the reason a stack-wide `max` tells you about whichever channel happens to be
+hottest rather than about the one you are working on.
 
 Check the range before you threshold on it, every time. It costs one line and it is the
 difference between a threshold that selects nuclei and one that selects nothing.
@@ -639,7 +661,7 @@ that could break it:
 | `LuCa-7color_[13860,52919]_1x1component_data.tif` | 9 | 8 x FullResolution, Thumbnail | 8 | strips | 0.4980 |
 | `HnE_3_1x1component_data.tif` | 3 | 2 x FullResolution, Thumbnail | 2 | strips | 0.4989 |
 | `HandEcompressed_[11004,54205]_2x2component_data.tif` | 5 | 2 x FullResolution, Thumbnail, 2 x ReducedResolution | 2 | tiled | 0.4989 |
-| `PKI_scans/LuCa-7color_Scan1.qptiff` | 33 | 5 x FullResolution, 25 x ReducedResolution, Thumbnail, Overview, Label | 5 | tiled 512 | 0.4980 |
+| `PKI_scans/LuCa-7color_Scan1.qptiff` | 33 | 5 x FullResolution, 25 x ReducedResolution, Thumbnail, Overview, Label | 5 | tiled 512 (levels 0-4), strips at level 5 | 0.4980 |
 
 The `ImageType` filter, the `XResolution` conversion and the series-versus-pages
 distinction hold on all four. Four things do not generalise, and each is why the code above
