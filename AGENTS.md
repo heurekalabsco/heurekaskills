@@ -459,9 +459,21 @@ unverified. Skills predating the rule carry `verified: pending`.
 
 You draw the line between a runnable block and a fragment — that judgement is yours, and no
 check second-guesses it. Two things around it are mechanical. The two numbers together can
-never exceed the fenced `python`, `bash`, `sh` or `r` blocks the skill actually contains,
+never exceed the fenced `python`, `bash`, `sh` or `r` blocks the skill actually contains
+(case-insensitively, plus `py`, `python3`, `shell`, `zsh` and R Markdown `{r ...}` chunks),
 since a fragment is still a fence; a total larger than that is arithmetic gone wrong in the
-file rather than a defensible reading, and CI rejects it. And when you change a skill,
+file rather than a defensible reading, and CI rejects it.
+
+That bound is a guard against drift, not a defence against a determined author. What counts
+the fences is a line scanner, not a Markdown parser, so it cannot tell which container a
+line sits in. It accepts any indentation — which is what makes fences inside numbered list
+items count, the way every pitfall in this file's own guidance is written — and the cost is
+that a four-space-indented block at the top level, which renders as literal text rather than
+code, is counted as a fence too. Writing literal examples of fences at the top level will
+therefore inflate what the check believes is present, and the check will not catch you. It
+is checked against a real CommonMark parser over the whole registry and currently agrees on
+every one of the 125 files; the limit is real, narrow, and worth knowing rather than
+discovering. And when you change a skill,
 `check-versions.js` prints a note if the fence count moved while the declared total stayed
 put. That one is advice, not a gate, because adding a fragment moves the fences and should
 not move the claim — but it is also the shape of a real miss, where a page gains a runnable
