@@ -483,11 +483,17 @@ plt.show()
 
 ### Extract Subtree
 
+`prune()` mutates the tree it is called on, so copy first — but **a Bio.Phylo tree has no
+`.copy()` method**. Use `copy.deepcopy()`; calling `tree.copy()` raises
+`AttributeError: 'Tree' object has no attribute 'copy'`.
+
 ```python
+import copy
+
 def extract_subtree(tree, taxa_list):
     """Extract subtree containing specific taxa."""
-    # Create a copy
-    subtree = tree.copy()
+    # Create a copy — deepcopy, not tree.copy(), which does not exist
+    subtree = copy.deepcopy(tree)
 
     # Get all terminals
     all_terminals = subtree.get_terminals()
