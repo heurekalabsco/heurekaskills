@@ -457,6 +457,17 @@ fragments that cannot run standalone count neither way; the number is about bloc
 could actually execute. `biopython` is the worked example, at 84 executed against 43
 unverified. Skills predating the rule carry `verified: pending`.
 
+You draw the line between a runnable block and a fragment — that judgement is yours, and no
+check second-guesses it. Two things around it are mechanical. The two numbers together can
+never exceed the fenced `python`, `bash`, `sh` or `r` blocks the skill actually contains,
+since a fragment is still a fence; a total larger than that is arithmetic gone wrong in the
+file rather than a defensible reading, and CI rejects it. And when you change a skill,
+`check-versions.js` prints a note if the fence count moved while the declared total stayed
+put. That one is advice, not a gate, because adding a fragment moves the fences and should
+not move the claim — but it is also the shape of a real miss, where a page gains a runnable
+block, `verified.date` is re-stamped to today, and the counts still describe an older run.
+Answer it rather than reading past it.
+
 **One example is not a test — run the technique across several.** `## Try it` proves the skill
 works on the study you chose. It does not prove the *method* generalises, and that is the claim
 a reader relies on. Before shipping, apply the skill's own approach to a handful of other
