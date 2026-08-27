@@ -22,7 +22,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { VERSION_RE } from './lib.js';
+import { VERSION_RE, runnableBlocks } from './lib.js';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +71,17 @@ const versionOf = (text) => {
   return (fm[1].match(/^version:\s*(\S+)\s*$/m) || [])[1] || null;
 };
 
+// The pair of integers in `verified:`, summed. Frontmatter-scoped for the same reason
+// `version` is: an `executed:` inside a fenced example is not this skill's claim.
+const declaredBlocks = (text) => {
+  const fm = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!fm) return null;
+  const ran = (fm[1].match(/^\s+executed:\s*(\d+)\s*$/m) || [])[1];
+  if (ran === undefined) return null;
+  const skipped = (fm[1].match(/^\s+unverified:\s*(\d+)\s*$/m) || [])[1] || '0';
+  return Number(ran) + Number(skipped);
+};
+
 const parse = (v) => v.split('.').map(Number);
 const isAfter = (a, b) => {                       // strictly greater, component-wise
   const [x, y] = [parse(a), parse(b)];
@@ -97,7 +108,18 @@ for (const f of [...git('diff', '--name-only', mergeBase).split('\n'), ...untrac
   if (m) touched.set(m[1], true);
 }
 
+// Runnable fences across a skill's markdown, at a ref or in the working tree.
+const countBlocks = (ref, slug, files, atRef) => files
+  .filter((f) => f.toLowerCase().endsWith('.md'))
+  .reduce((n, f) => {
+    let text = '';
+    if (atRef) text = existsAt(ref, f) ? git('show', `${ref}:${f}`) : '';
+    else { try { text = fs.readFileSync(path.join(ROOT, f), 'utf8'); } catch { text = ''; } }
+    return n + runnableBlocks(text).length;
+  }, 0);
+
 const problems = [];
+const notes = [];
 let checked = 0;
 
 for (const slug of [...touched.keys()].sort()) {
@@ -153,6 +175,26 @@ for (const slug of [...touched.keys()].sort()) {
   } else if (oldV === newV) {
     problems.push(`${slug}: content changed but version is still ${newV} — bump it`);
   }
+
+  // Advisory, deliberately not a failure. `verified:` declares how many RUNNABLE blocks the
+  // author ran, and the registry's settled position is that this is declared rather than
+  // computed, because most fences are narrative fragments that cannot run standalone. So
+  // adding a fragment legitimately moves the fence count without moving the declared total,
+  // and an error here would fire on correct work.
+  //
+  // What is still worth saying out loud: the fence count moved and the claim did not. That
+  // is the shape a real miss takes — a skill gained a runnable block, `verified.date` was
+  // re-stamped to today, and the counts stayed where an older run left them, so the page
+  // asserts a coverage it never measured. Printing it puts the question in front of review
+  // at the moment it can still be answered, without pretending arithmetic can settle it.
+  const blocksBefore = countBlocks(mergeBase, slug, filesBefore, true);
+  const blocksNow = countBlocks(null, slug, filesNow, false);
+  const declBefore = declaredBlocks(before);
+  const declNow = declaredBlocks(after);
+  if (blocksBefore !== blocksNow && declBefore !== null && declBefore === declNow) {
+    notes.push(`${slug}: runnable blocks ${blocksBefore} -> ${blocksNow}, but verified still `
+               + `claims ${declNow} — confirm the claim still covers the page`);
+  }
 }
 
 if (problems.length) {
@@ -166,3 +208,4 @@ if (problems.length) {
 const touchedCount = touched.size;
 console.log(`✓ ${checked} of ${touchedCount} touched skill(s) changed content, and each carries `
             + `a version bump (base ${base})`);
+for (const n of notes) console.log(`  ! ${n}`);
