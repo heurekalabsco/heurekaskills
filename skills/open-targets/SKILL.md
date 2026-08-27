@@ -10,7 +10,7 @@ covers: [open targets, target identification, target validation, therapeutic tar
 papers: [PMID:27899665, PMID:30462303, PMID:33196847, PMID:36399499, PMID:39657122]
 access: [open]
 platform: opentargets
-datasets: [https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/, https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/evidence_orphanet/part-00000-cd6a04cb-4416-4a3a-9177-34497cde762c-c000.snappy.parquet, https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/association_overall_direct/part-00000-c3eaa79c-fb08-4d4a-9391-a4eceb74fa7a-c000.snappy.parquet, https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/latest/output/evidence_orphanet/]
+datasets: [https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/evidence_orphanet/part-00000-cd6a04cb-4416-4a3a-9177-34497cde762c-c000.snappy.parquet, https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/association_overall_direct/part-00000-c3eaa79c-fb08-4d4a-9391-a4eceb74fa7a-c000.snappy.parquet, https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/association_by_datatype_direct/part-00000-0ba2e2c3-b65d-4905-9f32-51500ca726ea-c000.snappy.parquet, https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/target/part-00000-810593a9-06e5-4201-a034-4d82bcbe81e7-c000.snappy.parquet]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27
@@ -1012,8 +1012,10 @@ part name across releases.
 ## Try it
 
 **Data.** The Open Targets Platform GraphQL API, release 26.06 — public domain (CC0 1.0), no
-account, no key. The frontmatter declares the release's bulk parquet mirror rather than the
-endpoint itself, because the endpoint is POST-only and answers a `HEAD` probe with a 400.
+account, no key. The frontmatter declares four files from that release's bulk parquet mirror
+rather than the endpoint itself, because the endpoint is POST-only and answers a `HEAD` probe
+with a 400. A pinned release directory is immutable, so those URLs stay live; the release the
+skill was checked against is recorded in `verified.against` and printed by the first block.
 
 **Run.** Stdlib only. Copy into an empty directory and run.
 
