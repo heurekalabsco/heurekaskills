@@ -22,7 +22,8 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { VERSION_RE } from './lib.js';
+import yaml from 'js-yaml';
+import { VERSION_RE, runnableBlocks } from './lib.js';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +72,30 @@ const versionOf = (text) => {
   return (fm[1].match(/^version:\s*(\S+)\s*$/m) || [])[1] || null;
 };
 
+// The pair of integers in `verified:`, summed.
+//
+// Parsed as YAML, not matched with a regex. The regex version claimed to be
+// "frontmatter-scoped for the same reason `version` is" and was — but scoping to the
+// frontmatter is not scoping to `verified:`, and nothing anchored it to that mapping.
+// `^\s+` even spans a blank line's newline, so a top-level `executed:` at column 0
+// matched; with another mapping listed first it read both integers out of the wrong one;
+// and a comment after the value, a quoted number, or flow style all returned null, which
+// switched the advisory off with no output at all. `validate.js` parses this same field
+// with js-yaml and got the right answer in every one of those cases, so the two scripts
+// disagreed about one file. Now they cannot.
+const declaredBlocks = (text) => {
+  const fm = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!fm) return null;
+  let doc;
+  try { doc = yaml.load(fm[1]); } catch { return null; }
+  const V = doc && doc.verified;
+  if (!V || typeof V !== 'object' || Array.isArray(V)) return null;   // absent, or `pending`
+  const ran = Number(V.executed);
+  if (!Number.isInteger(ran)) return null;
+  const skipped = Number(V.unverified ?? 0);
+  return ran + (Number.isInteger(skipped) ? skipped : 0);
+};
+
 const parse = (v) => v.split('.').map(Number);
 const isAfter = (a, b) => {                       // strictly greater, component-wise
   const [x, y] = [parse(a), parse(b)];
@@ -97,7 +122,18 @@ for (const f of [...git('diff', '--name-only', mergeBase).split('\n'), ...untrac
   if (m) touched.set(m[1], true);
 }
 
+// Runnable fences across a skill's markdown, at a ref or in the working tree.
+const countBlocks = (ref, slug, files, atRef) => files
+  .filter((f) => f.toLowerCase().endsWith('.md'))
+  .reduce((n, f) => {
+    let text = '';
+    if (atRef) text = existsAt(ref, f) ? git('show', `${ref}:${f}`) : '';
+    else { try { text = fs.readFileSync(path.join(ROOT, f), 'utf8'); } catch { text = ''; } }
+    return n + runnableBlocks(text).length;
+  }, 0);
+
 const problems = [];
+const notes = [];
 let checked = 0;
 
 for (const slug of [...touched.keys()].sort()) {
@@ -153,6 +189,26 @@ for (const slug of [...touched.keys()].sort()) {
   } else if (oldV === newV) {
     problems.push(`${slug}: content changed but version is still ${newV} — bump it`);
   }
+
+  // Advisory, deliberately not a failure. `verified:` declares how many RUNNABLE blocks the
+  // author ran, and the registry's settled position is that this is declared rather than
+  // computed, because most fences are narrative fragments that cannot run standalone. So
+  // adding a fragment legitimately moves the fence count without moving the declared total,
+  // and an error here would fire on correct work.
+  //
+  // What is still worth saying out loud: the fence count moved and the claim did not. That
+  // is the shape a real miss takes — a skill gained a runnable block, `verified.date` was
+  // re-stamped to today, and the counts stayed where an older run left them, so the page
+  // asserts a coverage it never measured. Printing it puts the question in front of review
+  // at the moment it can still be answered, without pretending arithmetic can settle it.
+  const blocksBefore = countBlocks(mergeBase, slug, filesBefore, true);
+  const blocksNow = countBlocks(null, slug, filesNow, false);
+  const declBefore = declaredBlocks(before);
+  const declNow = declaredBlocks(after);
+  if (blocksBefore !== blocksNow && declBefore !== null && declBefore === declNow) {
+    notes.push(`${slug}: runnable blocks ${blocksBefore} -> ${blocksNow}, but verified still `
+               + `claims ${declNow} — confirm the claim still covers the page`);
+  }
 }
 
 if (problems.length) {
@@ -160,9 +216,15 @@ if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
   console.error('\nBump the minor for a revision that changes what the page says or shows;');
   console.error('bump the patch for a typo or a broken link. See AGENTS.md, "Versioning".\n');
+  // Advisories are printed even on the failing path. They used to be drained only after
+  // this exit, so one skill missing a version bump silently discarded every note about
+  // every other skill — and a note exists precisely to reach review while it can still be
+  // answered.
+  for (const n of notes) console.error(`  ! ${n}`);
   process.exit(1);
 }
 
 const touchedCount = touched.size;
 console.log(`✓ ${checked} of ${touchedCount} touched skill(s) changed content, and each carries `
             + `a version bump (base ${base})`);
+for (const n of notes) console.log(`  ! ${n}`);

@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.3.0
 tags: [genomic-intervals, bed, vcf, polars, file-io]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
@@ -398,6 +398,33 @@ DataFusion streaming is enabled by default for interval operations, processing d
 
 11. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
 
+12. **`coverage` is only trustworthy once you set the coordinate system.** The global default
+    is **1-based** (`datafusion.bio.coordinate_system_zero_based = false`), which is the path
+    you get for a hand-built DataFrame with no `config_meta` — and on that path `coverage`
+    returns numbers that contradict each other. For a query `[10, 20]`, whose 1-based
+    inclusive length is 11:
+
+    | target | coverage |
+    |---|---|
+    | identical to the query | 10 |
+    | `[5, 25]`, a strict superset | 12 |
+    | `[0, 100]`, a much larger superset | 12 |
+
+    A target identical to the query and one strictly containing it must both return the
+    query's own length. They return 10 and 12, and the length is 11 — three answers where
+    there can only be one, and the superset exceeds the interval it is measuring. Set the
+    metadata explicitly and the same three rows return 10, 10, 10 against a length of 10:
+
+    ```python
+    for df in (query, target):
+        df.config_meta.set(coordinate_system_zero_based=True)   # BED semantics
+    ```
+
+    Do this on **both** frames before any `coverage` call. Pitfall 4 covers the metadata
+    generally; this is the operation where getting it wrong returns a plausible wrong number
+    instead of an error. Reported upstream as biodatageeks/polars-bio#450; observed on 0.33.1
+    and 0.34.0.
+
 ## Best Practices
 
 1. **Use `scan_*` for large files:** Prefer `scan_bed`, `scan_vcf`, etc. over `read_*` for files larger than available RAM. Scan functions enable streaming and predicate pushdown.
@@ -466,6 +493,20 @@ hits   = pb.count_overlaps(six.lazy().select("chrom", "start", "end"), target).c
 print("merged    :", merged.select("start", "end").rows())
 print("overlaps  :", hits["count"].to_list())
 
+# --- Coverage, both coordinate systems (Pitfall 12) ------------------------
+def coverage_of(q, t, zero_based):
+    Q = pl.DataFrame({"chrom": ["chr1"], "start": [q[0]], "end": [q[1]]})
+    T = pl.DataFrame({"chrom": ["chr1"], "start": [t[0]], "end": [t[1]]})
+    for d in (Q, T):
+        d.config_meta.set(coordinate_system_zero_based=zero_based)
+    return pb.coverage(Q, T, output_type="polars.DataFrame")["coverage"][0]
+
+qi = (10, 20)                       # identical target, and a strict superset
+zb_same, zb_super = coverage_of(qi, qi, True), coverage_of(qi, (5, 25), True)
+ob_same, ob_super = coverage_of(qi, qi, False), coverage_of(qi, (5, 25), False)
+print("coverage 0-based identical/superset:", zb_same, "/", zb_super)
+print("coverage 1-based identical/superset:", ob_same, "/", ob_super)
+
 # --- INVARIANTS: these hold across versions --------------------------------
 assert six.height == 3, "a BED6 file must round-trip all three records"
 assert six.row(0)[1] == 1 and raw.row(0)[1] == 0, "0-based file start 0 -> 1-based 1"
@@ -474,14 +515,16 @@ assert merged.height == 2, "intervals 1-5 and 5-8 are bookended and must merge"
 assert merged.select("start", "end").rows() == [(1, 8), (22, 29)]
 assert hits["count"].to_list() == [1, 1, 1], "each interval meets exactly one target"
 assert three.height <= six.height, "BED3 can never yield more records than BED6"
+assert zb_same == zb_super == 10, "0-based: identical and superset targets both cover the query"
 
 # --- OBSERVED 2026-08-26, polars-bio 0.34.0: drift, not failure ------------
 print()
 print("BED3 rows observed:", three.height, "(expected 0 on 0.33.1 and 0.34.0)")
 print("column count      :", len(six.columns), "(expected 4 — score/strand are dropped)")
+print("1-based coverage  :", ob_same, "/", ob_super, "(expected 10 / 12 — Pitfall 12)")
 ```
 
-**Expect** — the invariants above are assertions and must pass. The two values below are
+**Expect** — the invariants above are assertions and must pass. The three values below are
 *observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug:
 
 ```
@@ -492,14 +535,19 @@ dtypes    : ['String', 'UInt32', 'UInt32', 'String']
 file 0-based start : 0 | default 1-based start : 1
 merged    : [(1, 8), (22, 29)]
 overlaps  : [1, 1, 1]
+coverage 0-based identical/superset: 10 / 10
+coverage 1-based identical/superset: 10 / 12
 
 BED3 rows observed: 0 (expected 0 on 0.33.1 and 0.34.0)
 column count      : 4 (expected 4 — score/strand are dropped)
+1-based coverage  : 10 / 12 (expected 10 / 12 — Pitfall 12)
 ```
 
 If `BED3 rows` prints `3`, upstream has fixed the record-parsing bug and Pitfall 10 should be
 retired. If the schema grows past four columns, the extended-field note in
-`references/file_io.md` needs updating with it.
+`references/file_io.md` needs updating with it. If `1-based coverage` prints `11 / 11`,
+biodatageeks/polars-bio#450 has been fixed and Pitfall 12 should be retired — the assertion
+above only pins the 0-based path, which is correct today and must stay that way.
 
 ## Resources
 

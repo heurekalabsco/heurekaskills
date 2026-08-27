@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import {
-  listSkillDirs, listSkillFiles, parseFrontmatterNaive,
+  listSkillDirs, listSkillFiles, listSkillSymlinks, parseFrontmatterNaive, runnableBlocks,
   CATEGORIES, SLUG_RE, VERSION_RE, ALLOWED_EXTENSIONS,
   MAX_COVERS, MAX_PAPERS, ACCESS_LEVELS, PAPER_ID_RE, CLIENT_READ_KEYS,
   hasSection, sectionBody,
@@ -432,6 +432,14 @@ for (const slug of slugs) {
   //     The author states how many RUNNABLE blocks they ran; we check the shape, the floor,
   //     and the age. Trusting the author is the deliberate trade: a wrong number is visible
   //     and re-auditable, an absent one is not.
+  //
+  //     Trusting the numerator is not the same as accepting any denominator. However the
+  //     author draws the line between a runnable block and a fragment, both are fences that
+  //     exist, so the declared total can never exceed the number of fences present. That
+  //     bound holds under every reading of "runnable" and so cannot punish prose style —
+  //     it is the half of the claim arithmetic can check. It is a regression guard: every
+  //     skill satisfies it today, and the point is that a hand-maintained pair of integers
+  //     stays inside the file it describes as that file is edited.
   const V = fm.verified;
   if (V === undefined) {
     err(slug, 'missing `verified:` — state when this skill was last executed and what fraction of its runnable blocks ran (§7)');
@@ -472,6 +480,13 @@ for (const slug of slugs) {
         if (skipped > 0 && !String(V.unverified_reason ?? '').trim()) {
           err(slug, `${skipped} block(s) unverified but no verified.unverified_reason — say what blocked them and what would unblock it`);
         }
+        // The bound described above: you cannot have run blocks that are not there.
+        const present = listSkillFiles(dir)
+          .filter((f) => f.toLowerCase().endsWith('.md'))
+          .reduce((n, f) => n + runnableBlocks(fs.readFileSync(path.join(dir, f), 'utf8')).length, 0);
+        if (runnable > present) {
+          err(slug, `verified claims ${runnable} runnable block(s) (${ran} executed + ${skipped} unverified) but the skill contains ${present} — a count that outran its own file, so re-count rather than trusting either number`);
+        }
       }
     }
   }
@@ -501,8 +516,16 @@ for (const slug of slugs) {
   //     passes — truthfully, in a directory the earlier steps primed. Run the same block in
   //     a fresh directory and it fails, and `verified:` has already counted it as executed.
   if (hasTryIt) {
-    const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|\Z)/m) || [])[1] || '';
-    for (const [, code] of tryBody.matchAll(/```(?:python|bash|sh)\n([\s\S]*?)```/g)) {
+    // `$(?![\s\S])` is end-of-input. It replaced `\Z`, which JavaScript does not have:
+    // `\Z` is an identity escape for a literal capital Z, so this lookahead used to read
+    // "stop at the next `## ` heading, or at the next capital Z". A `## Try it` that was
+    // the file's last section and contained no capital Z matched nothing at all, and
+    // tryBody fell back to '' — the gate then scanned an empty string and passed, while
+    // `hasTryIt` (a different extraction) reported the section present. 13 of 32 skills
+    // with a `## Try it` were affected and 18 of 40 blocks were never scanned, including
+    // every block in the five most recently added skills.
+    const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m) || [])[1] || '';
+    for (const code of runnableBlocks(tryBody)) {
       const invoked = new Set();
       // A local script named as a string arg, or run by an interpreter.
       for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) invoked.add(m[1]);
@@ -525,6 +548,12 @@ for (const slug of slugs) {
   }
 
   // 5. Path safety + file types.
+  // Symlinks are enumerated separately: listSkillFiles cannot return them (a Dirent for a
+  // link is neither isFile() nor isDirectory()), which left the check below unreachable.
+  for (const rel of listSkillSymlinks(dir)) {
+    err(slug, `symlink not allowed: ${rel} — a link's blob is its target's path, and this repository is public`);
+  }
+
   const files = listSkillFiles(dir);
   for (const rel of files) {
     if (rel.includes('..') || path.isAbsolute(rel)) { err(slug, `unsafe file path: ${rel}`); continue; }
