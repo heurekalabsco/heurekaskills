@@ -147,7 +147,19 @@ async function probeOnce(startUrl) {
       // 406 belongs here with 405: www.metabolomicsworkbench.org/rest/ answers HEAD with
       // 406 Not Acceptable and the identical URL with 200 application/json under GET.
       // Without it, a live endpoint is reported dead.
-      if ([403, 405, 406, 501].includes(res.status)) res = await once(u.href, 'GET');
+      //
+      // 400 and 404 are here for the same reason and were added later, each after a skill
+      // was written around the gap rather than into it. api.figshare.com answers HEAD with
+      // 400 and the identical URL with 200 (DepMap). entity.api.hubmapconsortium.org
+      // answers HEAD with 404 and the identical URL with 200 (HuBMAP). Both authors kept a
+      // live, correct URL out of `datasets:` because declaring it would have reported dead
+      // every night — the registry losing coverage to a quirk of this prober.
+      //
+      // Widening the list cannot mask a genuinely dead URL, because the fallback only
+      // decides anything when the GET *succeeds*: a URL that is really gone answers 404 to
+      // both verbs and is still reported dead. What it costs is one extra ranged GET on a
+      // truly-404 URL, which is the cheap direction to be wrong in.
+      if ([400, 403, 404, 405, 406, 501].includes(res.status)) res = await once(u.href, 'GET');
     } catch (e) {
       return {
         state: 'transient',
