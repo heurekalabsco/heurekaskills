@@ -439,7 +439,7 @@ Phylo.draw_ascii(tree)
 ### Issue: PDB parser warnings
 **Solution:** Use `PDBParser(QUIET=True)` to suppress warnings, or investigate structure quality.
 
-### Issue: ImportError for Bio.HMM, Bio.MarkovModel, or Bio.Application
+### Issue: Bio.MarkovModel and Bio.Application raise ModuleNotFoundError, and Bio.HMM imports but is empty
 **Solution:** The functionality was removed in Biopython 1.86. Use [hmmlearn](https://pypi.org/project/hmmlearn/) for HMMs and the standard library `subprocess` module instead of `Bio.Application` CLI wrappers.
 
 `Bio.MarkovModel` and `Bio.Application` are gone outright, so importing either raises `ModuleNotFoundError`. **`Bio.HMM` is the one that misleads**: as of 1.88 it is still installed as a package containing nothing but its own docstring, so `import Bio.HMM` *succeeds* and an availability check written that way reports the module as present. Every submodule that did the work — `Bio.HMM.MarkovModel`, `Bio.HMM.Trainer`, `Bio.HMM.Utilities`, `Bio.HMM.DynamicProgramming` — raises `ModuleNotFoundError`. Test for what you actually call, not for the package.
