@@ -22,6 +22,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import { VERSION_RE, runnableBlocks } from './lib.js';
 import { fileURLToPath } from 'node:url';
 
@@ -71,15 +72,28 @@ const versionOf = (text) => {
   return (fm[1].match(/^version:\s*(\S+)\s*$/m) || [])[1] || null;
 };
 
-// The pair of integers in `verified:`, summed. Frontmatter-scoped for the same reason
-// `version` is: an `executed:` inside a fenced example is not this skill's claim.
+// The pair of integers in `verified:`, summed.
+//
+// Parsed as YAML, not matched with a regex. The regex version claimed to be
+// "frontmatter-scoped for the same reason `version` is" and was — but scoping to the
+// frontmatter is not scoping to `verified:`, and nothing anchored it to that mapping.
+// `^\s+` even spans a blank line's newline, so a top-level `executed:` at column 0
+// matched; with another mapping listed first it read both integers out of the wrong one;
+// and a comment after the value, a quoted number, or flow style all returned null, which
+// switched the advisory off with no output at all. `validate.js` parses this same field
+// with js-yaml and got the right answer in every one of those cases, so the two scripts
+// disagreed about one file. Now they cannot.
 const declaredBlocks = (text) => {
   const fm = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
   if (!fm) return null;
-  const ran = (fm[1].match(/^\s+executed:\s*(\d+)\s*$/m) || [])[1];
-  if (ran === undefined) return null;
-  const skipped = (fm[1].match(/^\s+unverified:\s*(\d+)\s*$/m) || [])[1] || '0';
-  return Number(ran) + Number(skipped);
+  let doc;
+  try { doc = yaml.load(fm[1]); } catch { return null; }
+  const V = doc && doc.verified;
+  if (!V || typeof V !== 'object' || Array.isArray(V)) return null;   // absent, or `pending`
+  const ran = Number(V.executed);
+  if (!Number.isInteger(ran)) return null;
+  const skipped = Number(V.unverified ?? 0);
+  return ran + (Number.isInteger(skipped) ? skipped : 0);
 };
 
 const parse = (v) => v.split('.').map(Number);
@@ -202,6 +216,11 @@ if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
   console.error('\nBump the minor for a revision that changes what the page says or shows;');
   console.error('bump the patch for a typo or a broken link. See AGENTS.md, "Versioning".\n');
+  // Advisories are printed even on the failing path. They used to be drained only after
+  // this exit, so one skill missing a version bump silently discarded every note about
+  // every other skill — and a note exists precisely to reach review while it can still be
+  // answered.
+  for (const n of notes) console.error(`  ! ${n}`);
   process.exit(1);
 }
 

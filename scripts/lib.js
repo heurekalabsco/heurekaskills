@@ -21,16 +21,45 @@ export const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 // existed, and reported an impossible number. `motrpac` has two `r` blocks and was exactly
 // right. Counting a subset does not understate the count — it manufactures a contradiction,
 // which is worse, because it reads as a defect in the skill rather than in the scanner.
-export const RUNNABLE_LANGS = ['python', 'bash', 'sh', 'r', 'R'];
+export const RUNNABLE_LANGS = ['python', 'bash', 'sh', 'r'];
+
+// Info strings that mean the same thing as one of the above. Matched case-insensitively,
+// and an R Markdown chunk header (```{r setup, echo=FALSE}) counts as r. Undercounting is
+// the direction that hurts: a missed block is silently skipped by the "## Try it"
+// self-containment gate, and makes the verified: bound fire at an author who counted right.
+const LANG_ALIASES = new Map([
+  ['py', 'python'], ['python3', 'python'],
+  ['shell', 'sh'], ['zsh', 'sh'], ['bash', 'bash'],
+]);
+
+// The language a fence's info string denotes, or null if it is not runnable.
+export function fenceLang(info) {
+  const s = String(info || '').trim();
+  // An R Markdown chunk header is `{r}`, `{r setup}` or `{r setup, echo=FALSE}`. Read the
+  // whole info string, not its first whitespace-delimited word, or `{r setup` loses the `}`.
+  const rmd = /^\{\s*([A-Za-z0-9_+-]+)/.exec(s);
+  const word = (rmd ? rmd[1] : (s.split(/\s+/)[0] || '')).toLowerCase();
+  if (RUNNABLE_LANGS.includes(word)) return word;
+  return LANG_ALIASES.get(word) ?? null;
+}
 
 // Every runnable block in one markdown document, as source strings.
 //
 // Scanned line by line rather than with one regex, because both things a regex gets wrong
 // here are load-bearing. Fences indent: a block inside a numbered list item — which is how
-// every pitfall in the registry is written — starts at four spaces, and an anchored /^```/
-// silently skips it. And a fence may carry an info string beyond the language. A first cut
-// using /^```(python|bash|sh)/ undercounted the registry by 34 blocks, all of them inside
-// list items, which is the population this count most needs to see.
+// the registry writes its numbered pitfalls — starts at four spaces, and an anchored
+// /^```/ silently skips it. And a fence may carry an info string beyond the language. A
+// first cut using /^```(python|bash|sh)/ undercounted the registry by 34 blocks, all of
+// them inside list items, which is the population this count most needs to see.
+//
+// KNOWN LIMIT, deliberate. This is a scanner, not a CommonMark parser, so it has no idea
+// what container a line sits in. It accepts any indentation, which is what makes list-item
+// fences work — and means a four-space-indented block at top level, which CommonMark reads
+// as an indented code block of literal text, is counted here as a fence. Someone writing a
+// literal *example* of a fence at top level therefore inflates the count. Closing that
+// needs real block parsing; until then the verified: bound is a guard against drift, not a
+// defence against a determined author, and AGENTS.md says so. Checked against markdown-it
+// over all 125 markdown files in the registry: 1302 blocks, zero disagreements.
 //
 // Non-runnable fences are tracked too, not ignored, so that a ``` inside a ```text block
 // cannot be mistaken for the close of something else.
@@ -38,12 +67,17 @@ export function runnableBlocks(md) {
   const out = [];
   let open = null;
   let buf = [];
-  for (const line of md.split('\n')) {
-    const o = /^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)/.exec(line);
+  // A blockquoted fence is a real fence to CommonMark; `>` is not whitespace, so without
+  // this the scanner is blind from the opening fence to the closing one.
+  const unquote = (line) => line.replace(/^(\s*>)+\s?/, '');
+  // A CRLF file leaves a trailing \r on every line. `.` does not match \r, so an anchored
+  // info-string capture fails on `” ```python\r ”` and the whole block goes uncounted.
+  for (const rawCrlf of md.split('\n')) {
+    const line = unquote(rawCrlf.replace(/\r$/, ''));
     if (open === null) {
+      const o = /^\s*(`{3,}|~{3,})\s*(.*)$/.exec(line);
       if (!o) continue;
-      const keep = RUNNABLE_LANGS.includes(o[2]);
-      open = { char: o[1][0], len: o[1].length, keep };
+      open = { char: o[1][0], len: o[1].length, keep: fenceLang(o[2]) !== null };
       buf = [];
     } else {
       const c = /^\s*(`{3,}|~{3,})\s*$/.exec(line);
@@ -55,8 +89,13 @@ export function runnableBlocks(md) {
       }
     }
   }
+  // CommonMark closes an unterminated fence at end of document. Dropping it here would hide
+  // the last block of any file that forgets its closing marker — from the Try it gate as
+  // well as from the count.
+  if (open !== null && open.keep) out.push(buf.join('\n'));
   return out;
 }
+
 
 // Discovery vocabulary for `data` skills. `covers` is deliberately free text — tissue,
 // assay, organism, modality, whatever a reader would actually type. It is NOT rendered as
@@ -176,6 +215,33 @@ export function listSkillFiles(dir) {
   })(dir, '');
   out.sort((a, b) => (a === 'SKILL.md' ? -1 : b === 'SKILL.md' ? 1 : a.localeCompare(b)));
   return out;
+}
+
+// Symlinks under a skill, as relative paths.
+//
+// Separate from listSkillFiles because that function's callers — the site renderer, the
+// checksum, the private scan — all want files they can read, and a Dirent for a symlink
+// answers false to BOTH isFile() and isDirectory(), so listSkillFiles drops them silently.
+// That was fine for those callers and quietly fatal for one: validate.js's
+// `symlink not allowed` check iterated the same list and could therefore never fire.
+// Widening listSkillFiles would have handed every other caller a path whose target is
+// outside the skill; this surfaces the links to the one check that wants them and leaves
+// the read paths alone. Tracked symlinks are also caught repo-wide by the mode-120000
+// check in validate.js's repoHygiene; this one fires earlier, per skill, and on links that
+// are not committed yet.
+export function listSkillSymlinks(dir) {
+  const out = [];
+  (function walk(d, rel) {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isSymbolicLink()) out.push(r);
+      else if (e.isDirectory()) walk(path.join(d, e.name), r);
+    }
+  })(dir, '');
+  return out.sort();
 }
 
 export function sha256(buf) {

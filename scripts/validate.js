@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import {
-  listSkillDirs, listSkillFiles, parseFrontmatterNaive, runnableBlocks,
+  listSkillDirs, listSkillFiles, listSkillSymlinks, parseFrontmatterNaive, runnableBlocks,
   CATEGORIES, SLUG_RE, VERSION_RE, ALLOWED_EXTENSIONS,
   MAX_COVERS, MAX_PAPERS, ACCESS_LEVELS, PAPER_ID_RE, CLIENT_READ_KEYS,
   hasSection, sectionBody,
@@ -516,7 +516,15 @@ for (const slug of slugs) {
   //     passes — truthfully, in a directory the earlier steps primed. Run the same block in
   //     a fresh directory and it fails, and `verified:` has already counted it as executed.
   if (hasTryIt) {
-    const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|\Z)/m) || [])[1] || '';
+    // `$(?![\s\S])` is end-of-input. It replaced `\Z`, which JavaScript does not have:
+    // `\Z` is an identity escape for a literal capital Z, so this lookahead used to read
+    // "stop at the next `## ` heading, or at the next capital Z". A `## Try it` that was
+    // the file's last section and contained no capital Z matched nothing at all, and
+    // tryBody fell back to '' — the gate then scanned an empty string and passed, while
+    // `hasTryIt` (a different extraction) reported the section present. 13 of 32 skills
+    // with a `## Try it` were affected and 18 of 40 blocks were never scanned, including
+    // every block in the five most recently added skills.
+    const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m) || [])[1] || '';
     for (const code of runnableBlocks(tryBody)) {
       const invoked = new Set();
       // A local script named as a string arg, or run by an interpreter.
@@ -540,6 +548,12 @@ for (const slug of slugs) {
   }
 
   // 5. Path safety + file types.
+  // Symlinks are enumerated separately: listSkillFiles cannot return them (a Dirent for a
+  // link is neither isFile() nor isDirectory()), which left the check below unreachable.
+  for (const rel of listSkillSymlinks(dir)) {
+    err(slug, `symlink not allowed: ${rel} — a link's blob is its target's path, and this repository is public`);
+  }
+
   const files = listSkillFiles(dir);
   for (const rel of files) {
     if (rel.includes('..') || path.isAbsolute(rel)) { err(slug, `unsafe file path: ${rel}`); continue; }
