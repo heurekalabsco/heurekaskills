@@ -38,8 +38,12 @@ NOTICE                # attribution for every adapted skill
 
 ```bash
 npm install
-npm run validate      # exactly what CI runs on the PR — run it before pushing
+npm run validate        # format + public-tier boundary
+npm run check-versions  # every changed skill carries a version bump
 ```
+
+Both run on the PR, so run both before pushing. `check-versions` compares against
+`origin/main` by default; pass a ref to compare against something else.
 
 ## Frontmatter contract
 
@@ -87,6 +91,49 @@ Traps that will fail CI or, worse, fail silently in a client:
   live vocabulary before adding a synonym of one that already exists (`rna-seq` vs
   `rnaseq`, `structure-prediction` vs `protein-structure`). New vocabulary is fine when
   the subject is genuinely new; a fifth spelling of an existing idea is not.
+
+### Versioning
+
+`version` is `MAJOR.MINOR.PATCH`, it starts at `1.0.0`, and **it moves whenever anything the
+reader receives changes.** That means `SKILL.md` *and* the `references/*.md` a skill ships
+alongside it — those are published too, so an edit to one of them moves the version in
+`SKILL.md` exactly as a body edit would. CI enforces it: `scripts/check-versions.js`
+compares every file under a changed skill against the merge base and fails the PR if
+anything moved and the number did not. It also fails the PR if the number went **backwards**,
+whether or not anything else changed — a partial revert or a bad rebase takes a version back
+one line at a time, and the check exists to notice. A version-only edit is not a content
+change and needs no second bump.
+
+- **Minor** — a revision round. New or rewritten sections, a corrected claim, a changed
+  recommendation, a re-verification that moved the numbers. This is the common case, and it
+  is what a drift sweep produces.
+- **Patch** — a typo, a dead link, a formatting fix. Nothing that changes what the page
+  tells a reader to do.
+- **Major** — reserved. A skill that changes what it is about should be a new slug, not a
+  `2.0.0`, because installers key on the name.
+
+Bump once per publication, not once per commit: five commits on a branch that merge together
+are one revision and one minor bump.
+
+**What the check actually enforces, and what it does not.** `check-versions.js` verifies that
+the number moved and that it moved *forward*. It cannot tell a revision from a typo, so
+minor-versus-patch, the `1.0.0` start and the no-`2.0.0` rule are conventions review holds
+you to, not gates — a patch bump for a full rewrite passes CI. Knowing which half is
+mechanical matters: the gate stops you shipping a stale number, and nothing but a reader
+stops you shipping a misleading one.
+
+The reason to care is narrow and worth stating. Nobody reads this number for its own sake —
+it is the only signal a reader or an installing client has that a page they already have
+changed underneath them. A stale version tells them nothing changed when something did, and
+that is indistinguishable from the truth until they diff it themselves.
+
+This went wrong at scale before the check existed. Nineteen of forty-one skills had
+accumulated content changes across as many as four separate publications with no bump
+between them, and one had shipped with no `version` field at all. Not carelessness: the
+routine that does most of the updating was told to refresh `verified:` on every skill it
+touched and was never told about `version:`, so it did precisely what it was asked. A rule
+that lives only in a contributor's memory decays to whoever happens to remember it, which is
+why this one is a script.
 
 ### Categories
 

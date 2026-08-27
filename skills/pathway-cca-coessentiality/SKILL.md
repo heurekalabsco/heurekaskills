@@ -4,6 +4,7 @@ description: Score pathway-pathway association by PCA to k components then first
 category: analysis
 tags: [cca, pathway-coessentiality]
 author: Pol Castellano-Escuder
+version: 1.3.0
 license: CC-BY-4.0
 datasets: []
 verified:

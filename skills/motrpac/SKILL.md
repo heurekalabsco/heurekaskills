@@ -4,7 +4,7 @@ description: Retrieve MoTrPAC multi-omics from the openly licensed R data packag
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [multi-omics, exercise, rat, transcriptomics, public-data]
 covers: [exercise, endurance training, treadmill, multi-omics, transcriptomics, proteomics, phosphoproteomics, acetylome, ubiquitylome, metabolomics, epigenomics, atac-seq, rrbs, dna methylation, immunoassay, heart, skeletal muscle, gastrocnemius, vastus lateralis, liver, white adipose, brown adipose, kidney, lung, hippocampus, rat, f344, pass1b, vo2max, aging]
 papers: [PMID:38693412, PMID:32589957, PMID:38701776, PMID:38693320, PMID:38984994, doi:10.5281/zenodo.7877121]

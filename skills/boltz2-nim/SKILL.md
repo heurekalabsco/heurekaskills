@@ -5,7 +5,7 @@ category: models
 license: CC-BY-4.0 AND Apache-2.0
 author: NVIDIA BioNeMo Agent Toolkit (adapted by Heureka Labs)
 attribution: https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit
-version: 1.0.0
+version: 1.4.0
 try-it: pending
 tags: [protein-structure, binding-affinity, nim, nvidia, boltz2]
 compatibility: "requests>=2.28"

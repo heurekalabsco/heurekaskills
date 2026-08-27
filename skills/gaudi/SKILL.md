@@ -4,7 +4,7 @@ description: Unsupervised multi-omics integration with GAUDI — two-stage UMAP,
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.2.0
 try-it: pending
 tags: [multi-omics, umap, hdbscan, clustering, shap]
 allowed-tools: Read, Write, Edit, Bash

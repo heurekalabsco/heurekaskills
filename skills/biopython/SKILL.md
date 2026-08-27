@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
+version: 1.3.0
 try-it: pending
 tags: [sequences, fasta, genbank, entrez, blast]
 allowed-tools: Read, Write, Edit, Bash

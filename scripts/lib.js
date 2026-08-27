@@ -7,6 +7,11 @@ export const CATEGORIES = ['data', 'models', 'analysis', 'utility', 'communicati
 
 export const SLUG_RE = /^[a-z0-9-]+$/;
 
+// `version` is MAJOR.MINOR.PATCH with no leading zeros: `1.02.0` and `1.2.0` are one release
+// to a human and two different strings to everything else. Shared so validate.js and
+// check-versions.js cannot drift into disagreeing about what a version is.
+export const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
 // Discovery vocabulary for `data` skills. `covers` is deliberately free text — tissue,
 // assay, organism, modality, whatever a reader would actually type. It is NOT rendered as
 // filter chips (that is what `tags` is for) and it is NOT loaded into session context, so

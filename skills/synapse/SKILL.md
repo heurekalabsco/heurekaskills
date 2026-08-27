@@ -4,7 +4,7 @@ description: Find and retrieve consortium datasets from Synapse (Sage Bionetwork
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [synapse, public-data, controlled-access, alzheimers, consortium-data]
 covers: [synapse, sage bionetworks, syn id, amp-ad, ad knowledge portal, agora, alzheimers, dementia, neurodegeneration, aging, rosmap, mount sinai brain bank, mayo rnaseq, psychencode, htan, dorsolateral prefrontal cortex, superior temporal gyrus, hippocampus, cerebellum, amygdala, plasma proteomics, brain proteomics, tmt, rna-seq, methylation, metabolomics, gwas, human, mouse, data use certificate]
 papers: [PMID:24071850, PMID:26853544, PMID:33085189, PMID:30084846, PMID:29865057, PMID:30204156, PMID:27727239, PMID:35115731, PMID:32302568]
