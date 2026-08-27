@@ -12,6 +12,52 @@ export const SLUG_RE = /^[a-z0-9-]+$/;
 // check-versions.js cannot drift into disagreeing about what a version is.
 export const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
+// Fence languages that denote code a reader could execute, as opposed to a fence used for
+// output, data or markup. `verified:` counts blocks in this set, and the "## Try it" gate
+// scans them; both must agree on the set or a block slips between them.
+//
+// `r` is in the list because it was the one that got missed. An audit of declared coverage
+// scanned python/bash/sh only, concluded `motrpac` claimed nine runnable blocks where seven
+// existed, and reported an impossible number. `motrpac` has two `r` blocks and was exactly
+// right. Counting a subset does not understate the count — it manufactures a contradiction,
+// which is worse, because it reads as a defect in the skill rather than in the scanner.
+export const RUNNABLE_LANGS = ['python', 'bash', 'sh', 'r', 'R'];
+
+// Every runnable block in one markdown document, as source strings.
+//
+// Scanned line by line rather than with one regex, because both things a regex gets wrong
+// here are load-bearing. Fences indent: a block inside a numbered list item — which is how
+// every pitfall in the registry is written — starts at four spaces, and an anchored /^```/
+// silently skips it. And a fence may carry an info string beyond the language. A first cut
+// using /^```(python|bash|sh)/ undercounted the registry by 34 blocks, all of them inside
+// list items, which is the population this count most needs to see.
+//
+// Non-runnable fences are tracked too, not ignored, so that a ``` inside a ```text block
+// cannot be mistaken for the close of something else.
+export function runnableBlocks(md) {
+  const out = [];
+  let open = null;
+  let buf = [];
+  for (const line of md.split('\n')) {
+    const o = /^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)/.exec(line);
+    if (open === null) {
+      if (!o) continue;
+      const keep = RUNNABLE_LANGS.includes(o[2]);
+      open = { char: o[1][0], len: o[1].length, keep };
+      buf = [];
+    } else {
+      const c = /^\s*(`{3,}|~{3,})\s*$/.exec(line);
+      if (c && c[1][0] === open.char && c[1].length >= open.len) {
+        if (open.keep) out.push(buf.join('\n'));
+        open = null;
+      } else if (open.keep) {
+        buf.push(line);
+      }
+    }
+  }
+  return out;
+}
+
 // Discovery vocabulary for `data` skills. `covers` is deliberately free text — tissue,
 // assay, organism, modality, whatever a reader would actually type. It is NOT rendered as
 // filter chips (that is what `tags` is for) and it is NOT loaded into session context, so
