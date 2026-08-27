@@ -186,18 +186,23 @@ handle = Entrez.efetch(
 )
 ```
 
-### EGQuery - Global Query
+### Counting hits across several databases
 
-Search across all Entrez databases at once:
+**There is no `Entrez.egquery` in Biopython 1.88** — the attribute does not exist, so the
+call fails with `AttributeError` before any request is made. The wrapper is gone; the
+functions Biopython still exposes are `einfo`, `esearch`, `epost`, `esummary`, `efetch`,
+`elink`, `espell` and `ecitmatch`.
+
+Count per database with `esearch` instead, asking for no records and reading `Count`:
 
 ```python
-handle = Entrez.egquery(term="biopython")
-result = Entrez.read(handle)
-handle.close()
-
-for row in result["eGQueryResult"]:
-    print(f"{row['DbName']}: {row['Count']} results")
+for db in ("pubmed", "nucleotide", "protein", "gene"):
+    handle = Entrez.esearch(db=db, term="biopython", retmax=0)
+    print(f"{db}: {Entrez.read(handle)['Count']} results")
+    handle.close()
 ```
+
+`Entrez.einfo()` lists the database names this accepts.
 
 ### ESpell - Spelling Suggestions
 

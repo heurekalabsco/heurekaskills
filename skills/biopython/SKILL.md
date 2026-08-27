@@ -5,19 +5,21 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.3.0
-try-it: pending
+version: 1.4.0
 tags: [sequences, fasta, genbank, entrez, blast]
+datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-09
-  against: biopython 1.88 / Python 3.11
-  executed: 84
-  unverified: 43
+  date: 2026-08-27
+  against: biopython 1.88 / Python 3.11.15 / NumPy 2.4.6
+  executed: 55
+  unverified: 34
   unverified_reason: >-
-    Entrez and BLAST blocks need outbound access to NCBI, which the validating environment
-    does not have. Unchanged by the 1.88 update and 1.88's notes record no Entrez or BLAST
-    change, but not re-confirmed against it. Re-run from a host with NCBI access.
+    26 blocks call NCBI over the network (Entrez and web BLAST), 6 shell out to a local
+    binary the validating environment does not install (blastn, makeblastdb, muscle,
+    clustalo), and 2 need the optional ReportLab dependency for Bio.Graphics. Re-run from a
+    host with outbound NCBI access and a BLAST+ / MUSCLE / Clustal Omega install to close
+    the first two groups; pip install reportlab closes the third.
 ---
 # Biopython: Computational Molecular Biology in Python
 
@@ -438,13 +440,112 @@ Phylo.draw_ascii(tree)
 **Solution:** Use `PDBParser(QUIET=True)` to suppress warnings, or investigate structure quality.
 
 ### Issue: ImportError for Bio.HMM, Bio.MarkovModel, or Bio.Application
-**Solution:** These modules were removed in Biopython 1.86. Use [hmmlearn](https://pypi.org/project/hmmlearn/) for HMMs and the standard library `subprocess` module instead of `Bio.Application` CLI wrappers.
+**Solution:** The functionality was removed in Biopython 1.86. Use [hmmlearn](https://pypi.org/project/hmmlearn/) for HMMs and the standard library `subprocess` module instead of `Bio.Application` CLI wrappers.
+
+`Bio.MarkovModel` and `Bio.Application` are gone outright, so importing either raises `ModuleNotFoundError`. **`Bio.HMM` is the one that misleads**: as of 1.88 it is still installed as a package containing nothing but its own docstring, so `import Bio.HMM` *succeeds* and an availability check written that way reports the module as present. Every submodule that did the work — `Bio.HMM.MarkovModel`, `Bio.HMM.Trainer`, `Bio.HMM.Utilities`, `Bio.HMM.DynamicProgramming` — raises `ModuleNotFoundError`. Test for what you actually call, not for the package.
 
 ### Issue: Reading a NEXUS file from a source you do not control
 **Solution:** Use Biopython 1.88 or later. Up to 1.87 the NEXUS parser passed the file's own `ntax` and `nchar` fields to Python's built-in `eval`, so reading a crafted file could run arbitrary code. Every NEXUS entry point shares that parser — `Phylo.read(path, "nexus")`, `AlignIO.read(path, "nexus")` and `Bio.Nexus.Nexus` alike — so upgrading, rather than switching entry point, is the fix.
 
 ### Issue: PairwiseAligner returns fewer alignments after upgrading to 1.86+
-**Solution:** The default gap score changed from 0 to -1 in 1.86, eliminating trivial tie alignments. Set `aligner.gap_score = 0` to restore the old behavior if needed (see `references/alignment.md`).
+**Solution:** The default gap score changed from 0 to -1 in 1.86, so a gap no longer ties with a mismatch and the trivial tie alignments disappear. It bites only where a gap competes with a mismatch: `AAGAA` against `AACAA` returns 1 alignment where it used to return 3. On a pair differing by a plain insertion it changes nothing — `ACCGGT` against `ACGGT` returns 2 alignments under either setting, which is why testing this on the usual tutorial pair suggests the change never happened. Set `aligner.gap_score = 0` to restore the old behavior if needed (see `references/alignment.md`).
+
+## Try it
+
+A self-contained check that this skill still works. No network, no account, no downloads —
+the block writes its own input, so it runs anywhere Biopython is installed.
+
+**Data** — generated inline, which is why `datasets:` is empty. The block writes three short
+sequences to `demo.fasta` and reads them back. `AAGAA` and `AACAA` are the pair that matters:
+they differ at a single position, which is the only situation where the alignment default that
+changed in 1.86 changes how many alignments come back. Nothing public needs to be fetched to
+exercise this, and depending on a remote sequence file would make the check fail for reasons
+that have nothing to do with Biopython.
+
+**Run**
+
+```python
+from Bio import Align, SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from Bio.SeqUtils import gc_fraction
+
+# --- data: written here, nothing fetched -------------------------------------
+records = [
+    SeqRecord(Seq("ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATAG"), id="seq1", description=""),
+    SeqRecord(Seq("AAGAA"), id="seq2", description=""),
+    SeqRecord(Seq("AACAA"), id="seq3", description=""),
+]
+SeqIO.write(records, "demo.fasta", "fasta")
+parsed = {r.id: r.seq for r in SeqIO.parse("demo.fasta", "fasta")}
+print(f"parsed {len(parsed)} records: {sorted(parsed)}")
+
+# --- sequence basics ---------------------------------------------------------
+cds = parsed["seq1"]
+print(f"gc_fraction = {gc_fraction(cds):.4f}")
+print(f"translate   = {cds.translate()}")
+print(f"to_stop     = {cds.translate(to_stop=True)}")
+
+# --- the trap: the gap-score default changed in 1.86 -------------------------
+target, query = str(parsed["seq2"]), str(parsed["seq3"])
+
+current = Align.PairwiseAligner(mode="global")
+legacy = Align.PairwiseAligner(mode="global")
+legacy.gap_score = 0  # the pre-1.86 default
+
+now, before = current.align(target, query), legacy.align(target, query)
+print(f"default gap_score = {current.gap_score}")
+print(f"{target}/{query}: {len(now)} alignment(s) now, {len(before)} at gap_score=0")
+print(f"scores: {now.score} and {before.score}")
+
+# the same comparison on the pair this skill uses as its quick example
+a, b = Align.PairwiseAligner(mode="global"), Align.PairwiseAligner(mode="global")
+b.gap_score = 0
+print(f"ACCGGT/ACGGT: {len(a.align('ACCGGT', 'ACGGT'))} alignment(s) now, "
+      f"{len(b.align('ACCGGT', 'ACGGT'))} at gap_score=0")
+
+# --- invariants --------------------------------------------------------------
+assert len(cds) % 3 == 0 and len(cds.translate()) == len(cds) // 3
+assert 0.0 <= gc_fraction(cds) <= 1.0
+assert current.gap_score == -1.0
+assert len(now) < len(before)
+assert now.score == before.score
+print("OK")
+```
+
+**Expect**
+
+Invariants — these hold across versions, and a failure means the skill is wrong:
+
+- One amino acid per complete codon: a 39-nt CDS gives 13 residues. `to_stop=True` truncates
+  at the first stop rather than dropping the stop symbols from the middle.
+- `gc_fraction` returns a **fraction in 0–1**, not a percentage. The `:.2%` format used in
+  *Pattern 2* above is what turns it into one; printing it raw and calling it a percentage is
+  the mistake this asserts against.
+- `SeqIO.parse` yields each record once — it is an iterator, not a list.
+- Where a mismatch and a pair of gaps score equally, `gap_score = 0` keeps all of them and the
+  current default keeps only the ungapped one. That survivor has no gaps, so its score is the
+  same under both settings. Where the best alignment *does* contain gaps, the −1 default
+  instead lowers its score by one per gap character and leaves the count alone.
+
+Observed 2026-08-27 against Biopython 1.88 / Python 3.11.15 — treat a mismatch here as drift
+to investigate, not as a failure:
+
+```
+parsed 3 records: ['seq1', 'seq2', 'seq3']
+gc_fraction = 0.5641
+translate   = MAIVMGR*KGAR*
+to_stop     = MAIVMGR
+default gap_score = -1.0
+AAGAA/AACAA: 1 alignment(s) now, 3 at gap_score=0
+scores: 4.0 and 4.0
+ACCGGT/ACGGT: 2 alignment(s) now, 2 at gap_score=0
+OK
+```
+
+The last line is the part worth keeping. `ACCGGT`/`ACGGT` — the pair used as this skill's own
+pairwise example, and the one in most tutorials — returns 2 alignments either way, so testing
+the 1.86 change on it suggests the change never happened.
 
 ## Additional Resources
 
