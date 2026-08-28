@@ -672,8 +672,11 @@ in the middle of a session.
   even local grading needs this.
 - **A billed GCP project** with the Compute Engine API enabled and quota for an `n2-standard-32`
   in `us-central1-a`. The agent runs on a VM there; nothing runs on your workstation.
-- **`OPENAI_API_KEY`, always** — the network adjudicator and the process judge call GPT-5.5
-  regardless of which model you are evaluating — plus a provider key for the model under test.
+- **`OPENAI_API_KEY`, always** — the network adjudicator and the process judge call a pinned
+  OpenAI judge model regardless of which model you are evaluating, so the key is required even
+  when the system under test is somebody else's — plus a provider key for that model. The judge
+  is pinned by the harness rather than chosen by you; read it out of the installed package
+  instead of assuming, because changing the judge moves every score.
 - **Cell Ranger 6.0.2 and Cell Ranger ARC 2.0.2 tarballs from 10x Genomics**, accepted under
   their End User Software License Agreement. Both are required arguments to the runtime build;
   there is no path that skips them. The project states the position plainly, and it is theirs to
@@ -720,7 +723,9 @@ does not stay connected. **The VM keeps billing until `complete` or `cancel`**, 
 is also what downloads the grades.
 
 ```bash
-uv run bixbench3 run --task 1 --model openai/gpt-5.5 --effort max \
+# MODEL_UNDER_TEST is the provider-qualified id of the system you are evaluating.
+# The harness pins its own judge separately — that one is not yours to choose.
+uv run bixbench3 run --task 1 --model "$MODEL_UNDER_TEST" --effort max \
   --project YOUR_PROJECT --results-bucket gs://YOUR_BUCKET/bixbench3
 
 uv run bixbench3 status   --run RUN_ID --project YOUR_PROJECT
