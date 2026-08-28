@@ -127,7 +127,7 @@ import collections, json, re, urllib.request
 
 def hf_tree(repo="phylobio/BiomniBench-DA"):
     """Page through the whole file listing. One request caps out at 1000 entries and
-    says so only in a `Link` header; asking for more answers HTTP 200 with a JSON
+    says so only in a `Link` header; asking for more answers HTTP 400 with a JSON
     object instead of a list. Both are silent, and both corrupt every count below."""
     url = (f"https://huggingface.co/api/datasets/{repo}"
            "/tree/main?recursive=true&limit=1000")
@@ -211,7 +211,7 @@ continuation in a `Link: …; rel="next"` header. This repository holds 987 entr
 single request happens to be complete — and would stop being complete the moment the
 maintainers add a task, with no signal other than counts that quietly shrink.
 
-**Raising `limit` makes it worse, not safer.** `limit=1001` and above answer **HTTP 200** with
+**Raising `limit` does not help.** `limit=1001` and above answer **HTTP 400** with
 a JSON *object* — `{"error": "✖ Invalid limit for index tree pagination"}` — rather than a
 list. Code that trusts the status and calls `len()` on the result gets `1`, and every count
 downstream collapses to nothing without an exception anywhere. The helper above rejects a
@@ -514,7 +514,7 @@ os.makedirs(OUT, exist_ok=True)
 
 def hf_tree(repo="phylobio/BiomniBench-DA"):
     """Paginating fetch — one request truncates at 1000 entries, and a larger `limit`
-    returns an error object with HTTP 200 rather than a longer list."""
+    returns an error object with HTTP 400 rather than a longer list."""
     url = (f"https://huggingface.co/api/datasets/{repo}"
            "/tree/main?recursive=true&limit=1000")
     out = []
