@@ -14,14 +14,17 @@ Always use the context manager to ensure proper resource cleanup:
 ```python
 import cellxgene_census
 
-# Open latest stable version
+# Open whatever `stable` currently resolves to
 with cellxgene_census.open_soma() as census:
-    # Work with census data
+    print(list(census.keys()))
 
 # Open the current LTS version for reproducibility
 with cellxgene_census.open_soma(census_version="2025-11-08") as census:
-    # Work with census data
+    print(list(census["census_data"].keys()))
 ```
+
+Both blocks do real work rather than standing in for it, because a `with` body holding nothing
+but a comment is an `IndentationError` — copy-pasting that shape does not run.
 
 **Key points:**
 - Use context manager (`with` statement) for automatic cleanup

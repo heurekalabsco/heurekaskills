@@ -5,19 +5,19 @@ category: data
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
+version: 1.2.0
 tags: [single-cell, atlas, transcriptomics, spatial, public-data]
-covers: [single-cell, scRNA-seq, spatial transcriptomics, gene expression, cell atlas, cell type, human, mouse, marmoset, macaque, chimpanzee, brain, blood, kidney, lung, liver, heart, neuron, T cell, B cell, macrophage, COVID-19, Alzheimer disease, Visium, Slide-seqV2, Smart-seq2, h5ad, anndata, embeddings, TileDB-SOMA]
-papers: [PMID:39607691]
+covers: [single-cell, scRNA-seq, spatial transcriptomics, gene expression, cell atlas, skeletal muscle aging, skeletal muscle ageing, human, mouse, marmoset, macaque, chimpanzee, brain, blood, kidney, lung, liver, heart, neuron, T cell, B cell, macrophage, COVID-19, Alzheimer disease, Visium, Slide-seqV2, Smart-seq2, h5ad, anndata, TileDB-SOMA]
+papers: [PMID:39607691, doi:10.1038/s43587-024-00613-3]
 access: [open]
-datasets: [https://census.cellxgene.cziscience.com/cellxgene-census/v1/release.json, https://datasets.cellxgene.cziscience.com/85954cff-a901-4de2-bd7f-a23b0077812b.h5ad]
+datasets: [https://census.cellxgene.cziscience.com/cellxgene-census/v1/release.json, https://datasets.cellxgene.cziscience.com/85954cff-a901-4de2-bd7f-a23b0077812b.h5ad, https://datasets.cellxgene.cziscience.com/05bd6f1d-bc18-4e6c-bac7-70f4e4ee6db9.h5ad, https://api.cellxgene.cziscience.com/curation/v1/collections?visibility=PUBLIC]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-18
-  against: Census 2025-11-08 LTS (schema 2.4.0, 1,845 datasets) / cellxgene-census 1.17.0 / tiledbsoma 2.3.0 / tiledbsoma-ml 0.1.0 / spatialdata 0.8.0 / scanpy 1.12.3 / Python 3.12.8
-  executed: 9
-  unverified: 2
-  unverified_reason: Use Case 3 streams all 96.6M primary human cells and needs a model — the same ExperimentDataset and experiment_dataloader path ran against a 146-cell restriction. Use Case 4 ran end to end at 200 cells (obs_coords, remove_unused_categories, rank_genes_groups) and its 437,482-cell count is confirmed, but the 50,000-cell get_anndata itself did not finish on a loaded machine; re-run it when one is free.
+  date: 2026-08-27
+  against: Census 2025-11-08 LTS (schema 2.4.0, 1,845 datasets) and 2023-05-15 LTS / CELLxGENE Discover curation API v1 (388 public collections, 2,216 datasets) / cellxgene-census 1.17.0 / tiledbsoma 2.3.0 / tiledbsoma-ml 0.1.0 / spatialdata 0.8.0 / anndata 0.13.3.post0 / scanpy 1.12.4 / numpy 2.5.2 / pandas 2.3.3 / Python 3.12.8
+  executed: 38
+  unverified: 20
+  unverified_reason: Every block was executed in document order in one working directory; the 20 outstanding are all expression reads or depend on one — get_anndata over ten thousand to ten million cells, the full-atlas ExperimentDataset stream in Use Case 3, and the scanpy and scanorama workflows built on those slices. Each was attempted and killed at a two-to-three minute cap on a 15 Mbit/s domestic link, where a 2,000-cell fourteen-gene get_anndata takes ten minutes; the binding resource is bandwidth to the Census S3 bucket rather than memory, so an in-region machine unblocks all of them. Two notes on the edges — the get_presence_matrix call inside the size-estimate block is separately confirmed by the Try it, which returns the full 1,845 x 61,497 matrix, and the multi-dataset integration block additionally needs the scanorama install the text names, which this environment did not carry.
 ---
 # CZ CELLxGENE Census
 
@@ -35,6 +35,69 @@ The 2025-11-08 stable LTS release declares, in `census_info/summary`:
 - **Integration with AnnData, Scanpy, TileDB-SOMA, TileDB-SOMA-ML, and other analysis tools**
 
 Nothing here needs an account or a key.
+
+## What the Census is, and is not
+
+The Census is CZI's own versioned aggregation of **CZ CELLxGENE Discover**, rebuilt on a schedule
+and frozen at each release. Every dataset in a release is a Discover dataset. The converse does
+not hold, and the gap is the coverage question to settle before concluding a study is not there.
+
+Measured 2026-08-27 against the public Discover catalogue, which needs no key:
+
+| | |
+|---|---:|
+| public Discover collections / datasets | 388 / 2,216 |
+| of those, in Census `2025-11-08` | 1,845, across 313 collections |
+| Census datasets absent from Discover | 0 |
+| **Discover datasets absent from the Census** | **371** |
+
+Those 371 break down three ways, and the largest has nothing to do with the data:
+
+- **203**, across 55 collections, were published to Discover *after* the 2025-11-08 build. A
+  release is frozen at its build date; later deposits appear in later builds, not this one.
+- **62** carry an organism no release models — zebrafish, mouse lemur, pig, rat.
+- **106** are human or mouse, were on Discover before the build, and still did not make it. The
+  inclusion criteria are narrower than Discover's, and assay is the main axis: all 13 `MERFISH`,
+  all 10 `snmC-Seq2`, all 6 `snm3C-seq` and all 6 `10x scATAC-seq` datasets in the catalogue are
+  absent.
+
+Assay does not decide it on its own, though, and guessing gets this wrong in the confident
+direction: 87 of the 107 `10x multiome` datasets on Discover *are* in the release, as are 238 of
+310 `Slide-seqV2` and 302 of 350 `Visium`. Check the id, do not infer from the platform.
+
+**It is not a Human Cell Atlas mirror.** 61 Discover collections carry an HCA consortium label,
+holding 341 datasets; 28 of those are absent from `2025-11-08`, and 7 of the 61 collections are
+absent entirely. Reading "not in the Census" as "not in the HCA" loses studies silently.
+
+So a negative Census result is a statement about one build, not about the field. Ask Discover
+before believing it:
+
+```python
+import json, urllib.request, cellxgene_census
+
+DISCOVER = "https://api.cellxgene.cziscience.com/curation/v1/collections?visibility=PUBLIC"
+
+def census_coverage(doi, census_version="2025-11-08"):
+    """What a Census release actually holds of a published Discover collection."""
+    with urllib.request.urlopen(DISCOVER, timeout=120) as r:
+        col = next((c for c in json.load(r) if (c.get("doi") or "") == doi), None)
+    if col is None:
+        raise LookupError(f"{doi} is not a public collection on CELLxGENE Discover")
+    on_discover = {d["dataset_id"] for d in col["datasets"]}
+    with cellxgene_census.open_soma(census_version=census_version) as census:
+        in_release = set(census["census_info"]["datasets"].read().concat().to_pandas().dataset_id)
+    return {"collection": col["name"], "url": col["collection_url"],
+            "on_discover": len(on_discover), "in_census": len(on_discover & in_release),
+            "missing": sorted(on_discover - in_release)}
+
+census_coverage("10.1038/s41586-023-06311-1")    # 55 datasets on Discover, 45 in this release
+```
+
+The dataset stubs on that endpoint carry `dataset_id`, `dataset_version_id`, `organism`, `assay`,
+`tissue`, `disease` and `suspension_type`. They carry no `title` and no `cell_count` — those keys
+are absent from the collections listing rather than empty, so `d.get("title")` quietly returns
+`None` and a report keyed on it comes out blank. Take titles and counts from `census_info/datasets`,
+or from the single-collection endpoint.
 
 ## The declared totals span two collections — every query reaches only one
 
@@ -149,6 +212,34 @@ One dataset can be **entirely** non-primary: all 146 cells of
 `0895c838-e550-48a3-a777-dbcd35d30272` carry `is_primary_data == False`, so adding the filter to
 a single-dataset query returns an empty result with no error. Deduplicate across datasets; do
 not assume any one dataset survives it.
+
+**The same thing makes `dataset_total_cell_count` a bad way to size a collection.** Depositors
+routinely ship compartment or subset views of one object alongside it, each with its own
+`dataset_id` and its own declared count, all flagged non-primary. Ten collections, chosen for
+spread — the most datasets, the most cells, the two smallest, and four named atlases — checked
+on 2026-08-27 against `2025-11-08`:
+
+| collection | datasets | Σ `dataset_total_cell_count` | primary cells | ratio |
+|---|---:|---:|---:|---:|
+| Human Brain Cell Atlas v1.0 | 138 | 10,107,657 | 3,264,757 | **3.1x** |
+| Mouse embryonic development timelapse | 31 | 34,324,221 | 11,441,407 | **3.0x** |
+| Tabula Sapiens | 35 | 3,408,625 | 1,136,218 | **3.0x** |
+| Tabula Muris Senis | 42 | 1,068,639 | 356,213 | **3.0x** |
+| Human skeletal muscle ageing atlas | 8 | 519,615 | 279,690 | **1.9x** |
+| Slide-seqV2 disease neighbourhoods | 128 | 2,920,689 | 2,920,689 | 1.0x |
+| Whole mouse embryo spatial maps | 74 | 533,615 | 533,615 | 1.0x |
+| Age-related immune dynamics | 8 | 13,789,548 | 13,789,548 | 1.0x |
+| Smoking-induced bronchial heterogeneity | 1 | 796 | 796 | 1.0x |
+| Lymphatic endothelial cells in lymph nodes | 1 | 893 | 893 | 1.0x |
+
+Five of the ten over-count, by up to 3.1x, and nothing distinguishes them from the outside: the
+datasets frame has no flag for "this is a view of another dataset here". Count through `obs` with
+`is_primary_data == True`, never by summing the declared column.
+
+The same sweep found the other half of the problem. The Slide-seqV2 collection reconciles only
+because both organisms were read: 920,088 of its cells are human and 2,000,601 are mouse, all in
+`census_spatial_sequencing`. A single-organism, single-modality read of it returns a third of the
+collection and reports no error.
 
 ### Specify Census Version for Reproducibility
 Always specify the Census version in production analyses:
@@ -502,6 +593,44 @@ top of that ranking is partly a batch effect. Check the crosstab before believin
 
 Two routes end in files on disk, and they answer different questions.
 
+**Know the size before you fetch.** In a twelve-dataset spot check of this release the source
+H5ADs spanned 9 MB to 20 GB, and neither `download_source_h5ad` nor the datasets frame tells you
+which you are about to pull. `dataset_total_cell_count` is a poor proxy: one 4,992-cell dataset in
+that sample was 570 MB and another was 72 MB, while a 3,799-cell one was 9 MB. Each row carries a
+`dataset_version_id`, which is the basename of a plain HTTPS object, so a `HEAD` gives the exact
+byte count with nothing downloaded:
+
+```python
+import urllib.request, cellxgene_census
+
+def source_h5ad_sizes(dataset_ids, version="2025-11-08"):
+    """(title, cells, bytes, url) per dataset, before anything is fetched."""
+    with cellxgene_census.open_soma(census_version=version) as census:
+        frame = census["census_info"]["datasets"].read().concat().to_pandas().set_index("dataset_id")
+    out = []
+    for did in dataset_ids:
+        row = frame.loc[did]
+        url = f"https://datasets.cellxgene.cziscience.com/{row.dataset_version_id}.h5ad"
+        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=60) as r:
+            out.append((row.dataset_title, int(row.dataset_total_cell_count),
+                        int(r.headers["Content-Length"]), url))
+    return out
+
+for title, cells, nbytes, _ in source_h5ad_sizes([
+        "0895c838-e550-48a3-a777-dbcd35d30272",   # 146 cells
+        "b3c9904b-2ffd-4038-8620-ee1c5b072e9c"]): # 183,161 cells
+    print(f"{cells:>8,} cells  {nbytes/1e6:>8.1f} MB  {title}")
+```
+
+```
+     146 cells       5.4 MB  Healthy human liver: B cells
+ 183,161 cells    1182.3 MB  Human muscle cells and nuclei
+```
+
+That URL is the same object `download_source_h5ad` writes, and the same one the `citation` string
+names, so the number is the download you are about to start. `get_source_h5ad_uri` returns the
+`s3://` form instead, which no plain HTTP client can `HEAD`.
+
 **The source H5AD** is the dataset as CELLxGENE Discover curated it, with the full gene space
 and every obs column — not the Census's harmonised subset. Check what lands against the
 `dataset_total_cell_count` the release declares rather than assuming they agree; that is what
@@ -573,27 +702,105 @@ version URL and collection URL. Keep it with the file; it is the attribution the
 owed. Terms are per-collection on CELLxGENE Discover, so check the collection page before
 redistributing.
 
+### Worked example: one published collection, on disk
+
+The human skeletal muscle ageing atlas (Kedlian et al., *Nature Aging* 2024,
+`10.1038/s43587-024-00613-3`) is collection `2d40e6a7-f2fd-49ba-9db9-6b97e4c6dad5`. It is worth
+walking through because the obvious reading of it is wrong three ways, and each way generalises.
+
+| dataset_id | title | declared cells | source H5AD |
+|---|---|---:|---:|
+| `9038a71d-…` | MuSCs | 17,528 | 142.9 MB |
+| `f854421b-…` | Endothelium and SMC | 19,317 | 168.7 MB |
+| `32e8a3d7-…` | Immune Cells | 20,321 | 139.1 MB |
+| `1851b6ab-…` | Fibroblasts and Schwann cells | 20,611 | 194.5 MB |
+| `e1cc3162-…` | Myofiber (nuclei) | 74,626 | 382.6 MB |
+| `551ad2bc-…` | Myofiber (cells and nuclei) | 87,522 | 452.5 MB |
+| `bedee313-…` | **Mouse** muscle cells and nuclei | 96,529 | 502.8 MB |
+| `b3c9904b-…` | Human muscle cells and nuclei | 183,161 | 1,182.3 MB |
+
+- **Summing `dataset_total_cell_count` gives 519,615; the collection holds 279,690 cells.** Six of
+  the seven human datasets are compartment views of the seventh, and every cell in them carries
+  `is_primary_data == False`. This is not peculiar to this study — see the sweep below.
+- **One dataset in a collection called "Human skeletal muscle ageing atlas" is mouse.** No
+  `homo_sapiens` query reaches its 96,529 cells, and `census_info/datasets` has no organism
+  column to warn you. Read the organism off `obs`, or off the Discover stub.
+- **The human primary count reconciles with the paper exactly.** 183,161 = 90,902 single cells +
+  92,259 single nuclei from 17 donors, which is what the abstract reports; `suspension_type` is
+  the column that splits them. That is the check worth running on any collection whose paper
+  states a number — and it only works against the primary subset.
+
+Landing a named tissue and cell type from it. Count first, subsample by `soma_joinid`, then read
+expression for the rows you kept — `get_anndata` costs by the cell, so a 20,215-cell request with
+a 14-gene panel is not a small query:
+
+```python
+import numpy as np, cellxgene_census
+
+KEDLIAN = "b3c9904b-2ffd-4038-8620-ee1c5b072e9c"          # the primary human object
+PANEL   = ["PAX7", "MYF5", "MYOD1", "MKI67", "CDKN1A", "CDKN2A", "MYH7", "MYH2",
+           "DES", "TTN", "PDGFRA", "PTPRC", "PECAM1", "CD68"]
+F = (f"dataset_id == '{KEDLIAN}' and cell_type == 'skeletal muscle satellite stem cell' "
+     "and is_primary_data == True")
+
+with cellxgene_census.open_soma(census_version=VERSION) as census:
+    ids = cellxgene_census.get_obs(census, "homo_sapiens", value_filter=F,
+                                   column_names=["soma_joinid"]).soma_joinid.to_numpy()
+    keep = np.sort(np.random.default_rng(0).choice(ids, size=2000, replace=False))
+    adata = cellxgene_census.get_anndata(
+        census=census, organism="Homo sapiens",
+        var_value_filter=f"feature_name in {PANEL}", obs_coords=keep,
+        obs_column_names=["cell_type", "development_stage", "donor_id", "sex", "suspension_type"])
+    for c in adata.obs.columns:                            # drop the release-wide dictionaries
+        if str(adata.obs[c].dtype) == "category":
+            adata.obs[c] = adata.obs[c].cat.remove_unused_categories()
+    adata.write_h5ad(f"{OUT}/kedlian_muscle_satellite_cells.h5ad")
+```
+
+That lands `2000 x 14` in 193,276 bytes, covering all six development stages and 16 of the 17
+donors, and it took ten minutes on a 15 Mbit/s link — for two thousand cells and fourteen genes.
+`get_anndata` is the expensive step in every one of these workflows; budget for it.
+
+`development_stage` is how age reaches you here: this release bins the 17 donors into
+`young adult stage` and the third, fourth, sixth, seventh and eighth `decade stage`, not into
+years. There is no numeric age column, so an age model has to be built on those bins or on
+`donor_id` joined to the paper's own metadata.
+
 ## Try it
 
 A self-contained check against the 2025-11-08 stable LTS, plus one read of the oldest LTS build
-to show that `soma_joinid` moves. Public data, no account, no key. Metadata only — row
-identifiers, one presence matrix, and three non-zero expression values. No large expression
-slices.
+to show that `soma_joinid` moves. Public data, no account, no key. Runs cold in an empty
+directory and leaves one file behind: `kedlian_muscle_200.h5ad`, a 200-cell, 14-gene slice of the
+human skeletal muscle ageing atlas.
+
+Everything else is metadata — row identifiers, one presence matrix, and three non-zero
+expression values. **Nothing here reads a large expression slice, and it should not**: the Census
+is 218 million cells, and `get_anndata` costs by the cell whatever gene filter you pass.
+
+**Cost.** Order of magnitude: tens of minutes and a few hundred megabytes over the wire. The run
+whose output is quoted below took 22 minutes and peaked at 4.4 GB of RSS on a domestic connection
+measuring about 15 Mbit/s. It is bandwidth-bound rather than compute-bound — seven of those 22
+minutes were CPU — so a fast link is much quicker. The presence matrix (1,845 x 61,497) and the
+200-cell `get_anndata` dominate, and nothing is cached between runs. Run it on its own; see
+*`Response checksums mismatch`* under Troubleshooting.
 
 **Data** — Census releases `2025-11-08` (the current `stable`) and `2023-05-15` (the oldest LTS),
 both listed here:
 
     https://census.cellxgene.cziscience.com/cellxgene-census/v1/release.json
 
-Openly accessible; the directory flags both as LTS with `do_not_delete`. Individual datasets
-carry per-collection terms on CELLxGENE Discover. Last confirmed reachable 2026-08-18.
+Openly accessible; the directory flags both as LTS with `do_not_delete`. The slice comes from
+CELLxGENE Discover collection `2d40e6a7-f2fd-49ba-9db9-6b97e4c6dad5`, the atlas published as
+Kedlian et al., *Nature Aging* 2024, `10.1038/s43587-024-00613-3`; terms are per-collection on
+Discover, so check the collection page before redistributing what lands. Last confirmed
+reachable 2026-08-27.
 
 ```bash
 uv pip install "cellxgene-census==1.17.*"
 ```
 
 ```python
-import cellxgene_census, tiledbsoma as soma
+import os, numpy as np, cellxgene_census, tiledbsoma as soma
 
 VERSION = "2025-11-08"          # the current stable LTS
 
@@ -668,7 +875,44 @@ with cellxgene_census.open_soma(census_version=VERSION) as census:
     withdrawn = uri_err("0c774045-26a7-40f8-9b07-6742d3c771c0")   # in the 2023-05-15 LTS, gone from this one
     nonsense  = uri_err("00000000-0000-0000-0000-000000000000")
 
-# 10. soma_joinid is a row offset in ONE build, not an identity.
+    # 10. A published collection, reconciled: Kedlian et al. 2024, human skeletal muscle ageing.
+    #     Summing dataset_total_cell_count over a collection double-counts, and a collection
+    #     titled "Human …" can hold a mouse dataset no homo_sapiens query reaches.
+    ked      = datasets[datasets.collection_id.eq("2d40e6a7-f2fd-49ba-9db9-6b97e4c6dad5")]
+    ked_ids  = ked.dataset_id.tolist()
+    ked_sum  = int(ked.dataset_total_cell_count.sum())
+    ked_obs  = {o: cellxgene_census.get_obs(census, o, value_filter=f"dataset_id in {ked_ids}",
+                                            column_names=["dataset_id", "is_primary_data",
+                                                          "suspension_type", "donor_id"])
+                for o in ("homo_sapiens", "mus_musculus")}
+    ked_primary = sum(int(f.is_primary_data.sum()) for f in ked_obs.values())
+    hs          = ked_obs["homo_sapiens"]
+    hs_primary  = hs[hs.is_primary_data]
+    susp        = hs_primary.suspension_type.value_counts()
+    ked_donors  = hs_primary.donor_id.nunique()
+    ked_mouse   = int(ked_obs["mus_musculus"].is_primary_data.sum())
+    # Six of the seven human datasets are compartment views and are wholly non-primary.
+    per_ds      = hs.groupby("dataset_id", observed=True).is_primary_data.sum()
+    ked_empty   = int((per_ds == 0).sum())
+
+    # 11. Land the slice on disk: one named tissue and cell type, 14 genes, from the primary object.
+    KEDLIAN = "b3c9904b-2ffd-4038-8620-ee1c5b072e9c"
+    PANEL   = ["PAX7", "MYF5", "MYOD1", "MKI67", "CDKN1A", "CDKN2A", "MYH7", "MYH2",
+               "DES", "TTN", "PDGFRA", "PTPRC", "PECAM1", "CD68"]
+    musc_ids = cellxgene_census.get_obs(
+        census, "homo_sapiens", column_names=["soma_joinid"],
+        value_filter=f"dataset_id == '{KEDLIAN}' and is_primary_data == True").soma_joinid.to_numpy()
+    keep  = np.sort(np.random.default_rng(0).choice(musc_ids, size=200, replace=False))
+    slice_ = cellxgene_census.get_anndata(
+        census=census, organism="Homo sapiens", obs_coords=keep,
+        var_value_filter=f"feature_name in {PANEL}",
+        obs_column_names=["cell_type", "development_stage", "donor_id", "sex", "suspension_type"])
+    stages_all = slice_.obs.development_stage.cat.categories.size          # release-wide dictionary
+    slice_.obs["development_stage"] = slice_.obs.development_stage.cat.remove_unused_categories()
+    stages_here = slice_.obs.development_stage.cat.categories.size
+    slice_.write_h5ad("kedlian_muscle_200.h5ad")
+
+# 12. soma_joinid is a row offset in ONE build, not an identity.
 with cellxgene_census.open_soma(census_version="2023-05-15") as old:
     old_ds = old["census_info"]["datasets"].read().concat().to_pandas().set_index("dataset_id").soma_joinid
 new_ds = datasets.set_index("dataset_id").soma_joinid
@@ -689,6 +933,13 @@ assert presence_err == "TypeError", "get_presence_matrix has no var_value_filter
 assert presence.shape[0] == len(datasets), "presence rows are datasets, indexed by soma_joinid"
 assert withdrawn == nonsense, "a withdrawn id is indistinguishable from a typo"
 assert moved > 0.9 * len(shared), "soma_joinid is release-local — do not persist it"
+assert ked_sum > 1.5 * ked_primary, "summing dataset_total_cell_count over a collection double-counts"
+assert ked_empty > 0, "compartment views of one object are wholly is_primary_data == False"
+assert ked_mouse > 0, "a collection titled 'Human …' carries a mouse dataset census_data/homo_sapiens never returns"
+assert (int(susp["cell"]), int(susp["nucleus"]), ked_donors) == (90_902, 92_259, 17), \
+    "the primary human subset must reconcile with the published atlas"
+assert stages_all > stages_here, "obs categoricals arrive with the release-wide dictionary"
+assert slice_.shape == (200, 14) and os.path.getsize("kedlian_muscle_200.h5ad") > 0, "the slice is on disk"
 
 print(f"release                            : {summary['census_build_date']} (schema {summary['census_schema_version']})")
 print(f"declared total / unique cells      : {int(summary['total_cell_count']):,} / {int(summary['unique_cell_count']):,}")
@@ -702,6 +953,10 @@ print(f"optic cup Rho/Sox2/Pax6            : {nnz} non-zeros over {cells}x{genes
 print(f"get_presence_matrix(var_value_filter): {presence_err}; unfiltered shape {presence.shape}")
 print(f"withdrawn id / nonsense id         : {withdrawn} / {nonsense}")
 print(f"dataset soma_joinid vs 2023-05-15  : {moved} of {len(shared)} shared datasets moved")
+print(f"Kedlian muscle ageing collection   : {len(ked_ids)} datasets, {ked_sum:,} declared, {ked_primary:,} primary")
+print(f"  human primary                    : {int(susp['cell']):,} cells + {int(susp['nucleus']):,} nuclei, {ked_donors} donors")
+print(f"  wholly non-primary datasets      : {ked_empty} of {len(per_ds)} human; mouse holds {ked_mouse:,}")
+print(f"  slice on disk                    : {slice_.shape[0]}x{slice_.shape[1]}, development_stage {stages_all} -> {stages_here} levels")
 ```
 
 **Expect**
@@ -723,11 +978,22 @@ Invariants — these hold across releases, and a failure means the skill is wron
   expressing cells and overstates by more than two orders of magnitude here.
 - **`get_presence_matrix` rejects `var_value_filter`** and returns one row per dataset.
 - **A withdrawn dataset id and a nonsense one raise the identical `KeyError`.**
+- **Summing `dataset_total_cell_count` over a collection double-counts it.** Compartment views
+  of a single object are shipped as their own datasets and are wholly `is_primary_data == False`,
+  so the declared sum runs well ahead of the cells the collection holds.
+- **A collection's title does not bound its organisms.** "Human skeletal muscle ageing atlas"
+  contains a mouse dataset, and `census_info/datasets` has no organism column to say so.
+- **The primary human subset reconciles with the published paper**: 90,902 cells + 92,259 nuclei
+  from 17 donors, exactly the figures in the Kedlian abstract. This is the only check here with
+  ground truth outside the Census, so it is the one that catches a bad rebuild rather than a
+  changed one.
+- **An `obs` categorical arrives carrying the release-wide dictionary**, not the levels the slice
+  contains, until `remove_unused_categories()` is called.
 - **`soma_joinid` is release-local.** Nearly every dataset shared between `2023-05-15` and
   `2025-11-08` sits at a different id. A persisted id list silently selects different cells in a
   different release, which is why the skill says to store `dataset_id` instead.
 
-Observed 2026-08-18 against Census `2025-11-08` — these move with each release:
+Observed 2026-08-27 against Census `2025-11-08` — these move with each release:
 
 ```
 release                            : 2025-11-08 (schema 2.4.0)
@@ -742,7 +1008,15 @@ optic cup Rho/Sox2/Pax6            : 2 non-zeros over 146x3; mean 1.500 vs 0.006
 get_presence_matrix(var_value_filter): TypeError; unfiltered shape (1845, 61497)
 withdrawn id / nonsense id         : KeyError 'Unknown dataset_id' / KeyError 'Unknown dataset_id'
 dataset soma_joinid vs 2023-05-15  : 551 of 553 shared datasets moved
+Kedlian muscle ageing collection   : 8 datasets, 519,615 declared, 279,690 primary
+  human primary                    : 90,902 cells + 92,259 nuclei, 17 donors
+  wholly non-primary datasets      : 6 of 7 human; mouse holds 96,529
+  slice on disk                    : 200x14, development_stage 194 -> 6 levels
 ```
+
+Two `ImplicitModificationWarning: Transforming to str index` lines appear on stderr when the
+slice is written. They come from `write_h5ad` converting the positional obs index `get_anndata`
+returns; nothing is wrong, and the file is fine.
 
 ## Troubleshooting
 
@@ -754,6 +1028,9 @@ dataset soma_joinid vs 2023-05-15  : 551 of 553 shared datasets moved
 - A `disease`, `cell_type` or `tissue` value that appears in several ` || `-delimited labels is
   matched by `==` only in its solo label.
 - A misspelled *value* silently matches nothing. Compare against `summary_cell_counts` labels.
+- If you sized a collection by summing `dataset_total_cell_count`, that number is too high
+  wherever the depositor shipped compartment views alongside the whole object — five of ten
+  collections checked, by up to 3.1x. Count through `obs` with `is_primary_data == True`.
 
 ### Query Returns Too Many Cells
 - Add more specific filters to reduce scope
@@ -766,6 +1043,21 @@ dataset soma_joinid vs 2023-05-15  : 551 of 553 shared datasets moved
 - Select fewer genes with `var_value_filter`
 - Use out-of-core processing with `axis_query()`
 - Process data in batches
+
+### `SOMAError: … Response checksums mismatch`
+
+A read that ends in `Query FAILED: … S3: Failed to read S3 object … Response checksums mismatch`
+is a corrupted transfer, not bad data and not a bad query. Every byte of the Census arrives over
+ranged S3 reads, and TileDB verifies each one; on a saturated or lossy link a body arrives
+mangled and the read aborts partway through. Three things that matter when you see it:
+
+- **It is transient.** The identical script succeeds on a retry. Do not start editing the filter.
+- **Concurrency makes it much more likely.** Running several Census readers at once on one
+  connection turned an occasional failure into a reliable one while this skill was being checked.
+  Run one at a time.
+- **It aborts mid-read**, so a long query can burn ten minutes and return nothing. Order work so
+  the cheap metadata pass happens first and the expensive expression pass reads only what
+  survived it — which is the `obs_coords` pattern above, and the reason to prefer it.
 
 ### Duplicate Cells in Results
 - Always include `is_primary_data == True` in filters
@@ -801,6 +1093,8 @@ way.
 ## Sources
 
 - CZ CELLxGENE Discover — https://cellxgene.cziscience.com/
+- Discover curation API, for what Discover holds that a Census build does not —
+  https://api.cellxgene.cziscience.com/curation/v1/collections?visibility=PUBLIC
 - Census documentation — https://chanzuckerberg.github.io/cellxgene-census/
 - Release directory (which builds exist, and which are LTS) —
   https://census.cellxgene.cziscience.com/cellxgene-census/v1/release.json
