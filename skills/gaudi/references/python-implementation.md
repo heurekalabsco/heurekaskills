@@ -50,11 +50,36 @@ Parameters, with the published defaults:
 | | `subsample` | 0.95 |
 | | `nrounds` | 10 |
 
-**The `minPts` default is unusable on small data** and this is not
-implementation-specific — it is a property of the method. Below ~150 samples
-`floor(0.03 · n)` collapses toward the floor of 2 and HDBSCAN returns a shower
-of doubleton clusters. Set it explicitly and sweep it. See the *Sharp edges*
-section of `SKILL.md`.
+**The `minPts` default is unsafe on small data**, because `floor(0.03 · n)`
+tracks the sample count and nothing about the data. Below ~150 samples it
+collapses toward the floor of 2, and a `minPts` of 2 imposes no constraint at
+all — whatever HDBSCAN finds in the embedding is returned as clusters.
+
+What that costs you depends on separation, not on `n` alone. Measured on this
+implementation, 2026-08-28, with the pinned three-group generator in the
+`## Try it` section of `SKILL.md` (n = 60, truth k = 3, default `min_pts` = 2):
+
+| group separation | default (2) | `min_pts=5` | `min_pts=10` |
+|---|---|---|---|
+| clean (shift 3.0) | k=3, ARI 1.00 | k=3, ARI 1.00 | k=3, ARI 1.00 |
+| weak (shift 0.8) | **k=5**, ARI 0.70 | k=3, ARI 0.75 | k=3, ARI 0.78 |
+| very weak (shift 0.4) | **k=8**, ARI 0.13 | k=3, ARI 0.20 | k=0 (all noise) |
+
+So on cleanly separated data the default happens to be harmless here, and an
+earlier version of this file overstated the case by calling the fragmentation a
+property of the method: it is a property of the method *applied to data whose
+groups are not cleanly separated*, which is the case you are usually in and
+cannot recognise in advance. The R package fragments harder at `minPts = 2` on
+its own clean synthetic set — 19 clusters, in the *Sharp edges* table of
+`SKILL.md` — so the size of the effect is implementation-specific even though
+the exposure is not. **Set `min_pts` explicitly and sweep it** either way.
+
+**Bound the sweep from above, too.** At `min_pts` equal to the group size, this
+implementation returns every sample as noise, a silhouette of `0.0`, and no
+error — the `len(set(lab)) > 1` guard reports a single-label result as `0.0`,
+so an empty answer arrives looking like a computed one. `min_pts=20` on 20
+samples per group does it. Check the noise count before you read the
+silhouette.
 
 ## Dependencies
 
@@ -210,6 +235,16 @@ well-separated groups, `min_pts=5`:
 
 **Cluster assignments reproduce.** That is the output of the method, and on
 separable data the two implementations agreed exactly.
+
+Re-run 2026-08-28 on the pinned generator now in `SKILL.md`'s `## Try it`
+(same shape — 60 samples, 300- and 150-feature layers, three groups,
+`min_pts=5`): k = 3, 0 noise, silhouette **0.941**, ARI 1.000 against ground
+truth, under umap-learn 0.5.12 / hdbscan 0.8.44 / scikit-learn 1.9.0. The
+original run's synthetic input was described but never pinned, so its 0.942
+could only ever be compared approximately; the generator is written out in
+`## Try it` from now on so a later pass can reproduce the figure exactly rather
+than land near it. The R column has not been re-run — no R toolchain — so it
+stands as recorded on the version stated above.
 
 **Metagene rankings do not reproduce feature-for-feature.** On the same run the
 two implementations shared no features in their top five, and reported 6 and 4

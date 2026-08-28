@@ -4,11 +4,22 @@ description: Unsupervised multi-omics integration with GAUDI — two-stage UMAP,
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.2.0
-try-it: pending
+version: 1.3.0
 tags: [multi-omics, umap, hdbscan, clustering, shap]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+datasets: []
+verified:
+  date: 2026-08-28
+  against: Python route — umap-learn 0.5.12 / hdbscan 0.8.44 / xgboost 3.2.0 / shap 0.51.0 / scikit-learn 1.9.0 / NumPy 2.4.6 / pandas 3.0.5 / Python 3.11.15. R claims re-checked against the gaudi 0.1.18 source, not executed.
+  executed: 3
+  unverified: 3
+  unverified_reason: >-
+    The three standalone R blocks — install_github, the library() preamble, and the
+    package-availability check — need an R 4.3+ toolchain with gaudi installed from
+    GitHub. The validating environment has no R and no route to CRAN or the distro
+    archive, so none could run. Re-run them from a host with R; the parameter defaults
+    and sharp edges they exercise were instead confirmed line by line against the
+    gaudi 0.1.18 sources on 2026-08-28.
 ---
 
 # GAUDI: multi-omics integration via UMAP + HDBSCAN
@@ -434,6 +445,148 @@ them.
 - **Unsigned feature attribution.** Magnitude only.
 - **Silhouette is internal.** It cannot validate that the cluster count is
   biologically real.
+
+## Try it
+
+A self-contained check that this skill still works. No account, no key, no network beyond
+installing the packages.
+
+**Data** — generated inline, which is why `datasets:` is empty. The method needs a *known*
+partition to be checked against, and no public multi-omics dataset supplies one: three groups
+of twenty samples across two layers, with the signal in the first 30 features of each, is a
+case where the right answer is three clusters and anything else is a failure. The generator is
+pinned here so the figures below can be reproduced exactly rather than approximately.
+
+**What this does and does not exercise.** It runs the **Python** route from
+`references/python-implementation.md`, inlined so the block runs cold in an empty directory.
+The R package is not exercised — installing it needs an R toolchain — so the *Sharp edges*
+above remain source-confirmed rather than executed.
+
+**Run** — `pip install numpy pandas scikit-learn umap-learn hdbscan xgboost shap`, then:
+
+```python
+import inspect
+import numpy as np, pandas as pd, umap, hdbscan, xgboost as xgb, shap
+from sklearn.metrics import silhouette_score, adjusted_rand_score
+
+def gaudi(omics, min_pts=None, n_components_layer=4, n_components_conc=2,
+          n_neighbors=15, min_dist=0.01, compute_features=False, seed=42):
+    """The implementation from references/python-implementation.md, metagenes off."""
+    common = sorted(set.intersection(*[set(df.index) for df in omics.values()]))
+    if len(common) < 10:
+        raise ValueError(f"only {len(common)} samples shared across layers")
+    omics = {k: v.loc[common] for k, v in omics.items()}
+    for k, v in omics.items():
+        if v.isna().any().any():
+            raise ValueError(f"NA in layer '{k}' — impute upstream")
+        omics[k] = v.loc[:, v.std(axis=0, ddof=1) > 0]
+    emb = [umap.UMAP(n_neighbors=n_neighbors, n_components=n_components_layer,
+                     min_dist=min_dist, metric="euclidean",
+                     random_state=seed).fit_transform(v.values) for v in omics.values()]
+    integ = umap.UMAP(n_neighbors=n_neighbors, n_components=n_components_conc,
+                      min_dist=min_dist, metric="euclidean",
+                      random_state=seed).fit_transform(np.hstack(emb))
+    n = len(common)
+    if min_pts is None:
+        min_pts = int(np.floor(0.03 * n))
+    min_pts = max(min_pts, 2)
+    lab = hdbscan.HDBSCAN(min_cluster_size=min_pts,
+                          min_samples=min_pts).fit_predict(integ) + 1
+    sil = float(silhouette_score(integ, lab)) if len(set(lab)) > 1 else 0.0
+    return dict(clusters=lab, silhouette_score=sil, n=n)
+
+def layers(shift, n_per=20, seed=0):
+    """Three groups; signal in the first 30 features of each layer."""
+    rng = np.random.default_rng(seed)
+    truth = np.repeat([0, 1, 2], n_per)
+    ids = [f"S{i:02d}" for i in range(n_per * 3)]
+    out = {}
+    for name, p in (("expression", 300), ("methylation", 150)):
+        X = rng.normal(size=(n_per * 3, p))
+        for g in range(3):
+            X[truth == g, :30] += shift * (g - 1)
+        out[name] = pd.DataFrame(X, index=ids, columns=[f"{name[:4]}{j}" for j in range(p)])
+    return out, truth
+
+k = lambda lab: len(set(lab) - {0})
+
+# --- INVARIANTS: a failure here means the skill is wrong ----------------------
+clean, truth = layers(shift=3.0)
+r = gaudi(clean, min_pts=5)
+assert k(r["clusters"]) == 3, k(r["clusters"])          # separable groups are recovered
+assert (r["clusters"] == 0).sum() == 0                  # nothing left as noise
+assert adjusted_rand_score(truth, r["clusters"]) == 1.0 # exactly the true partition
+assert r["clusters"].min() >= 0                         # R's convention: 0 = noise, never -1
+print(f"clean (shift 3.0), min_pts=5 : k={k(r['clusters'])} noise=0 ARI=1.000 "
+      f"sil={r['silhouette_score']:.3f}")
+
+# umap-learn's min_dist default is 10x uwot's, which GAUDI inherits. The
+# implementation passes 0.01 explicitly; if this ever fails, the porting note changed.
+assert inspect.signature(umap.UMAP).parameters["min_dist"].default == 0.1
+print("umap-learn min_dist default  : 0.1 (uwot's is 0.01 — pass it explicitly)")
+
+# Error paths: the Python route rejects what the R package silently drops.
+na = {n: d.copy() for n, d in clean.items()}
+na["expression"].iloc[3, 7] = np.nan
+try:
+    gaudi(na, min_pts=5); raise AssertionError("NA should have raised")
+except ValueError as e:
+    print("NA in a layer                :", e)
+try:
+    gaudi({n: d.iloc[:5] for n, d in clean.items()}, min_pts=2)
+    raise AssertionError("5 samples should have raised")
+except ValueError as e:
+    print("too few shared samples       :", e)
+
+# --- OBSERVED, 2026-08-28: drift to investigate, not a bug -------------------
+print("\nmin_pts x separation (truth k=3, n=60, default min_pts = 2):")
+print(f"{'shift':>6} {'default':>18} {'min_pts=5':>18} {'min_pts=10':>18}")
+for shift in (0.8, 3.0):
+    om, tr = layers(shift=shift)
+    cells = []
+    for mp in (None, 5, 10):
+        rr = gaudi(om, min_pts=mp)
+        cells.append(f"k={k(rr['clusters']):2d} ARI={adjusted_rand_score(tr, rr['clusters']):.2f}")
+    print(f"{shift:>6} {cells[0]:>18} {cells[1]:>18} {cells[2]:>18}")
+
+# min_pts at or above the group size returns NOTHING, silently: no exception,
+# every sample labelled noise, and silhouette reported as 0.0.
+big = gaudi(clean, min_pts=20)
+print(f"\nmin_pts=20 (group size 20)   : k={k(big['clusters'])} "
+      f"noise={(big['clusters'] == 0).sum()} sil={big['silhouette_score']:.3f}")
+if k(big["clusters"]) == 0:
+    assert big["silhouette_score"] == 0.0   # an empty result, reported as a number
+```
+
+**Expect** — the assertions above are invariants: on separable data the method returns the
+true partition, noise is labelled `0` and never `-1`, and both error paths raise rather than
+returning a quietly smaller result. The numbers below are **observed** on the versions in
+`verified:` and dated — a mismatch is drift to investigate, not a bug. UMAP prints
+`UserWarning: n_jobs value 1 overridden to 1 by setting random_state` once per embedding;
+that is expected, and it is the seed doing its job.
+
+```
+clean (shift 3.0), min_pts=5 : k=3 noise=0 ARI=1.000 sil=0.941
+umap-learn min_dist default  : 0.1 (uwot's is 0.01 — pass it explicitly)
+NA in a layer                : NA in layer 'expression' — impute upstream
+too few shared samples       : only 5 samples shared across layers
+
+min_pts x separation (truth k=3, n=60, default min_pts = 2):
+ shift            default          min_pts=5         min_pts=10
+   0.8      k= 5 ARI=0.70      k= 3 ARI=0.75      k= 3 ARI=0.78
+   3.0      k= 3 ARI=1.00      k= 3 ARI=1.00      k= 3 ARI=1.00
+
+min_pts=20 (group size 20)   : k=0 noise=60 sil=0.000
+```
+
+Two things in that table are the point of running it. The default `min_pts` is **not** safe
+merely because a clean dataset survives it — at `shift 3.0` it returns the truth, and at
+`shift 0.8` the same default splits three groups into five. Separation decides, and you do not
+know your separation in advance, which is why the sweep is not optional. And `min_pts=20`, at
+the group size, returns **every sample as noise with a silhouette of 0.0 and no error at all**
+— an empty result that reads like a computed one. Note that the sweep recommended in *Sharp
+edges* ends at exactly that value for a set this size: bound the sweep from above as well as
+below, and read the noise count before the silhouette.
 
 ## Reference files
 
