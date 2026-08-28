@@ -325,8 +325,8 @@ census = cellxgene_census.open_soma(census_version="2025-11-08")
 ### 3. Use Context Manager
 Always use the context manager to ensure proper cleanup:
 ```python
-with cellxgene_census.open_soma() as census:
-    # Your code here
+with cellxgene_census.open_soma(census_version="2025-11-08") as census:
+    print(list(census.keys()))          # a `with` body of only a comment is an IndentationError
 ```
 
 ### 4. Select Only Needed Columns
