@@ -4,7 +4,7 @@ description: Access BixBench, a dataset of 205 open-ended bioinformatics questio
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.2.0
 tags: [benchmark, bioinformatics, agents, evaluation]
 covers: [bixbench, benchmark, agent evaluation, bioinformatics, rna-seq, genomics, differential expression, whole genome sequencing, phylogenetics, transcriptomics, epigenomics, imaging, jupyter notebook, capsule, futurehouse, analysis cases]
 papers: [doi:10.48550/arXiv.2503.00096]
@@ -42,6 +42,13 @@ the schema to one question per row. They say scores should shift upward as a res
 v1.0 number and a v1.5 number are not comparable.** The original is preserved at tag `v1.0`.
 
 Every row in the current file carries `version: "1.5"` — check it rather than assuming.
+
+**BixBench3 is not a version of this.** The name reads like one and the number invites the
+mistake, but it is a separate benchmark published by Edison Scientific rather than FutureHouse,
+under CC BY-SA 4.0 rather than Apache-2.0, and it supersedes nothing here — 20 end-to-end
+analyses graded on submitted tables, against this set's 205 short questions over notebook
+capsules. There is no public BixBench2. The `bixbench3` skill covers it, and a score on one is
+not a score on the other.
 
 ## The index
 
