@@ -62,8 +62,9 @@ Storage buckets that answer anonymous HTTPS.
 **The task prompts and output contracts are gated.** They live on Hugging Face under
 `EdisonScientific/BixBench3`, which asks you to agree to share your contact information before
 it will serve files. Approval is automatic — any Hugging Face account clears it — but until you
-have clicked through, **every file request returns `401`, `README.md` included**, so even the
-dataset card is unreadable through the API even though the dataset page renders it in a browser.
+have clicked through, **every file request returns `401` except `README.md`**, which the Hub
+serves openly. So the card reads fine and nothing else does — the shape most likely to mislead
+a script that probes one file to decide whether it has access.
 A CI job or an agent on a fresh machine therefore cannot read the prompts unattended. Export
 `HF_TOKEN` after accepting.
 
