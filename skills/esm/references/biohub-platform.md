@@ -20,29 +20,30 @@ Never commit API keys or paste them into notebooks checked into git.
 
 ## Installation
 
-For ESM3/ESMC workflows on PyPI, `uv pip install "esm==3.2.3"` remains the standard reproducible path.
+`uv pip install "esm==3.4.0"` is the standard reproducible path for everything in this skill, ESMFold2 included. Release 3.4.0 (2026-08-27) is the first on PyPI to carry the ESMFold2 model code, so the git install upstream still recommends is no longer required — the model card's "a PyPI release is coming soon" predates it.
 
-For ESMFold2 and the newest Biohub SDK features, upstream may recommend installing from the Biohub GitHub repo. Avoid floating branch installs in automated or production instructions. Pin a trusted release or a full 40-character commit SHA from the official Biohub repository, and review the verified GitHub release/commit before installing:
+If you do need a git install for something newer than the last release, avoid floating branch installs in automated or production instructions. Pin a full 40-character commit SHA from the official Biohub repository and review it before installing:
 
 ```bash
 uv pip install "esm@git+https://github.com/Biohub/esm.git@<full-40-character-commit-sha>"
 ```
 
-Confirm which install source your task requires before mixing PyPI and GitHub builds in one environment.
+Confirm which install source your task requires before mixing PyPI and GitHub builds in one environment. The same caution applies to the third-party MLX port used for Apple Silicon inference, which upstream's own notebook installs from a personal fork at `@main`.
 
 ## ESMFold2 Structure Prediction
 
-ESMFold2 is a structure prediction model built on ESMC 6B, available through `SequenceStructureForgeInferenceClient` with Biohub as the API host. Biohub lists ESMFold2 as a 2026-04/2026-05 model family and documents `esmfold2-fast-2026-05` for hosted inference.
+ESMFold2 is a structure prediction model built on a frozen ESMC 6B trunk. It runs two ways: **locally from open weights** (`biohub/ESMFold2` and `biohub/ESMFold2-Fast`, both MIT and ungated — covered in section 7 of `SKILL.md`, including the ~27 GB the trunk brings with it), or **hosted** through Biohub. Biohub lists ESMFold2 as a 2026-04/2026-05 model family and documents `esmfold2-fast-2026-05` for hosted inference.
+
+For the hosted route, `esmfold2_client()` is the idiomatic entry point. It is a thin wrapper that returns a `SequenceStructureForgeInferenceClient` already pointed at `https://biohub.ai` with `esmfold2-fast-2026-05` as its default model, so the two forms are equivalent and the wrapper is less to get wrong:
 
 ```python
 import os
-from esm.sdk.forge import SequenceStructureForgeInferenceClient
+from esm.sdk import esmfold2_client
 from esm.sdk.api import FoldingConfig
-from esm.utils.structure.input_builder import ProteinInput, StructurePredictionInput
+from esm.models.esmfold2 import ProteinInput, StructurePredictionInput
 
-client = SequenceStructureForgeInferenceClient(
+client = esmfold2_client(
     model="esmfold2-fast-2026-05",
-    url="https://biohub.ai",
     token=os.environ["ESM_API_KEY"],
 )
 
@@ -83,14 +84,16 @@ logits_output = model.logits(
 embeddings = logits_output.embeddings
 ```
 
-### Model IDs
+### Model IDs and local equivalents
 
-| Model ID | Use case |
-|----------|----------|
-| `esmfold2-fast-2026-05` | Fast single-sequence folding |
-| Check Biohub docs for additional variants | MSA-augmented or higher-accuracy modes |
+| Hosted model ID | Local weights | Use case |
+|----------|----------|----------|
+| `esmfold2-fast-2026-05` | `biohub/ESMFold2-Fast` | Fast single-sequence folding; no MSA reader |
+| Check Biohub docs for additional variants | `biohub/ESMFold2` | MSA-conditioned, higher accuracy on hard targets |
 
-ESMFold2 predicts static all-atom structures. Treat outputs as hypotheses that require experimental validation, especially for therapeutic, clinical, or safety-sensitive uses.
+The `-Fast` checkpoint silently discards any MSA you attach rather than raising, so a paired alignment you spent effort building buys nothing unless you load the full model.
+
+ESMFold2 predicts static all-atom structures, and does so for complexes — several chains, DNA, RNA, ligands by CCD code or SMILES, non-standard residues and covalent bonds. Every residue and atom index in that input grammar is 0-based. Treat outputs as hypotheses that require experimental validation, especially for therapeutic, clinical, or safety-sensitive uses.
 
 ## Relationship to Forge (ESM3 / ESM C)
 
