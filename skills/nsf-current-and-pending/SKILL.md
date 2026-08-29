@@ -295,8 +295,8 @@ Four rules the files state that a schema-free implementation gets wrong:
 
 ## The NSF half, from NSF's own award record
 
-Four things about NSF Award Search are not what they look like, and each one was confirmed
-against the live service rather than the documentation.
+Five things about NSF Award Search are not what they look like, and each one was confirmed
+against the live service rather than the documentation. All five fail silently.
 
 - **`offset` is 0-based**, although NSF documents its default as `1`. A loop starting at
   `offset=1` silently drops the first award, and the first award is the newest one.
