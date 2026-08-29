@@ -11,18 +11,18 @@ datasets: [https://huggingface.co/api/models/biohub/ESMFold2, https://huggingfac
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-28
-  against: esm 3.4.0 (PyPI, released 2026-08-27) / transformers 4.57.6 / torch 2.11.0 / Python 3.12.8 on macOS 26.4 arm64, Apple M1 Max, 64 GB, no CUDA / biohub HF model records and Biohub/esm LICENSE.md read 2026-08-28
-  executed: 12
+  against: esm 3.4.0 (PyPI, released 2026-08-27) / transformers 4.57.6 / torch 2.11.0 / biotite 1.7.1 / Python 3.12.8 on macOS 26.4 arm64, Apple M1 Max, 64 GB, no CUDA / biohub/ESMFold2-Fast and biohub/ESMC-6B downloaded and folded on CPU / biohub HF model records and Biohub/esm LICENSE.md read 2026-08-28
+  executed: 14
   unverified: 9
   unverified_reason: >-
-    Six ESM3 blocks and the two hosted-API blocks need either the esm3-open checkpoint loaded
-    into a generation loop or an ESM_API_KEY, neither of which this host has; the flash-attn
-    install block is CUDA-only and has no macOS wheel. The ESMFold2 fold itself was not run to
-    completion here because the checkpoint loads a frozen ESMC-6B trunk, a 25.4 GB download on
-    top of the 1.2 GB folding weights. Everything that gates that run was executed instead —
-    the install, both import paths, the dependency conflict, the full input grammar and the
-    CCD load. Re-run the ESM3 blocks with an ESM_API_KEY, and the fold on a CUDA host or an
-    Apple Silicon machine with 48 GB and the MLX port.
+    Six ESM3 blocks and the two hosted-API blocks need either the esm3-open checkpoint in a
+    generation loop or an ESM_API_KEY, neither of which this host has; the flash-attn install
+    block is CUDA-only and publishes no macOS wheel; and the fold block as written names
+    device="cuda". ESMFold2 itself was run here end to end on CPU instead — the equivalent
+    fp32 block below it loaded biohub/ESMFold2-Fast with its 25.4 GB ESMC-6B trunk and folded
+    ubiquitin to a valid 601-atom mmCIF, which is where the pLDDT, pTM and timing quoted in
+    section 7 come from. Re-run the ESM3 blocks with an ESM_API_KEY, and the CUDA fold on an
+    NVIDIA host.
 ---
 # ESM: Evolutionary Scale Modeling
 
@@ -396,10 +396,12 @@ spi = StructurePredictionInput(
 )
 ```
 
-Folding is then two lines, and identical on every backend below:
+Folding is then two lines, and the fold call is identical on every backend below — only the
+loading line changes. `from_pretrained` defaults to `device="cpu"`, so name the device you
+actually want rather than relying on the default:
 
 ```python
-model = EsmFold2Model.from_pretrained("biohub/ESMFold2-Fast")
+model = EsmFold2Model.from_pretrained("biohub/ESMFold2-Fast", device="cuda").eval()
 result = ESMFold2InputBuilder().fold(model, spi, num_loops=3, num_sampling_steps=50)
 
 print(f"pLDDT {float(result.plddt.mean()):.3f}  pTM {float(result.ptm):.3f}")
@@ -420,8 +422,31 @@ whether the arithmetic is fast enough to be worth waiting for.
 |---|---|---|
 | **NVIDIA CUDA** | `.cuda()`, as upstream writes it | the reference path; fused Triton kernels are CUDA-only |
 | **Apple Silicon** | a pure-MLX port, `mlx_lm.models.esmfold2` | M1–M4 only; 32 GB RAM minimum, 48 GB comfortable |
-| **CPU** | the `device="cpu"` default | works, but is not benchmarked or documented upstream — treat it as a code path, not a plan |
+| **CPU** | the `device="cpu"` default, plus `esmc_precision="fp32"` | works, and is usable for short chains — see below |
 | **Hosted** | `esmfold2_client(model="esmfold2-fast-2026-05")` | no weights, no GPU; needs `ESM_API_KEY` |
+
+**The CPU route needs one argument, and fails confusingly without it.** `esmc_precision`
+defaults to `"bf16"`, but the folding trunk stays fp32 on CPU, so the default combination dies
+part-way into the first forward pass with a message that names neither setting:
+
+```
+RuntimeError: expected m1 and m2 to have the same dtype, but got: c10::BFloat16 != float
+```
+
+Pass `esmc_precision="fp32"` and it runs. Budget ~25 GB of RAM for the trunk at fp32:
+
+```python
+model = EsmFold2Model.from_pretrained(
+    "biohub/ESMFold2-Fast", device="cpu", esmc_precision="fp32"
+).eval()
+```
+
+Folding 76-residue ubiquitin this way — CPU only, no CUDA, no MLX — took **57 s** at
+`num_loops=1, num_sampling_steps=20` on an M1 Max, and returned pLDDT 0.819 and pTM 0.771 with
+a radius of gyration of 11.7 Å against ubiquitin's experimental ~11.8 Å. That is a real
+structure, not a smoke test, but note the settings are well below the defaults
+(`num_loops=3, num_sampling_steps=50`) and accuracy scales with both. Use CPU to prove a
+pipeline end to end on a short chain; use one of the other three rows for real work.
 
 The Apple Silicon route is real and offline, but read the install before you take it: the MLX
 port is a **personal fork of `mlx-lm`** installed from a floating `@main` branch and
