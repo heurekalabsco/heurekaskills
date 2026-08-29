@@ -37,6 +37,7 @@ body:
         - analysis — compute over data you already have
         - utility — file formats, methodology, general-purpose helpers
         - communication — figures, graphical abstracts, posters, talks, plain-language summaries
+        - grants — producing a document an agency requires (data management plans, biosketches, facilities statements)
     validations:
       required: true
   - type: textarea
