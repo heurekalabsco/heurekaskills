@@ -59,6 +59,25 @@ original work:
   Source: https://github.com/K-Dense-AI/scientific-agent-skills
 
 -----------------------------------------------------------------------
+Brain Researcher
+-----------------------------------------------------------------------
+
+The following skill documents the Brain Researcher platform and is
+redistributed under that project's licence. The instructional content was
+written for this registry against the released code, the published tool
+contracts and the shipped reproducibility packs rather than ported from the
+project's own documentation, and its account of the status vocabularies, the
+five-level reproduction ladder, the claim-record schema and the multiverse
+survival thresholds is derived from that project:
+
+  skills/brain-researcher
+
+  Brain Researcher
+  Copyright (c) 2026 Brain Researcher Team
+  Licensed under the MIT License
+  Source: https://github.com/brain-researcher/brain-researcher-public
+
+-----------------------------------------------------------------------
 paperpush (Pachter Lab)
 -----------------------------------------------------------------------
 
