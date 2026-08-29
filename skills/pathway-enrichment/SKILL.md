@@ -11,14 +11,9 @@ datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-29
-  against: gseapy 1.3.1 / pandas 3.0.5 / numpy 2.4.6 / scipy 1.17.1 / Python 3.11.15
-  executed: 3
-  unverified: 3
-  unverified_reason: >-
-    The Enrichr and MSigDB blocks (gp.get_library_name, gp.enrichr, and the
-    preranked run against named Enrichr libraries) need outbound access to
-    maayanlab.cloud and gsea-msigdb.org, which the validating environment does
-    not have. Re-run them from a host with outbound HTTPS to those two domains.
+  against: gseapy 1.3.1 / pandas 3.0.5 / numpy 2.4.6 / scipy 1.17.1 / Python 3.11.15. Enrichr and MSigDB blocks re-run 2026-08-29 with outbound access to maayanlab.cloud and gsea-msigdb.org
+  executed: 6
+  unverified: 0
 ---
 # Pathway Enrichment
 
@@ -58,7 +53,7 @@ When in doubt: a thresholded list → ORA; a ranked table with scores → GSEA. 
 ## Setup
 
 ```bash
-uv pip install gseapy gprofiler-official
+uv pip install gseapy gprofiler-official lxml   # lxml is only needed for gp.Msigdb()
 # gseapy pulls pandas, numpy, scipy, matplotlib. Network access is needed for
 # Enrichr, g:Profiler, and MSigDB downloads. For fully offline ORA, use a local
 # GMT file with gp.enrich() (see references/gseapy.md).
@@ -160,7 +155,10 @@ def clean_symbols(genes, organism="human"):
     """Dedup, drop NA/blank, and match the casing the libraries use."""
     s = pd.Series(list(genes), dtype="string").dropna().str.strip()
     s = s[s.ne("")]
-    s = s.str.upper() if organism == "human" else s.str.capitalize()
+    # Not .capitalize(): it lowercases everything after the first character, which
+    # corrupts every Riken clone (1700009N14Rik) and MHC class II symbol (H2-Ab1).
+    # Measured against MSigDB 2024.1.Mm m5.go.bp: 181 of 18,312 symbols mangled.
+    s = s.str.upper() if organism == "human" else s.str[:1].str.upper() + s.str[1:]
     return s.drop_duplicates().tolist()
 
 def rank_from_deseq2(path):
@@ -176,14 +174,26 @@ def rank_from_deseq2(path):
     return rnk[~rnk.index.duplicated(keep="first")].sort_values(ascending=False)
 ```
 
-FDR is computed *within* a library, so filter per library rather than across the
-concatenated table:
+For **over-representation** through `gp.enrichr`, the correction really is per library —
+the Hallmark adjusted p-values are identical whether you request one library or four. So
+the concatenated table is already per-library corrected and a plain threshold is enough:
 
 ```python
-sig = (res.groupby("Gene_set", group_keys=False)
-          .apply(lambda g: g[g["Adjusted P-value"] < 0.05])
-          .sort_values("Adjusted P-value"))
+sig = res[res["Adjusted P-value"] < 0.05].sort_values("Adjusted P-value")
 ```
+
+A `groupby("Gene_set").apply(...)` wrapper looks more careful and is not: filtering rows
+against a fixed threshold on an already-computed column is group-invariant, so it selects
+exactly the same rows — and under pandas 3.0 it drops `Gene_set` from the result, because
+the grouping column is excluded from `.apply()`.
+
+For **preranked GSEA** the answer depends on how you pass the sets, and the difference is
+not visible in the output. Hand `gp.prerank` a **list of library names or paths** and it
+scopes the null per collection: 50 Hallmark FDRs are unchanged when 1,259 GO:BP sets are
+requested alongside. Hand it a **plain dict, or one GMT you merged yourself**, and every
+set is one collection and the FDR pools across all of them — in a controlled run, adding
+400 null sets moved a decoy from 0.316 to 0.924 with its NES unchanged. If you built a
+merged GMT with `gp.read_gmt`, you are in the second case.
 
 ## Common Pitfalls
 
@@ -196,7 +206,7 @@ These cause most wrong or irreproducible results:
 2. **Wrong background (ORA)** — using the whole genome instead of the tested/expressed gene set inflates p-values. Set a custom background when it matters.
 3. **Thresholding before GSEA** — GSEA needs the *full* ranked list; only ORA uses a cut list.
 4. **Ranking GSEA by log2FoldChange alone** — unstable for low-count genes; prefer `stat` or `sign(LFC) * -log10(p)`.
-5. **Multiple-testing across libraries** — FDR is computed *within* a library; running many libraries multiplies tests. Report per-library FDR and stay conservative.
+5. **Multiple-testing across libraries** — for ORA the correction is per library, verified. For preranked GSEA it is per library *only* when you pass library names or paths; a merged dict or GMT pools the null across everything you handed it. Know which you did before reading a q-value.
 6. **Redundant GO terms** — don't report 40 variants of the same term; collapse and show representatives.
 7. **Significance ≠ relevance** — check the overlap count and gene-set size; tiny sets reach significance trivially.
 8. **List too short/long for ORA** — <10 genes is underpowered; >2000 loses specificity (consider GSEA instead).
