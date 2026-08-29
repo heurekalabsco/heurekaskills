@@ -5,11 +5,15 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
-try-it: pending
+version: 1.3.0
 tags: [gsea, enrichment, gene-ontology, kegg, reactome]
+datasets: []
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-08-29
+  against: gseapy 1.3.1 / pandas 3.0.5 / numpy 2.4.6 / scipy 1.17.1 / Python 3.11.15. Enrichr and MSigDB blocks re-run 2026-08-29 with outbound access to maayanlab.cloud and gsea-msigdb.org
+  executed: 6
+  unverified: 0
 ---
 # Pathway Enrichment
 
@@ -49,7 +53,7 @@ When in doubt: a thresholded list → ORA; a ranked table with scores → GSEA. 
 ## Setup
 
 ```bash
-uv pip install gseapy gprofiler-official
+uv pip install gseapy gprofiler-official lxml   # lxml is only needed for gp.Msigdb()
 # gseapy pulls pandas, numpy, scipy, matplotlib. Network access is needed for
 # Enrichr, g:Profiler, and MSigDB downloads. For fully offline ORA, use a local
 # GMT file with gp.enrich() (see references/gseapy.md).
@@ -119,7 +123,7 @@ For a defensible analysis, work through these steps. The middle steps (ID type, 
 Confirm: which genes, what organism, is there a per-gene score (→ GSEA) or just a list (→ ORA), and what comparison they represent (direction matters for interpretation).
 
 ### Step 2 — Get gene IDs into the right namespace
-Enrichr/MSigDB libraries are keyed by **gene symbols** (human UPPERCASE, mouse Title-case). If you have Ensembl/Entrez IDs, convert first. See `references/databases-and-gene-sets.md` for `gp.Biomart`, g:Profiler `g:Convert`, and `mygene`. A silent ID mismatch is the #1 cause of "nothing is significant".
+Enrichr/MSigDB libraries are keyed by **gene symbols** (human UPPERCASE, mouse Title-case). If you have Ensembl/Entrez IDs, convert first. See `references/databases-and-gene-sets.md` for `gp.Biomart`, g:Profiler `g:Convert`, and `mygene`. An ID mismatch is the #1 cause of "nothing is significant" — and a *partial* one is the dangerous kind, because it does not raise and quietly shrinks every gene set instead (Pitfall 1).
 
 ### Step 3 — Choose gene-set libraries to match the question
 Hallmark (broad themes) → GO:BP (mechanism) → KEGG/Reactome/WikiPathways (curated pathways) → C7 (immune), etc. Don't run 50 libraries; pick 2–4 that fit the biology. Catalog and selection guidance: `references/databases-and-gene-sets.md`.
@@ -151,7 +155,10 @@ def clean_symbols(genes, organism="human"):
     """Dedup, drop NA/blank, and match the casing the libraries use."""
     s = pd.Series(list(genes), dtype="string").dropna().str.strip()
     s = s[s.ne("")]
-    s = s.str.upper() if organism == "human" else s.str.capitalize()
+    # Not .capitalize(): it lowercases everything after the first character, which
+    # corrupts every Riken clone (1700009N14Rik) and MHC class II symbol (H2-Ab1).
+    # Measured against MSigDB 2024.1.Mm m5.go.bp: 181 of 18,312 symbols mangled.
+    s = s.str.upper() if organism == "human" else s.str[:1].str.upper() + s.str[1:]
     return s.drop_duplicates().tolist()
 
 def rank_from_deseq2(path):
@@ -167,24 +174,39 @@ def rank_from_deseq2(path):
     return rnk[~rnk.index.duplicated(keep="first")].sort_values(ascending=False)
 ```
 
-FDR is computed *within* a library, so filter per library rather than across the
-concatenated table:
+For **over-representation** through `gp.enrichr`, the correction really is per library —
+the Hallmark adjusted p-values are identical whether you request one library or four. So
+the concatenated table is already per-library corrected and a plain threshold is enough:
 
 ```python
-sig = (res.groupby("Gene_set", group_keys=False)
-          .apply(lambda g: g[g["Adjusted P-value"] < 0.05])
-          .sort_values("Adjusted P-value"))
+sig = res[res["Adjusted P-value"] < 0.05].sort_values("Adjusted P-value")
 ```
+
+A `groupby("Gene_set").apply(...)` wrapper looks more careful and is not: filtering rows
+against a fixed threshold on an already-computed column is group-invariant, so it selects
+exactly the same rows — and under pandas 3.0 it drops `Gene_set` from the result, because
+the grouping column is excluded from `.apply()`.
+
+For **preranked GSEA** the answer depends on how you pass the sets, and the difference is
+not visible in the output. Hand `gp.prerank` a **list of library names or paths** and it
+scopes the null per collection: 50 Hallmark FDRs are unchanged when 1,259 GO:BP sets are
+requested alongside. Hand it a **plain dict, or one GMT you merged yourself**, and every
+set is one collection and the FDR pools across all of them — in a controlled run, adding
+400 null sets moved a decoy from 0.316 to 0.924 with its NES unchanged. If you built a
+merged GMT with `gp.read_gmt`, you are in the second case.
 
 ## Common Pitfalls
 
 These cause most wrong or irreproducible results:
 
-1. **Gene-ID / organism mismatch** — symbols vs Ensembl, human vs mouse casing. Map IDs and set `organism` correctly, or matches silently drop to ~zero.
+1. **Gene-ID / organism mismatch** — symbols vs Ensembl, human vs mouse casing. Map IDs and set `organism` correctly. How this fails depends on how *complete* the mismatch is, and only one of the three cases is loud (measured against gseapy 1.3.1, see *Try it*):
+   - **Total mismatch** — no symbol in common, e.g. an uppercase human ranking against a Title-case mouse GMT. `gp.prerank` raises `LookupError` ("No gene sets passed through filtering condition") and names the cause. Loud, and hard to miss.
+   - **Partial mismatch** — some symbols match. **This one is silent.** Each gene set is quietly shrunk to the overlapping genes and the run proceeds, so a 40-gene set tested on the 10 genes that happened to match still reports an FDR. The `Tag %` denominator is the tell: it is the *filtered* set size, not the declared one. Check it against what the library says the set contains.
+   - **Casing alone, human** — a lowercase ranking against uppercase sets is auto-corrected. gseapy uppercases the ranked list when it is not mostly uppercase *and* the sampled gene sets all are, so plain lowercasing is not the hazard it is usually described as. That rescue is one-directional: it does not fire for an uppercase ranking against Title-case mouse sets.
 2. **Wrong background (ORA)** — using the whole genome instead of the tested/expressed gene set inflates p-values. Set a custom background when it matters.
 3. **Thresholding before GSEA** — GSEA needs the *full* ranked list; only ORA uses a cut list.
 4. **Ranking GSEA by log2FoldChange alone** — unstable for low-count genes; prefer `stat` or `sign(LFC) * -log10(p)`.
-5. **Multiple-testing across libraries** — FDR is computed *within* a library; running many libraries multiplies tests. Report per-library FDR and stay conservative.
+5. **Multiple-testing across libraries** — for ORA the correction is per library, verified. For preranked GSEA it is per library *only* when you pass library names or paths; a merged dict or GMT pools the null across everything you handed it. Know which you did before reading a q-value.
 6. **Redundant GO terms** — don't report 40 variants of the same term; collapse and show representatives.
 7. **Significance ≠ relevance** — check the overlap count and gene-set size; tiny sets reach significance trivially.
 8. **List too short/long for ORA** — <10 genes is underpowered; >2000 loses specificity (consider GSEA instead).
@@ -204,6 +226,87 @@ forward from each:
 
 Whatever the source, record which genes were *testable*, not just which were hit —
 Step 4 needs it.
+
+## Try it
+
+A self-contained check that preranked GSEA still behaves. No account, no key, no network.
+
+**Data** — generated inline; `datasets: []`. A 2000-gene ranked list with a 40-gene set
+planted at the top, plus a six-set GMT written next to it. This is deliberately synthetic
+rather than a real MSigDB collection: the check has to be deterministic and runnable with
+no outbound access, and a planted set is the only way to assert that the statistic recovers
+a signal it is *known* to contain. The live paths — Enrichr libraries and MSigDB downloads —
+are the blocks this skill declares unverified, and they are not what this section is testing.
+`np.random.default_rng(0)` and `seed=123` fix the whole thing.
+
+```python
+import numpy as np, pandas as pd, gseapy as gp
+
+rng = np.random.default_rng(0)
+genes = [f"GENE{i:04d}" for i in range(2000)]
+score = pd.Series(rng.normal(size=2000), index=genes)
+planted = genes[:40]
+score[planted] += 4.0                      # plant a coherent signal at the top
+rnk = score.sort_values(ascending=False)
+
+with open("sets.gmt", "w") as fh:          # 1 true set + 5 random decoys
+    fh.write("PLANTED_SET\tinline\t" + "\t".join(planted) + "\n")
+    for k in range(5):
+        decoy = rng.choice(genes, 40, replace=False)
+        fh.write(f"DECOY_{k}\tinline\t" + "\t".join(decoy) + "\n")
+
+pre = gp.prerank(rnk=rnk, gene_sets="sets.gmt", min_size=15, max_size=500,
+                 permutation_num=1000, seed=123, threads=4, outdir=None)
+res = pre.res2d.sort_values("NES", ascending=False).reset_index(drop=True)
+print(res[["Term", "ES", "NES", "NOM p-val", "FDR q-val", "Tag %"]].to_string(index=False))
+
+top = res.iloc[0]
+tag_hit, tag_total = (int(x) for x in str(top["Tag %"]).split("/"))
+
+# Invariants — a failure here means this skill is wrong
+assert top["Term"] == "PLANTED_SET",            "planted set did not rank first"
+assert float(top["NES"]) > 0,                   "planted set NES not positive"
+assert float(top["FDR q-val"]) < 0.05,          "planted set not significant"
+assert tag_total == 40, f"gene set silently truncated to {tag_total}/40 — namespace mismatch"
+assert (res.iloc[1:]["FDR q-val"].astype(float) > 0.05).all(), "a decoy reached significance"
+
+# The trap: a namespace sharing no symbols raises, it does not return an empty frame
+with open("mouse.gmt", "w") as fh:
+    fh.write("PLANTED_SET\tinline\t" + "\t".join(g.title() for g in planted) + "\n")
+try:
+    gp.prerank(rnk=rnk, gene_sets="mouse.gmt", min_size=15, max_size=500,
+               permutation_num=100, seed=123, threads=4, outdir=None)
+    raise SystemExit("FAIL: expected LookupError on a total namespace mismatch")
+except LookupError as e:
+    assert "No gene sets passed through filtering" in str(e)
+    print("\ntotal namespace mismatch -> LookupError, as expected")
+
+print(f"\nplanted: NES={float(top['NES']):.4f}  FDR={float(top['FDR q-val']):.4f}  Tag={top['Tag %']}")
+print("OK")
+```
+
+**Expect** — the five assertions above are **invariants**: they hold for any correct
+preranked GSEA implementation, and a failure means the skill (or gseapy) is wrong, not that
+something drifted. The `tag_total == 40` assertion is the one worth copying into real work —
+it is the guard against the silent partial-mismatch case in Pitfall 1.
+
+These are **observed values**, run 2026-08-29 against gseapy 1.3.1 / pandas 3.0.5 /
+numpy 2.4.6 / Python 3.11.15. A mismatch here is drift to investigate — gseapy's permutation
+RNG is seeded but not guaranteed stable across releases — not a failure:
+
+```
+       Term        ES       NES  NOM p-val  FDR q-val Tag %
+PLANTED_SET  0.986820  3.413775   0.000000   0.000000 39/40
+    DECOY_1  0.373886  1.284122   0.126829   0.315882  7/40
+    DECOY_0  0.265437  0.922930   0.587459   0.979437 24/40
+    DECOY_4  0.262259  0.911207   0.615883   0.759943 11/40
+    DECOY_2  0.245021  0.843613   0.717187   0.711851  7/40
+    DECOY_3 -0.291002 -1.103382   0.296954   0.298177 15/40
+```
+
+`Tag %` reads `39/40`, not `40/40`: the leading edge holds 39 of the 40 planted genes, and
+the denominator is what matters for the namespace guard. The decoys land where random sets
+should — none below FDR 0.05.
 
 ## Reference Files
 

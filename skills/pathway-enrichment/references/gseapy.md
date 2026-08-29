@@ -42,7 +42,9 @@ enr = gp.enrichr(
     gene_list=genes,                 # list, Series, DataFrame, or txt path (symbols)
     gene_sets=["MSigDB_Hallmark_2020", "KEGG_2021_Human"],  # names, GMT, or dict
     organism="human",                # human|mouse|fly|yeast|worm|fish
-    background=None,                  # list or count; default is the library background
+    background=None,                  # gp.enrichr: default is a FIXED ~20,000-gene universe,
+                                      # NOT the library background. gp.enrich() differs: it
+                                      # defaults to the union of the GMT you pass it.
     outdir=None,                      # None = in-memory only
 )
 enr.results        # DataFrame: all terms across all libraries (Gene_set column)
@@ -60,7 +62,8 @@ gene_sets = gp.read_gmt("c2.cp.reactome.v2024.1.Hs.symbols.gmt")  # dict
 enr = gp.enrich(
     gene_list=genes,
     gene_sets=gene_sets,
-    background=expressed_genes,       # REQUIRED here; the tested/expressed universe
+    background=expressed_genes,       # strongly recommended; gp.enrich runs without it,
+                 # defaulting to the union of the supplied GMT; the tested/expressed universe
     outdir=None,
 )
 ```

@@ -35,16 +35,24 @@ all ~20,000 protein-coding genes. Using too large a background makes ordinary
 housekeeping categories look significant — the most common way ORA results
 mislead.
 
-- Enrichr's online API uses fixed per-library backgrounds and largely ignores a
-  custom one. If the background matters for your claim, use **g:Profiler**
-  (`domain_scope='custom'`, `background=...`) or **gseapy `gp.enrich()`** with an
-  explicit `background`.
+- `gp.enrichr` **does** honour a custom `background` — it routes the request through
+  speedrichr, and the effect is large: supplying the 4,383-gene Hallmark union against a
+  Hallmark query moved a top term from `3.39e-225` to `3.88e-143`. The default is not a
+  per-library universe either; it is a single fixed genome-scale background of roughly
+  20,000 genes, which `background=20000` reproduces exactly. So pass `background=` when
+  your universe is not the genome — that is the fix, not a reason to leave the tool.
+  **g:Profiler** (`domain_scope='custom'`) and **`gp.enrich()`** remain good options.
 - The background should use the same ID namespace as the query and the library.
 
 ## Multiple-testing correction
 
-- **Benjamini–Hochberg (FDR)** — default for Enrichr/gseapy (`Adjusted P-value`,
-  `FDR q-val`). Controls expected false-discovery proportion. Use `< 0.05`.
+- **Benjamini–Hochberg (FDR)** — what Enrichr returns in `Adjusted P-value`, applied per
+  library. Controls the expected false-discovery proportion. Use `< 0.05`.
+- **GSEA's `FDR q-val` is not Benjamini–Hochberg.** It is the Subramanian normalized-ES
+  null ratio, and it does not agree with BH on the same p-values: over one Try it run, BH
+  gives `[0, 0.380, 0.717, 0.717, 0.717, 0.594]` where gseapy returns
+  `[0, 0.316, 0.979, 0.760, 0.712, 0.298]`. Do not convert between them or describe one
+  as the other.
 - **g:SCS** — g:Profiler's default; accounts for the correlated structure of GO
   and overlapping terms; generally stricter and more appropriate than BH for
   ontology hierarchies.
