@@ -4,7 +4,7 @@ description: Fill NSF's Collaborators and Other Affiliations template for one se
 category: grants
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [nsf, grants, compliance, bibliometrics]
 covers: [coa, collaborators and other affiliations, nsf, conflict of interest, coi, reviewer conflicts, senior personnel documents, research.gov, grants.gov, pappg, coa template, table 4, co-authors, phd advisor, thesis advisee, editorial board, crossref, orcid, nsf award search, proposal submission, single copy document]
 papers: []
@@ -640,8 +640,17 @@ Two traps, both confirmed against the live service:
 - **`printFields` is accepted and ignored.** The service returns its full record whatever you
   ask for.
 
-`pdPIName` matches the person in either role, so this finds awards where they are the PI and
-awards where they are a co-PI on someone else's.
+- **`pdPIName` matches the PI role only.** It does *not* return awards where the person is a
+  co-PI, despite the field name suggesting a PD/PI-or-co-PI match. Measured: award `2030919`
+  lists `pdPIName` "Mark Guzdial" and `coPDPI` "Tamara Shreiner"; searching `pdPIName` for
+  Guzdial returns it, searching for Shreiner returns **zero awards**. Co-PI relationships live
+  in the `coPDPI` field of awards you already hold, so a search alone cannot find the ones
+  where somebody else was PI.
+
+  This is a **completeness limit on Table 4**, which is the collaborators table — the rows this
+  misses are exactly the kind it exists to capture. Awards where the subject was a co-PI on
+  another person's grant must come from their CV or their own records, and the summary should
+  say so rather than implying the award search covered them.
 
 ```python
 # coa_awards.py -- Table 4 'C:' rows from NSF's award record.
