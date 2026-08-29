@@ -87,9 +87,17 @@ silhouette.
 pip install numpy pandas scikit-learn umap-learn hdbscan xgboost shap
 ```
 
-`scikit-learn` ≥ 1.3 ships `sklearn.cluster.HDBSCAN`, which works as a drop-in
-for the `hdbscan` package if you prefer one fewer dependency — note its noise
-label convention matches `hdbscan` (`-1`), not R's (`0`).
+`scikit-learn` >= 1.3 ships `sklearn.cluster.HDBSCAN`. It is API-compatible with the
+`hdbscan` package and its noise label matches (`-1`, not R's `0`) — but **it is not
+numerically equivalent, and swapping it in suppresses the failure this page exists to
+warn about.** On cleanly separated data at `min_pts = 20`, the `hdbscan` package returns
+every sample as noise with a silhouette of 0.0; scikit-learn's implementation returns
+`k = 3` with a perfect ARI and no sign that anything was ever at risk. scikit-learn's own
+documentation notes that reproducing `hdbscan` results needs `min_samples` one greater,
+and the contrib project claims API compatibility rather than identical output.
+
+Use it if you want one fewer dependency and you are not relying on this page's `min_pts`
+sweep to tell you anything. If you are, install `hdbscan`.
 
 ## Porting traps
 

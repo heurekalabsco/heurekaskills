@@ -9,17 +9,10 @@ tags: [multi-omics, umap, hdbscan, clustering, shap]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
 verified:
-  date: 2026-08-28
-  against: Python route — umap-learn 0.5.12 / hdbscan 0.8.44 / xgboost 3.2.0 / shap 0.51.0 / scikit-learn 1.9.0 / NumPy 2.4.6 / pandas 3.0.5 / Python 3.11.15. R claims re-checked against the gaudi 0.1.18 source, not executed.
-  executed: 3
-  unverified: 3
-  unverified_reason: >-
-    The three standalone R blocks — install_github, the library() preamble, and the
-    package-availability check — need an R 4.3+ toolchain with gaudi installed from
-    GitHub. The validating environment has no R and no route to CRAN or the distro
-    archive, so none could run. Re-run them from a host with R; the parameter defaults
-    and sharp edges they exercise were instead confirmed line by line against the
-    gaudi 0.1.18 sources on 2026-08-28.
+  date: 2026-08-29
+  against: Python route — umap-learn 0.5.12 / hdbscan 0.8.44 / xgboost 3.2.0 / shap 0.51.0 / scikit-learn 1.9.0 / NumPy 2.4.6 / pandas 3.0.5 / Python 3.11.15. R route — R 4.4.1 / gaudi 0.1.18 installed from GitHub / xgboost 3.2.1.1. Parameter defaults additionally cross-read against the gaudi 0.1.18 sources.
+  executed: 6
+  unverified: 0
 ---
 
 # GAUDI: multi-omics integration via UMAP + HDBSCAN
@@ -38,8 +31,10 @@ and want sample clusters plus an interpretable account of which features drive
 them. It is a *clustering and stratification* method, not a supervised
 predictor and not an imputation method.
 
-**Everything documented below was verified by running gaudi 0.1.18 under
-R 4.3.2.** The failure modes in *Sharp edges* are real and reproducible — read
+**Everything documented below was verified against gaudi 0.1.18 — the Python route by
+execution, the R route by executing the install, load and availability blocks and by
+reading the 0.1.18 sources for the parameter defaults.** The failure modes in *Sharp
+edges* are real and reproducible — read
 that section before running anything on real data. Several of them fail
 **silently**, and one of them silently deletes samples.
 
@@ -175,7 +170,7 @@ consider raising it above 1000. Scaling is roughly linear; 1000 samples ×
 
 ### Result object
 
-`GAUDIObject`, an S4 object with five slots:
+`GAUDIObject`, an S4 object with six slots:
 
 | slot | contents |
 |---|---|
@@ -218,6 +213,31 @@ metagenes comparable to `gaudi()`.
 ## Sharp edges
 
 These are verified defects and traps in gaudi 0.1.18, not hypotheticals.
+
+### `compute_features = TRUE` — the default — fails on xgboost R 3.x
+
+The default path dies before it returns, on any current R toolchain:
+
+```
+Error in `colnames<-`(`*tmp*`, value = c(colnames(X_train), "(Intercept)")) :
+  attempt to set 'colnames' on an object with less than two dimensions
+Calls: gaudi -> xgboost_model -> <Anonymous> -> colnames<-
+```
+
+Nothing in gaudi changed. `gaudi::xgboost_model` calls the pre-3.0 R interface
+(`xgboost(data =, label =, params =, verbose =)`); xgboost 3.x renamed `data` to `x` and
+`label` to `y` and dropped `params`, and its deprecation shims let training complete with
+the wrong arguments rather than stopping. `predict(mod, x, predcontrib = TRUE)` then hands
+back a plain numeric vector instead of an n x (p+1) matrix, and `SHAPforxgboost::shap.values`
+fails setting column names on a one-dimensional object.
+
+Everything downstream of the metagenes is unreachable while this holds: the `metagenes` slot,
+`plot_metagenes()`, `plot_gaudi_grid()` and `gaudi_enrichment()`. **`compute_features = FALSE`
+runs clean**, and gives you clusters and factors without the SHAP attribution.
+
+This is the failure a source read cannot find. The gaudi sources are unchanged and
+self-consistent; what moved was a dependency underneath them. Check it against your own
+installed xgboost rather than trusting either the package or this page.
 
 ### `NA` silently deletes samples, then crashes
 
@@ -466,7 +486,7 @@ above remain source-confirmed rather than executed.
 
 ```python
 import inspect
-import numpy as np, pandas as pd, umap, hdbscan, xgboost as xgb, shap
+import numpy as np, pandas as pd, umap, hdbscan
 from sklearn.metrics import silhouette_score, adjusted_rand_score
 
 def gaudi(omics, min_pts=None, n_components_layer=4, n_components_conc=2,
@@ -584,9 +604,11 @@ merely because a clean dataset survives it — at `shift 3.0` it returns the tru
 `shift 0.8` the same default splits three groups into five. Separation decides, and you do not
 know your separation in advance, which is why the sweep is not optional. And `min_pts=20`, at
 the group size, returns **every sample as noise with a silhouette of 0.0 and no error at all**
-— an empty result that reads like a computed one. Note that the sweep recommended in *Sharp
-edges* ends at exactly that value for a set this size: bound the sweep from above as well as
-below, and read the noise count before the silhouette.
+— an empty result that reads like a computed one. **This collapse is specific to the Python
+route.** The same sweep run in R against gaudi 0.1.18 returns `k=3, noise=0` at every value
+from 5 to 20 on the same shape of data, so the exposure is shared but the size of the effect
+is not. Bound the sweep from above as well as below on the Python route, and read the noise
+count before the silhouette on either.
 
 ## Reference files
 
