@@ -4,12 +4,12 @@ description: Browse the All of Us public Data Browser API anonymously — OMOP d
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [all-of-us, cohort, epidemiology, controlled-access, public-data]
 covers: [all of us, allofus, precision medicine initiative, researcher workbench, data browser, curated data repository, omop cdm, athena concept id, snomed, loinc, rxnorm, icd10, cpt4, electronic health records, drug exposures, labs and measurements, procedures, physical measurements, fitbit, wearables, surveys, social determinants of health, whole genome sequencing, genotyping array, allele frequency, structural variants, hemoglobin a1c, hypertension, type 2 diabetes, echo cohort]
 papers: [PMID:31412182, PMID:38374255, PMID:36033590, PMID:39241756, PMID:42045581]
 access: [open, controlled]
-datasets: [https://public.api.researchallofus.org/v1/cdrVersions, https://public.api.researchallofus.org/v1/databrowser/domain-totals?testFilter=1&orderFilter=1]
+datasets: [https://public.api.researchallofus.org/v1/cdrVersions]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27
