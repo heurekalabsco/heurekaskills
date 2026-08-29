@@ -37,6 +37,13 @@ and both are load-bearing:
   trigger a compliance error message that will prevent document upload in Research.gov and
   Grants.gov." So this file is an *input to SciENcv*. The senior person uploads it, completes
   what is blank on screen, certifies, and submits the PDF SciENcv generates.
+- **The XML route exists for this document and no other.** NLM lists four ways to create a
+  SciENcv document and scopes two of them by name: "By using an external data source
+  (Biographical Sketch)" and "By uploading an XML file (Current and Pending (Other)
+  Support)". The template host carries a single directory, `cposXML`. So there is no
+  equivalent path for a biosketch, and this is the one NSF document a grants office can
+  prepare as a file — which is exactly how NLM frames it, "especially when a grant office
+  prepares it for you in advance."
 - **NSF Award Search holds NSF awards and nothing else.** NIH, DOE, foundations, industry,
   institutional start-up, consulting, foreign support and in-kind contributions are all
   reportable and none of them is visible to any code on this page. A file assembled only from
@@ -298,12 +305,22 @@ against the live service rather than the documentation.
   `coPDPI` parameter, which matches as a substring and so also returns strangers. On the
   worked example below, **two of three current awards are co-PI awards** that a `pdPIName`
   query never sees.
-- **`piId` is not a person.** It looks like NSF's identifier for the PI and it is not: one
-  value, `000236249`, sits on awards whose named PIs are three different Princeton
-  investigators. What *is* reliable is the **`pi` array**, which lists every person who has
-  held the PI role on that award — current and former — each with the address NSF published
-  for them. That array is present on every award record checked and is the identity key used
-  below.
+- **`pdPIName` is a loose match in both directions, and both directions are silent.** It
+  over-matches: `C. Brown` returns 25 awards under 16 different PI names, one of them Amy
+  Morrill Bijeau, who has no Brown in her name at all. And it under-matches an exact,
+  correct name: `Titus Brown` returns **nothing**, because NSF files that researcher under
+  `Charles Brown` — he publishes under his middle name. Neither case errors. A name search is
+  a candidate generator; it is never the answer.
+- **`piId` is the *original* PI's identifier, kept after the role changes hands.** It looks
+  like NSF's id for the PI named on the record and it is not. Award `0920655` names Tucker
+  Balch as PI and carries `piId` `000228270`, which is Mark Guzdial's id across his own
+  awards; its `pi` array says why — `['Tucker Balch tucker@cc.gatech.edu', 'Mark Guzdial
+  (Former) mjguz@umich.edu']`. Group or filter on `piId` and you attach one person's award to
+  another. On the worked example below, one `piId` value spans three different Princeton
+  investigators. What *is* reliable is the **`pi` array**: every person who has held the PI
+  role on that award, current and former, each with the address NSF published for them, and
+  each marked `(Former)` where the role has been handed over. It is present on every award
+  record checked and it is the identity key used below.
 - **`activeAwd` is `expDate >= today` and nothing more.** Across 2,699 sampled awards its
   true/false split matched that computation exactly: the latest end date on an inactive award
   was 2026-07-31 and the earliest on an active one 2026-08-31, three days after the sample was
@@ -365,9 +382,14 @@ if not awards:
     print(f"No NSF award names {GIVEN} {FAMILY}.")
     if others:
         forms = sorted({f"{a.get('piFirstName')} {a.get('piLastName')}" for a in others})
-        print(f"NSF does hold {len(others)} award(s) under the surname {FAMILY!r}, filed as "
-              f"{', '.join(forms[:12])}. NSF matches the name it has on record and not a "
-              f"normalised form, so re-run with that form if one of them is you.")
+        near  = [f for f in forms if fold(f).startswith(fold(GIVEN)[:1])]
+        print(f"NSF does hold {len(others)} award(s) under the surname {FAMILY!r}, filed under "
+              f"{len(forms)} given names"
+              + (f", of which {len(near)} start with {GIVEN[:1]!r}: {', '.join(near[:15])}"
+                 if near else ", none of them starting with the given name you supplied"))
+        print("Re-run with the form NSF holds, which is not always the name you publish under: "
+              "someone who goes by a middle name is filed under their first, so an exact search "
+              "on the name they use returns nothing at all.")
     else:
         print(f"NSF holds nothing under the surname {FAMILY!r} either. That is not the same as "
               f"having no support -- it means this source has nothing to contribute, and the "
@@ -1191,6 +1213,12 @@ and not a document.
 
 - **Every non-NSF source.** NIH, DOE, DOD, NASA, other federal agencies, foundations,
   industry, internal funds and start-up packages. None of it is in NSF's award record.
+- **Whether these are even the right person's NSF awards.** NSF Award Search matches names
+  loosely in both directions and silently: an exact correct name can return nothing, and a
+  name search returns other people's awards. The `pi` array and its published addresses are
+  what make the attribution here defensible, and the run refuses rather than guessing when
+  they do not settle it — but the person named on the document is the one who has to confirm
+  that the list is theirs.
 - **All foreign support.** Foreign government, university, company and institute funding, paid
   through the organization or directly, is squarely in scope and entirely invisible here. It
   is also the disclosure NSF's research-security policy exists to obtain.
@@ -1316,8 +1344,9 @@ print(f"current as of {ASOF}   {len(cur)} of {len(allw)}   "
       f"{sum(1 for a in cur if a['id'] not in ids)} of them found ONLY via coPDPI")
 assert any(a["id"] not in ids for a in cur), "the coPDPI query is load-bearing and returned nothing"
 
-# `piId` is not a person: one value sits on awards whose named PIs are different people. The
-# `pi` array is, and it marks a role that has been handed over.
+# `piId` is the ORIGINAL PI's id, kept after the role changes hands, so one value sits on
+# awards whose named PIs are different people. The `pi` array is the identity, and it marks a
+# role that has been handed over.
 byid = {}
 for a in allw: byid.setdefault(a.get("piId"), set()).add(a.get("piLastName"))
 shared = {k: v for k, v in byid.items() if len(v) > 1}
