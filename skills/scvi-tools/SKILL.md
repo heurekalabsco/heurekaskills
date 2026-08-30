@@ -5,11 +5,22 @@ category: models
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.3.0
-try-it: pending
+version: 1.4.0
 tags: [single-cell, batch-correction, generative-models, scvi, multimodal]
+datasets: []
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-08-30
+  against: scvi-tools 1.5.0.post1 / torch 2.13.0 / scanpy 1.12.4 / Python 3.12.3
+  executed: 3
+  unverified: 1
+  unverified_reason: >-
+    The Typical Workflow block calls scvi.data.heart_cell_atlas_subsampled(), which
+    downloads from exampledata.scverse.org, and the validating environment had no
+    outbound route to that host — the block was not run rather than found broken.
+    Re-run it from a host that can reach exampledata.scverse.org. The optional GPU
+    line of the install block ("scvi-tools[cuda]") also went unrun for want of a CUDA
+    host; the extra itself is present in the 1.5.0.post1 metadata.
 ---
 # scvi-tools
 
@@ -213,4 +224,103 @@ defaulted to JAX now run on PyTorch, including `scvi.external.MRVI` and
 6. **GPU usage**: Enable GPU acceleration for large datasets (`accelerator="gpu"`)
 7. **Scanpy integration**: Store outputs in AnnData objects for downstream analysis
 8. **Out-of-core training**: For collections too large to hold in memory, `scvi.dataloaders.AnnbatchDataModule` (1.5.0+) wraps an `annbatch.Loader` over sharded Zarr and passes batch and covariate keys through to the model
+
+## Try it
+
+A self-contained check that this skill still works. No account, no key, no download, no GPU.
+
+**Data** — generated inline by the library itself, which is why the frontmatter declares
+`datasets: []`. `scvi.data.synthetic_iid()` ships with scvi-tools and draws 400 cells by 100
+genes across two batches and three labels. The real-data route is the *Typical Workflow*
+block above, which pulls the heart cell atlas from a server; this section deliberately takes
+the other path, because every claim below is about how a **trained model** behaves and a
+fetched matrix would put somebody else's host in the way of testing that. It also draws every
+label from the same distribution, so **nothing in it is truly differentially expressed** —
+which is what makes the differential-expression result below a test rather than a decoration.
+
+**Run** — needs Python 3.12+. Takes well under a minute on CPU:
+
+```bash
+uv pip install "scvi-tools==1.5.0.post1"
+```
+
+```python
+import numpy as np
+import scvi
+
+scvi.settings.seed = 0                      # every number below is reproducible with this
+adata = scvi.data.synthetic_iid()           # 400 cells x 100 genes, 2 batches, 3 labels
+assert adata.shape == (400, 100)
+
+# The trap the Overview opens with: the prose name is not the class attribute, and the
+# namespace differs per model. CytoVI is spelled CYTOVI, and it is in scvi.external.
+assert hasattr(scvi.external, "CYTOVI")
+assert not hasattr(scvi.external, "CytoVI")
+assert not hasattr(scvi.model, "CYTOVI")
+
+# JAX went away in 1.5.0. This is an AttributeError, not a missing optional dependency.
+try:
+    scvi.model.JaxSCVI
+    raise SystemExit("JaxSCVI still exists — this skill is out of date")
+except AttributeError:
+    print("JaxSCVI        : AttributeError, as documented")
+
+scvi.model.SCVI.setup_anndata(adata, batch_key="batch", labels_key="labels")
+model = scvi.model.SCVI(adata, n_latent=10)
+model.train(max_epochs=20)
+
+# One row per cell, one column per latent dimension.
+latent = model.get_latent_representation()
+assert latent.shape == (adata.n_obs, 10)
+
+# library_size is honoured: each cell's normalized profile sums to it.
+norm = model.get_normalized_expression(library_size=1e4)
+assert np.allclose(np.asarray(norm).sum(axis=1), 1e4, rtol=1e-5)
+
+# One row per gene, carrying the composite-hypothesis columns `mode="change"` adds.
+de = model.differential_expression(
+    groupby="labels", group1="label_0", group2="label_1",
+    mode="change", delta=0.25, silent=True,
+)
+assert len(de) == adata.n_vars
+assert {"proba_de", "lfc_mean", "is_de_fdr_0.05"} <= set(de.columns)
+
+# A reloaded model is the same model, not merely a similar one.
+model.save("scvi_try_it", overwrite=True)
+reloaded = scvi.model.SCVI.load("scvi_try_it", adata=adata)
+assert np.array_equal(reloaded.get_latent_representation(), latent)
+
+print("latent shape   :", latent.shape)
+print("row sums       : %.2f" % np.asarray(norm).sum(axis=1).mean())
+print("genes called DE:", int(de["is_de_fdr_0.05"].sum()), "of", len(de))
+print("max proba_de   : %.4f" % de["proba_de"].max())
+```
+
+**Expect**
+
+*Invariants* — these hold across versions, and a failure means the skill is **wrong**:
+
+- `latent` is `(400, 10)` — one row per cell, one column per latent dimension.
+- Every row of `get_normalized_expression(library_size=1e4)` sums to 10000.
+- `differential_expression` returns one row per gene (100), carrying `proba_de`,
+  `lfc_mean` and `is_de_fdr_0.05`.
+- A saved model reloads to *identical* latent coordinates, not approximately equal ones.
+- `scvi.external.CYTOVI` exists while `scvi.external.CytoVI` does not, and
+  `scvi.model.JaxSCVI` raises `AttributeError`.
+
+*Observed* on scvi-tools 1.5.0.post1 / torch 2.13.0 / Python 3.12.3, 2026-08-30 — a
+mismatch here is **drift to investigate**, not a bug:
+
+```
+JaxSCVI        : AttributeError, as documented
+latent shape   : (400, 10)
+row sums       : 10000.00
+genes called DE: 0 of 100
+max proba_de   : 0.2926
+```
+
+`genes called DE: 0` is the line to read closely. The generator draws all three labels from
+one distribution, so a correct change-mode test should call nothing significant on it; a
+non-zero count means the test is finding structure that is not there. With the seed pinned
+the run is deterministic — repeated runs returned these numbers unchanged.
 
