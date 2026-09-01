@@ -9,11 +9,11 @@ tags: [benchmark, agents, evaluation, molecular-dynamics, public-data]
 covers: [mdarena, molecular dynamics, md simulation, benchmark, agent evaluation, computational chemistry, gromacs, amber, openmm, plumed, openff, openfe, mdanalysis, rdkit, orca, charmm36, opls-aa, force field, free energy, fep, abfe, rbfe, umbrella sampling, expanded ensemble, membrane protein, gpcr, protein data bank, canary, contamination, harbor]
 papers: [doi:10.48550/arXiv.2608.02642]
 access: [open, registered]
-datasets: [https://raw.githubusercontent.com/weitse-hsu/MDArena/v0.1/docs/DATA_PROVENANCE.md, https://raw.githubusercontent.com/weitse-hsu/MDArena/v0.1/scripts/external_inputs.toml, https://data.rcsb.org/rest/v1/core/entry/4EIY]
+datasets: [https://raw.githubusercontent.com/weitse-hsu/MDArena/v0.1.0/docs/DATA_PROVENANCE.md, https://raw.githubusercontent.com/weitse-hsu/MDArena/v0.1.0/scripts/external_inputs.toml, https://data.rcsb.org/rest/v1/core/entry/4EIY]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-29
-  against: MDArena v0.1 (commit d50547a, the same commit main points at) / Harbor 0.22.0 / Python 3.12.8 / git 2.39.0 / macOS arm64
+  against: MDArena v0.1.0 (commit d50547a, the same commit main points at) / Harbor 0.22.0 / Python 3.12.8 / git 2.39.0 / macOS arm64
   executed: 14
   unverified: 2
   unverified_reason: >-
@@ -58,7 +58,7 @@ outputs, reference solutions — stay out of language-model training corpora, an
 marker GUIDs per file so corpus filters can drop them. That request is narrow and it is
 worth honouring exactly as written: it covers the task material, not the runner, not the
 install, not the submission flow. Read it at
-[CANARY.md](https://github.com/weitse-hsu/MDArena/blob/v0.1/CANARY.md); do not reproduce
+[CANARY.md](https://github.com/weitse-hsu/MDArena/blob/v0.1.0/CANARY.md); do not reproduce
 either GUID anywhere, including here. Copying that string into an unrelated public document
 is what destroys the attribution it exists to provide.
 
@@ -94,7 +94,7 @@ set -euo pipefail
 # the 50 per-task Dockerfiles, the repository's own tooling and its top-level
 # documents — and none of the instructions, verifiers or reference solutions.
 git -c advice.detachedHead=false clone --quiet \
-    --branch v0.1 --depth 1 --filter=blob:none --sparse \
+    --branch v0.1.0 --depth 1 --filter=blob:none --sparse \
     https://github.com/weitse-hsu/MDArena.git mdarena-meta
 git -C mdarena-meta sparse-checkout set --no-cone \
     'tasks/*/task.toml' 'tasks/*/environment/Dockerfile' \
@@ -120,9 +120,10 @@ fetches file contents lazily and checks out nothing until the pattern is set, so
 trajectories are never transferred. **`--no-cone`** is required because cone mode matches
 whole directories and the point here is to take one file out of each task directory — it
 arrived in git 2.37, and a pattern naming a single file wants a leading slash or git warns.
-**`--branch v0.1`** pins the release the published results were produced against; today
-`main` and `v0.1` are the same commit, with zero commits between them, so the pin costs
-nothing and will matter the moment that stops being true.
+**`--branch v0.1.0`** pins the release the published results were produced against. When
+this page was first written `main` and `v0.1.0` were the same commit, so the pin looked
+free; `v0.2.0` has since shipped and `main` has moved off it, so an unpinned clone now
+gets a different tree. The pin is doing real work.
 
 The sparse pattern is also the boundary this skill respects, expressed as a checkout rather
 than as a promise: `instruction.md`, `tests/` and `solution/` are simply not on disk.
@@ -221,7 +222,7 @@ print(f"{'ALL (' + str(len(tasks)) + ' tasks, ' + str(len(grid)) + ' categories)
       f"{tot['easy']:>6}{tot['medium']:>8}{tot['hard']:>6}{sum(tot.values()):>7}")
 ```
 
-Read 2026-08-29 at `v0.1`:
+Read 2026-08-29 at `v0.1.0`:
 
 ```
 category                                easy  medium  hard  total
@@ -315,7 +316,7 @@ print(f"keywords: {len(kw)} distinct, {sum(v == 1 for v in kw.values())} used on
       f"case-variant duplicates {sorted(k for k in kw if k.lower() != k and k.lower() in kw)}")
 ```
 
-Read 2026-08-29 at `v0.1`:
+Read 2026-08-29 at `v0.1.0`:
 
 ```
 schema_version         {'1.2': 50}
@@ -404,7 +405,7 @@ for tid, artefact in sorted(external.items()):
     print(f"      {artefact}")
 ```
 
-Read 2026-08-29 at `v0.1`:
+Read 2026-08-29 at `v0.1.0`:
 
 ```
  48  FROM mdarena:latest
@@ -474,7 +475,7 @@ print(f"gated tasks                 {len(gated)}   {', '.join(t[:2] for t in gat
 print(f"run from a bare clone       {len(tasks) - len(gated)} of {len(tasks)}")
 ```
 
-Read 2026-08-29 at `v0.1`:
+Read 2026-08-29 at `v0.1.0`:
 
 ```
 task                                     entries  globs  largest size named
@@ -678,7 +679,7 @@ set -euo pipefail
 # The full clone. About 222 MB packed; the working tree is roughly half a gigabyte
 # because tasks ship trajectories and structures. There is no Git LFS here — the
 # repository says so in .gitattributes and asks that it not be reintroduced.
-git -c advice.detachedHead=false clone --quiet --branch v0.1 --depth 1 \
+git -c advice.detachedHead=false clone --quiet --branch v0.1.0 --depth 1 \
     https://github.com/weitse-hsu/MDArena.git mdarena
 du -sh mdarena mdarena/.git
 
@@ -801,7 +802,7 @@ echo "oracle cannot run these     $(comm -23 all-tasks.txt with-solution.txt | w
 echo "lowest-numbered task the oracle CAN run   $(head -1 with-solution.txt)"
 ```
 
-Read 2026-08-29 at `v0.1`. Nothing under `solution/` lands on disk; the working tree still
+Read 2026-08-29 at `v0.1.0`. Nothing under `solution/` lands on disk; the working tree still
 holds the same 123 files the sparse pattern selected:
 
 ```
@@ -951,7 +952,9 @@ address rather than only this repository's.
 
 The manifest lives in the repository as one file per release, generated from the tagged tree
 rather than hand-written. Only `v0.1` exists today, which the checker will tell you if you
-name any other tag.
+name any other tag. Note that this is the manifest's own name — the file is
+`scripts/task_digests/v0.1.toml` — and it is not the git tag, which is `v0.1.0`. Pass
+`--tag v0.1` here even though you cloned `v0.1.0`.
 
 Be clear about what that establishes. Everything checked is a file the submitter produced, so
 a fabricated bundle passes. What it catches is a run against edited tasks, a disabled
@@ -983,13 +986,14 @@ not about description.
   reads as a failed task rather than a failed check. Re-run before believing a zero.
 - **The repository keeps an open defect log**, `TODOS.md`, naming specific tasks with
   underspecified prompts, permissive verifiers, or scoring that credits a failed run. Several
-  are deliberately deferred rather than fixed, because `v0.1` has to keep matching the
+  are deliberately deferred rather than fixed, because `v0.1.0` has to keep matching the
   published results. **Read it before reporting a per-task number.** This page does not
   restate which tasks or what the defects are, for the reason in the first section.
-- **`main` and `v0.1` are the same commit today.** Zero commits between them, verified. That
-  makes an unpinned clone accidentally correct right now and wrong later — and the submission
-  checker's own documentation says a sweep where *every* trial fails the digest usually means
-  the run used a different dataset version rather than edited tasks. Pin the tag.
+- **`main` has moved off `v0.1.0`.** They were the same commit when this page was written;
+  `v0.2.0` shipped afterwards and `main` now points at it, so an unpinned clone no longer
+  reproduces the published results — and the submission checker's own documentation says a
+  sweep where *every* trial fails the digest usually means the run used a different dataset
+  version rather than edited tasks. Pin the tag.
 - **The base image is amd64.** The CUDA base is `linux/amd64`; on Apple Silicon you are
   emulating, and the verifier dependency that failed to build during the maintainers' own
   local testing failed for exactly that reason. Build and run on Linux amd64.
@@ -1007,7 +1011,7 @@ not about description.
 
 ## Try it
 
-**Data.** The MDArena repository at tag `v0.1`, MIT, public, no account and no Git LFS — this
+**Data.** The MDArena repository at tag `v0.1.0`, MIT, public, no account and no Git LFS — this
 block takes about a megabyte of it. Last confirmed reachable 2026-08-29. The block reads
 `task.toml` and `scripts/external_inputs.toml` and prints only counts and invariants, never a
 task's own text.
@@ -1019,7 +1023,7 @@ where `sparse-checkout set --no-cone` arrived — and Python 3.11 or newer for `
 set -euo pipefail
 
 git -c advice.detachedHead=false clone --quiet \
-    --branch v0.1 --depth 1 --filter=blob:none --sparse \
+    --branch v0.1.0 --depth 1 --filter=blob:none --sparse \
     https://github.com/weitse-hsu/MDArena.git mdarena-tryit
 git -C mdarena-tryit sparse-checkout set --no-cone \
     'tasks/*/task.toml' '/scripts/external_inputs.toml'
@@ -1073,7 +1077,7 @@ name on every one; `gpus = 0` and `allow_internet = true` on every one; a verifi
 declared on every one; the projection removing `description` from every one; and every task
 named in the withheld-inputs file still existing.
 
-*Observed at `v0.1` (commit `d50547a`), read 2026-08-29* — these move when the maintainers
+*Observed at `v0.1.0` (commit `d50547a`), read 2026-08-29* — these move when the maintainers
 publish a new dataset version, and a mismatch is drift to investigate rather than a bug:
 
 ```
@@ -1112,11 +1116,11 @@ one says nothing about another.
   Evaluating Coding Agents on Realistic Molecular Dynamics Workflows*, arXiv
   [2608.02642](https://arxiv.org/abs/2608.02642) (2026),
   [10.48550/arXiv.2608.02642](https://doi.org/10.48550/arXiv.2608.02642). Published results
-  were produced with the `v0.1` release.
-- Repository — [`weitse-hsu/MDArena`](https://github.com/weitse-hsu/MDArena) at tag `v0.1`,
+  were produced with the `v0.1.0` release.
+- Repository — [`weitse-hsu/MDArena`](https://github.com/weitse-hsu/MDArena) at tag `v0.1.0`,
   commit `d50547a`. **MIT**, © 2026 Wei-Tse Hsu, with third-party scientific data carved out
   and itemised in `docs/DATA_PROVENANCE.md`.
-- Canary statement — [CANARY.md](https://github.com/weitse-hsu/MDArena/blob/v0.1/CANARY.md).
+- Canary statement — [CANARY.md](https://github.com/weitse-hsu/MDArena/blob/v0.1.0/CANARY.md).
   Read it before doing anything with the task material; this page deliberately reproduces
   neither marker GUID.
 - Runner — [`harbor-framework/harbor`](https://github.com/harbor-framework/harbor),
