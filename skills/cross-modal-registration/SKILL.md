@@ -4,7 +4,7 @@ description: Bring a fluorescence, CODEX or IHC section into the same coordinate
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [microscopy, multiplex-imaging, image-analysis, registration, spatial]
 datasets: [https://zenodo.org/api/records/5675686/files/DAB-thumbnail.jpg/content, https://zenodo.org/api/records/5675686/files/Fluo-thumbnail.jpg/content, https://zenodo.org/api/records/12624860/files/ZH811_INF_v6.ome.tif/content, https://zenodo.org/api/records/12624860/files/HE_scans.zip/content]
 allowed-tools: Read, Write, Edit, Bash

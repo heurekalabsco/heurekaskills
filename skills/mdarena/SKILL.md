@@ -4,7 +4,7 @@ description: Access MDArena, 50 containerised molecular dynamics tasks — syste
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [benchmark, agents, evaluation, molecular-dynamics, public-data]
 covers: [mdarena, molecular dynamics, md simulation, benchmark, agent evaluation, computational chemistry, gromacs, amber, openmm, plumed, openff, openfe, mdanalysis, rdkit, orca, charmm36, opls-aa, force field, free energy, fep, abfe, rbfe, umbrella sampling, expanded ensemble, membrane protein, gpcr, protein data bank, canary, contamination, harbor]
 papers: [doi:10.48550/arXiv.2608.02642]
