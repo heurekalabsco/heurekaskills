@@ -393,8 +393,9 @@ DataFusion streaming is enabled by default for interval operations, processing d
     ```
 
     Check `df.height` after reading any BED you did not write yourself. A zero-row result
-    from a non-empty file means this, not an empty interval set. Observed on 0.33.1 and
-    0.34.0 alike, so it is long-standing behaviour rather than a recent regression.
+    from a non-empty file means this, not an empty interval set. Observed on 0.33.1, 0.34.0
+    and 0.35.1 alike, so it is long-standing behaviour rather than a recent regression.
+    Reported upstream as biodatageeks/polars-bio#456.
 
 11. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
 
