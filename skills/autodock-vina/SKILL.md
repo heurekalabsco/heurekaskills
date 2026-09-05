@@ -4,11 +4,15 @@ description: Molecular docking with AutoDock Vina — receptor and ligand prepar
 category: models
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.2.0
-try-it: pending
+version: 1.3.0
 tags: [molecular-docking, autodock, vina, structure-based, virtual-screening]
+datasets: [https://raw.githubusercontent.com/ccsb-scripps/AutoDock-Vina/v1.2.7/example/basic_docking/solution/1iep_receptor.pdbqt, https://raw.githubusercontent.com/ccsb-scripps/AutoDock-Vina/v1.2.7/example/basic_docking/data/1iep_ligand.sdf]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-08-31
+  against: AutoDock Vina 1.2.7 (release binary and PyPI wheel) / Meeko 0.8.0 / RDKit 2026.3.5 / pdb2pqr 3.7.1 / NumPy 2.4.6 / SciPy 1.17.1 / gemmi 0.7.5 / Python 3.11.15 on Linux x86_64
+  executed: 25
+  unverified: 0
 ---
 
 # AutoDock Vina — molecular docking
@@ -35,11 +39,11 @@ answer:
 Vina 1.2.x can itself run the AD4 and Vinardo scoring functions, so needing a
 different *score* is not by itself a reason to leave Vina.
 
-**Everything below was verified by running Vina 1.2.7 and Meeko 0.7.1.** The
-numbers in *Sharp edges* come from actual runs on 1IEP, and the failure modes
-are reproducible. Read that section before docking anything you care about —
-**the most dangerous one produces confident, badly wrong numbers with no error
-message at all.**
+**Everything below was verified by running Vina 1.2.7** — originally with Meeko
+0.7.1, and re-run against Meeko 0.8.0. The numbers in *Sharp edges* come from
+actual runs on 1IEP, and the failure modes are reproducible. Read that section
+before docking anything you care about — **the most dangerous one produces
+confident, badly wrong numbers with no error message at all.**
 
 ## Install
 
@@ -52,11 +56,17 @@ curl -L -o vina https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/
 chmod +x vina && ./vina --version     # AutoDock Vina v1.2.7
 ```
 
-**Do not start with `pip install vina`.** The PyPI package builds from source
-and needs Boost headers; on a machine without them it fails at the wheel-build
-step and takes the rest of the transaction down with it. The Python bindings
-are useful for scripted scoring loops, but the binary is what you want for
-ordinary docking.
+**`pip install vina` is not a substitute for that binary, and what it does
+depends on your platform.** For 1.2.7 PyPI carries manylinux and musllinux
+wheels for CPython 3.8–3.12 on **x86_64 Linux only**. There, pip installs a
+prebuilt wheel, needs no Boost, and takes about a second. Anywhere else — macOS
+on either architecture, Linux aarch64 — there is no wheel, pip falls back to the
+sdist, and the build needs Boost headers; without them it fails at the
+wheel-build step and takes the rest of the transaction down with it.
+
+Either way the package ships **only the Python bindings**. There is no `vina`
+executable inside it. Install it when you want the API for scripted scoring
+loops; fetch the binary above for ordinary docking.
 
 Preparation needs Meeko, which converts molecules to the PDBQT format both
 engines read:
@@ -66,9 +76,10 @@ pip install meeko rdkit numpy scipy gemmi
 ```
 
 **Meeko declares no dependencies of its own.** `pip install meeko` alone
-installs a package that raises `ModuleNotFoundError` on import — verified with
-0.7.1, whose `Requires-Dist` is empty. Install the four above explicitly. You
-will also want `pdb2pqr` for receptor protonation (see below).
+installs a package that raises `ModuleNotFoundError: No module named 'rdkit'` on
+import — still true at 0.8.0, whose `Requires-Dist` is empty. Install the four
+above explicitly. You will also want `pdb2pqr` for receptor protonation (see
+below).
 
 ## The workflow
 
@@ -316,6 +327,120 @@ sat is not a result.
 - **Sampling is stochastic.** Seed it; on a hard target run several seeds and
   check the top pose is stable.
 - **Scores are not affinities.** See above.
+
+## Try it
+
+A self-contained check that this skill still holds: redock a known complex, then assert
+that the two failure modes in *Sharp edges* still fail the way they are documented. Public
+data, no account, no key. About two and a half minutes on four cores.
+
+**Data** — the AutoDock-Vina project's own `basic_docking` example, pinned at tag `v1.2.7`:
+
+    .../v1.2.7/example/basic_docking/solution/1iep_receptor.pdbqt
+    .../v1.2.7/example/basic_docking/data/1iep_ligand.sdf
+
+1IEP is imatinib bound to ABL kinase. Taking the **prepared** receptor from upstream is
+deliberate: it holds preparation fixed, so a failure here points at Vina or at this skill
+rather than at a preparation step that drifted. The box is the one upstream ships for that
+receptor in `solution/1iep_receptor.box.txt`. The repository is Apache-2.0 and needs no
+account. Last confirmed reachable 2026-08-31.
+
+Needs `pip install vina meeko rdkit numpy scipy gemmi`. Note the platform caveat in
+*Install* — the `vina` wheel is x86_64 Linux only, and elsewhere pip builds it from source.
+
+```python
+import urllib.request
+from pathlib import Path
+
+from meeko import MoleculePreparation, PDBQTMolecule, PDBQTWriterLegacy, RDKitMolCreate
+from rdkit import Chem
+from rdkit.Chem import rdMolAlign
+from vina import Vina
+
+BASE = ("https://raw.githubusercontent.com/ccsb-scripps/AutoDock-Vina/v1.2.7/"
+        "example/basic_docking/")
+for url, name in [(BASE + "solution/1iep_receptor.pdbqt", "rec.pdbqt"),
+                  (BASE + "data/1iep_ligand.sdf", "lig_crystal.sdf")]:
+    if not Path(name).exists():
+        urllib.request.urlretrieve(url, name)
+
+# Bond orders come from the SDF. Never perceive them from PDBQT geometry.
+crystal = Chem.SDMolSupplier("lig_crystal.sdf", removeHs=False)[0]
+setup = MoleculePreparation().prepare(Chem.AddHs(crystal, addCoords=True))[0]
+pdbqt, ok, msg = PDBQTWriterLegacy.write_string(setup)
+assert ok, msg
+Path("lig.pdbqt").write_text(pdbqt)
+
+CENTRE = [15.190, 53.903, 16.917]         # upstream solution/1iep_receptor.box.txt
+v = Vina(sf_name="vina", seed=42, verbosity=0)
+v.set_receptor("rec.pdbqt")
+v.set_ligand_from_file("lig.pdbqt")
+
+v.compute_vina_maps(center=CENTRE, box_size=[20, 20, 20])
+v.dock(exhaustiveness=32, n_poses=9)
+v.write_poses("docked.pdbqt", n_poses=9, energy_range=5, overwrite=True)
+
+top   = v.energies(n_poses=9)[0][0]
+poses = RDKitMolCreate.from_pdbqt_mol(
+    PDBQTMolecule.from_file("docked.pdbqt", skip_typing=True))[0]
+rmsd  = rdMolAlign.GetBestRMS(Chem.RemoveHs(poses), Chem.RemoveHs(crystal), prbId=0)
+
+print("top affinity   : %.2f kcal/mol" % top)
+print("poses written  :", poses.GetNumConformers())
+print("redock RMSD    : %.2f A" % rmsd)
+assert -15 <= top <= -4, "top pose outside the physically plausible range"
+assert rmsd < 2.0, "redock failed the conventional 2 A success criterion"
+
+# --- energy_range filters what you read back, not only what is written ---
+kept = len(v.energies())                  # no n_poses: the default energy_range=3 applies
+print("energies() rows: %d of the 9 requested (default energy_range=3)" % kept)
+assert kept < 9, "energy_range no longer filters the returned poses"
+
+# --- an undersized box returns large positive numbers, not an error ---
+v.compute_vina_maps(center=CENTRE, box_size=[10, 10, 10])
+v.dock(exhaustiveness=8, n_poses=9)
+bad = v.energies(n_poses=9)[0][0]
+print("10 A cube top  : %+.2f kcal/mol, no error raised" % bad)
+assert bad > 0, "the undersized-box failure no longer reproduces"
+
+print("OK")
+```
+
+**Expect**
+
+Invariants — these hold across versions, and a failure means the skill is wrong:
+
+- The top affinity is **negative** and physically plausible, roughly −4 to −15 kcal/mol for
+  a drug-like ligand. A positive best pose means the box or the input is wrong; it is never
+  a statement that binding is unfavourable.
+- Redocking clears the conventional **< 2.0 Å** criterion. This is the easiest test there
+  is — the receptor is already in the conformation that binds this ligand — so failing it
+  means preparation is broken, not that the target is hard.
+- RMSD must be symmetry-corrected (`GetBestRMS`). A naive atom-order RMSD scores a phenyl
+  ring flipped 180° as a ~2 Å error when the pose is identical.
+- `energies()` returns **fewer** rows than `n_poses` asked for whenever poses fall outside
+  `energy_range`. The filter applies to what you read back, not only to the written file —
+  which is why the count you print and the count in the table can disagree.
+- The 10 Å cube still returns large positive affinities and **raises nothing**. If that
+  assertion ever fails, Vina has started reporting the condition and *Sharp edges* needs
+  rewriting.
+
+Observed 2026-08-31 against Vina 1.2.7 / Meeko 0.8.0 / RDKit 2026.3.5 — treat a mismatch
+here as drift to investigate, not as a failure:
+
+```
+top affinity   : -13.25 kcal/mol
+poses written  : 9
+redock RMSD    : 0.27 A
+energies() rows: 6 of the 9 requested (default energy_range=3)
+10 A cube top  : +38.60 kcal/mol, no error raised
+OK
+```
+
+The exact affinity moves with preparation, so it is an observed value rather than an
+invariant. Protonating the receptor here with `pdb2pqr` and preparing it locally, instead
+of using upstream's prepared file, gave −13.27 and 0.15 Å on the same complex — a few
+tenths of a kcal/mol is prep drift, not a broken skill.
 
 ## Reference files
 
