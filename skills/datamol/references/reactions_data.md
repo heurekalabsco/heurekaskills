@@ -6,30 +6,45 @@ The reactions module enables programmatic application of chemical transformation
 
 ### Applying Chemical Reactions
 
-#### `dm.reactions.apply_reaction(rxn, reactants, as_smiles=False, sanitize=True, single_product_group=True, rm_attach=True, product_index=0)`
+#### `dm.reactions.apply_reaction(rxn, reactants, product_index=None, single_product_group=False, as_smiles=False, rm_attach=False, disable_logs=True, sanitize=True)`
 Apply a chemical reaction to reactant molecules.
+
+**Read the parameter order before calling this positionally.** `product_index` is the third
+parameter, so `apply_reaction(rxn, reactants, True)` — the shape somebody writes meaning
+`as_smiles=True` — sets `product_index=True` instead, and returns molecules. Pass everything
+after `reactants` by keyword.
+
 - **Parameters**:
   - `rxn`: Reaction object (from SMARTS pattern)
   - `reactants`: Tuple of reactant molecules
-  - `as_smiles`: Return SMILES strings (True) or molecule objects (False)
-  - `sanitize`: Sanitize product molecules
-  - `single_product_group`: Return single product (True) or all product groups (False)
-  - `rm_attach`: Remove attachment point markers
-  - `product_index`: Which product to return from reaction
-- **Returns**: Product molecule(s) or SMILES
+  - `product_index`: Which product to return from each product group (default: `None`, all)
+  - `single_product_group`: Return just the first product group (default: **`False`**)
+  - `as_smiles`: Return SMILES strings (True) or molecule objects (default: False)
+  - `rm_attach`: Remove attachment point markers (default: **`False`**)
+  - `disable_logs`: Silence RDKit's reaction logging (default: True)
+  - `sanitize`: Sanitize product molecules (default: True)
+- **Returns**: **A nested list, one inner list per product group** — not a molecule. With the
+  defaults, a one-product reaction gives `[[Mol]]`, so the product is `result[0][0]`. Set
+  `single_product_group=True` to flatten one level to `[Mol]`, and `as_smiles=True` to get
+  strings in the same shape (`[['CCOC(C)=O']]`).
 - **Example**:
   ```python
-  from rdkit import Chem
+  import datamol as dm
+  from rdkit.Chem import rdChemReactions
 
-  # Define reaction: alcohol + carboxylic acid → ester
-  rxn = Chem.rdChemReactions.ReactionFromSmarts(
+  # Define reaction: alcohol + carboxylic acid → ester.
+  # rdChemReactions must be imported explicitly — `from rdkit import Chem` alone does not
+  # put it on Chem, and `Chem.rdChemReactions` raises AttributeError.
+  rxn = rdChemReactions.ReactionFromSmarts(
       '[C:1][OH:2].[C:3](=[O:4])[OH:5]>>[C:1][O:2][C:3](=[O:4])'
   )
 
   # Apply to reactants
   alcohol = dm.to_mol("CCO")
   acid = dm.to_mol("CC(=O)O")
-  product = dm.reactions.apply_reaction(rxn, (alcohol, acid))
+  products = dm.reactions.apply_reaction(rxn, (alcohol, acid))
+  print(dm.to_smiles(products[0][0]))                                    # CCOC(C)=O
+  print(dm.reactions.apply_reaction(rxn, (alcohol, acid), as_smiles=True))  # [['CCOC(C)=O']]
   ```
 
 ### Creating Reactions
@@ -87,24 +102,35 @@ from rdkit.Chem import rdChemReactions
 rxn_smarts = '[C:1](=[O:2])[OH:3]>>[C:1](=[O:2])[Cl:3]'  # Acid → acid chloride
 rxn = rdChemReactions.ReactionFromSmarts(rxn_smarts)
 
-# 2. Apply to molecule library
+# 2. Apply to molecule library. Ethanol is in here deliberately: it has no carboxylic
+#    acid, so it exercises the no-match path.
+acid_smiles_list = ["CC(=O)O", "c1ccccc1C(=O)O", "OC(=O)CCC(=O)O", "CCO"]
 acids = [dm.to_mol(smi) for smi in acid_smiles_list]
 acid_chlorides = []
 
 for acid in acids:
     try:
-        product = dm.reactions.apply_reaction(
+        products = dm.reactions.apply_reaction(
             rxn,
-            (acid,),  # Single reactant as tuple
-            sanitize=True
+            (acid,),                    # Single reactant as tuple
+            single_product_group=True,  # [Mol] rather than the default [[Mol]]
+            sanitize=True,
         )
-        acid_chlorides.append(product)
+        acid_chlorides.append(products)
     except Exception as e:
         print(f"Reaction failed: {e}")
 
-# 3. Validate products
-valid_products = [p for p in acid_chlorides if p is not None]
+# 3. Validate products. A reactant that does not match returns an EMPTY LIST, not None
+#    and not an exception — so filter on emptiness. `if p is not None` keeps everything.
+valid_products = [p for p in acid_chlorides if p]
+print([dm.to_smiles(p[0]) for p in valid_products])
+# ['CC(=O)Cl', 'O=C(Cl)c1ccccc1', 'O=C(O)CCC(=O)Cl']  — ethanol dropped out
 ```
+
+Note the third product. Succinic acid has **two** carboxylic acids, and
+`single_product_group=True` keeps only the first product group, so what comes back is the
+mono-acid-chloride `O=C(O)CCC(=O)Cl`, not the di-chloride. Drop `single_product_group` (or set
+it False) to see every group the reaction found, at the cost of the extra nesting level.
 
 ### Key Concepts
 

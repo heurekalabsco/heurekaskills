@@ -122,28 +122,46 @@ The viz module provides tools for rendering molecules and conformers as images.
 
 ### Main Visualization Function
 
-#### `dm.viz.to_image(mols, legends=None, n_cols=4, use_svg=False, mol_size=(200, 200), highlight_atom=None, highlight_bond=None, outfile=None, max_mols=None, copy=True, indices=False, ...)`
+#### `dm.viz.to_image(mols, legends=None, n_cols=4, use_svg=True, mol_size=(300, 300), highlight_atom=None, highlight_bond=None, outfile=None, max_mols=32, max_mols_ipython=50, copy=True, indices=False, ...)`
 Generate image grid from molecules.
 - **Parameters**:
   - `mols`: Single molecule or list of molecules
   - `legends`: String or list of strings as labels (one per molecule)
   - `n_cols`: Number of molecules per row (default: 4)
-  - `use_svg`: Output SVG format (True) or PNG (False, default)
-  - `mol_size`: Tuple (width, height) or single int for square images
+  - `use_svg`: Output SVG (**True, the default**) or PNG (False). Two consequences below
+  - `mol_size`: Tuple (width, height) or single int for square images (default: `(300, 300)`)
   - `highlight_atom`: Atom indices to highlight (list or dict)
   - `highlight_bond`: Bond indices to highlight (list or dict)
   - `outfile`: Save path (local or remote, supports fsspec)
-  - `max_mols`: Maximum number of molecules to display
+  - `max_mols`: Maximum number of molecules to display — **32 by default, not unlimited**
   - `indices`: Draw atom indices on structures (default: False)
   - `align`: Align molecules using MCS (Maximum Common Substructure)
-- **Returns**: Image object (can be displayed in Jupyter) or saves to file
+- **Returns**: With the default `use_svg=True`, an SVG **`str`** — not a PIL image. `use_svg=False`
+  returns a PIL image object.
+
+Two defaults here bite silently rather than raising, so they are worth stating plainly:
+
+- **`use_svg` defaults to `True`, so `outfile="grid.png"` writes SVG bytes into a file named
+  `.png`.** Nothing warns; the file simply will not open as a PNG. Pass `use_svg=False` when
+  the extension says PNG, or name the file `.svg`.
+- **`max_mols` defaults to `32`, so a longer list is truncated without a warning.** Rendering
+  40 molecules at `n_cols=4` produces an eight-row canvas (1200×2400 at the default
+  `mol_size`), not ten rows — the last eight molecules are dropped. Pass `max_mols=len(mols)`
+  when you mean all of them.
+
 - **Example**:
   ```python
   # Basic grid
   dm.viz.to_image(mols[:10], legends=[dm.to_smiles(m) for m in mols[:10]])
 
-  # Save to file
-  dm.viz.to_image(mols, outfile="molecules.png", n_cols=5)
+  # Save to file — use_svg=False is required for the .png name to be truthful
+  dm.viz.to_image(mols, outfile="molecules.png", n_cols=5, use_svg=False)
+
+  # Save vector output instead
+  dm.viz.to_image(mols, outfile="molecules.svg", n_cols=5)
+
+  # Show every molecule, not the first 32
+  dm.viz.to_image(mols, max_mols=len(mols))
 
   # Highlight substructure
   dm.viz.to_image(mol, highlight_atom=[0, 1, 2], highlight_bond=[0, 1])
@@ -154,41 +172,63 @@ Generate image grid from molecules.
 
 ### Conformer Visualization
 
-#### `dm.viz.conformers(mol, n_confs=None, align_conf=True, n_cols=3, sync_views=True, remove_hs=True, ...)`
+#### `dm.viz.conformers(mol, conf_id=-1, n_confs=None, align_conf=True, n_cols=3, sync_views=True, remove_hs=True, width='auto')`
 Display multiple conformers in grid layout.
+
+Two traps, both about *how many* conformers you get:
+
+- `conf_id` is the **second** positional parameter, so `dm.viz.conformers(mol_3d, 10)` sets
+  `conf_id=10`, not `n_confs=10`. Pass `n_confs` by keyword.
+- **`n_confs=None` shows only the first conformer, not all of them.** To show all, pass
+  `n_confs=-1`. This is the opposite of the `conf_id` convention on the line above, where
+  `-1` means the first conformer — and it only applies while `n_confs` is None.
+
 - **Parameters**:
   - `mol`: Molecule with embedded conformers
-  - `n_confs`: Number or list of conformer indices to display (None = all)
+  - `conf_id`: The single conformer to show; `-1` (default) shows the first. Only consulted
+    while `n_confs` is None
+  - `n_confs`: Number of conformers, or a list of conformer indices. `None` (default) shows
+    only the first; `-1` shows all
   - `align_conf`: Align conformers for comparison (default: True)
   - `n_cols`: Grid columns (default: 3)
   - `sync_views`: Synchronize 3D views when interactive (default: True)
   - `remove_hs`: Remove hydrogens for clarity (default: True)
+  - `width`: Width of the returned view (default: `'auto'`)
 - **Returns**: Grid of conformer visualizations
 - **Use case**: Comparing conformational diversity
 - **Example**:
   ```python
   mol_3d = dm.conformers.generate(mol, n_confs=20)
-  dm.viz.conformers(mol_3d, n_confs=10, align_conf=True)
+  dm.viz.conformers(mol_3d, n_confs=10, align_conf=True)   # ten of them
+  dm.viz.conformers(mol_3d, n_confs=-1)                    # all twenty
   ```
 
 ### Circle Grid Visualization
 
-#### `dm.viz.circle_grid(center_mol, circle_mols, mol_size=200, circle_margin=50, act_mapper=None, ...)`
+#### `dm.viz.circle_grid(center_mol, ring_mols, act_mapper=None, margin=50, legend=None, ring_scaler=1.0, align=None, use_svg=True, outfile=None, ...)`
 Create concentric ring visualization with central molecule.
+
+**The rings argument is `ring_mols`, not `circle_mols`**, and there is no `mol_size` or
+`circle_margin` — the spacing parameter is `margin`. Calling this with the names an older
+draft of this page used raises `TypeError: circle_grid() missing 1 required positional
+argument: 'ring_mols'`.
+
 - **Parameters**:
   - `center_mol`: Molecule at center
-  - `circle_mols`: List of molecule lists (one list per ring)
-  - `mol_size`: Image size per molecule
-  - `circle_margin`: Spacing between rings (default: 50)
+  - `ring_mols`: List of molecule lists (one list per ring)
   - `act_mapper`: Activity mapping dictionary for color-coding
-- **Returns**: Circular grid image
+  - `margin`: Spacing between rings (default: 50)
+  - `ring_scaler`: Scale factor applied to ring radii (default: 1.0)
+  - `use_svg`: SVG output (default: True), as in `to_image`
+  - `outfile`: Save path
+- **Returns**: An SVG `str` under the default `use_svg=True`
 - **Use case**: Visualizing molecular neighborhoods, SAR analysis, similarity networks
 - **Example**:
   ```python
   # Show a reference molecule surrounded by similar compounds
   dm.viz.circle_grid(
       center_mol=reference,
-      circle_mols=[nearest_neighbors, second_tier]
+      ring_mols=[nearest_neighbors, second_tier]
   )
   ```
 
@@ -197,6 +237,7 @@ Create concentric ring visualization with central molecule.
 1. **Use legends for clarity**: Always label molecules with SMILES, IDs, or activity values
 2. **Align related molecules**: Use `align=True` in `to_image()` for SAR analysis
 3. **Adjust grid size**: Set `n_cols` based on molecule count and display width
-4. **Use SVG for publications**: Set `use_svg=True` for scalable vector graphics
+4. **SVG is already the default**: `use_svg=True` is what you get; set `use_svg=False` when you
+   actually want a PNG, and make sure `outfile`'s extension matches
 5. **Highlight substructures**: Use `highlight_atom` and `highlight_bond` to emphasize features
 6. **Save large grids**: Use `outfile` parameter to save rather than display in memory
