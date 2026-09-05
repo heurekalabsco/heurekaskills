@@ -51,13 +51,13 @@ Use this skill when:
 Requires Python 3.11–3.14 (see [PyPI](https://pypi.org/project/polars-bio/)).
 
 ```bash
-uv pip install "polars-bio==0.34.0"
+uv pip install "polars-bio==0.35.1"
 ```
 
 For pandas compatibility (pandas ≥3.0):
 
 ```bash
-uv pip install "polars-bio[pandas]==0.34.0"
+uv pip install "polars-bio[pandas]==0.35.1"
 ```
 
 Nothing else is needed — the wheel bundles the Rust engine and its Polars runtime.
@@ -414,21 +414,30 @@ DataFusion streaming is enabled by default for interval operations, processing d
     A target identical to the query and one strictly containing it must both return the
     query's own length. The old numbers were 10 and 12 against a length of 11 — three
     answers where there can only be one, and the superset exceeding the interval it
-    measures. Fixed in **0.35.1** (biodatageeks/polars-bio#450); the same release also
-    stopped a zero-length target reporting one covered base on the 0-based path. The
-    0-based path was correct throughout and is unchanged.
+    measures. Fixed in **0.35.1** (biodatageeks/polars-bio#450). On the three rows above
+    the 0-based path was correct throughout and is unchanged — but it was not entirely
+    clean: the same release fixed a second defect in the same expression, where a
+    zero-length target reported one covered base instead of none, and that one *did*
+    affect the 0-based path.
 
     If you are pinned below 0.35.1 and cannot move, set the metadata explicitly on **both**
-    frames — that routes you onto the 0-based path, which was always right:
+    frames:
 
     ```python
     for df in (query, target):
         df.config_meta.set(coordinate_system_zero_based=True)   # BED semantics
     ```
 
-    Setting it is worth doing regardless of version: Pitfall 4 covers coordinate metadata
-    generally, and `coverage` is the operation where leaving it unset historically returned
-    a plausible wrong number instead of an error.
+    **This is not a free switch, and it is not merely selecting a correct code path — it
+    reinterprets your coordinates.** `[10, 20]` read as 1-based inclusive spans 11 bases;
+    read as 0-based half-open it spans 10. So this is the right move only when your data
+    genuinely is 0-based BED semantics, which is what anything from `read_bed` already
+    carries. If your intervals really are 1-based, the switch trades a wrong answer for a
+    different wrong answer, and upgrading is the only fix.
+
+    Setting the metadata is worth doing regardless of version: Pitfall 4 covers coordinate
+    metadata generally, and `coverage` is the operation where leaving it unset historically
+    returned a plausible wrong number instead of an error.
 
 
 ## Best Practices
@@ -466,7 +475,7 @@ a BED file, not the contents of any particular public dataset. Two files are wri
 differ only in column count, which is exactly the axis Pitfall 10 turns on. Nothing here can
 rot behind a URL.
 
-**Run** — in a fresh empty directory, after `uv pip install "polars-bio==0.34.0"`:
+**Run** — in a fresh empty directory, after `uv pip install "polars-bio==0.35.1"`:
 
 ```python
 import polars as pl
@@ -507,13 +516,14 @@ def coverage_of(q, t, zero_based):
         d.config_meta.set(coordinate_system_zero_based=zero_based)
     return pb.coverage(Q, T, output_type="polars.DataFrame")["coverage"][0]
 
-qi = (10, 20)                       # identical target, and a strict superset
-zb_same, zb_super = coverage_of(qi, qi, True), coverage_of(qi, (5, 25), True)
-ob_same, ob_super = coverage_of(qi, qi, False), coverage_of(qi, (5, 25), False)
-print("coverage 0-based identical/superset:", zb_same, "/", zb_super)
-print("coverage 1-based identical/superset:", ob_same, "/", ob_super)
+qi = (10, 20)               # identical target, a strict superset, a much larger superset
+targets = (qi, (5, 25), (0, 100))
+zb_same, zb_super, zb_wide = [coverage_of(qi, t, True) for t in targets]
+ob_same, ob_super, ob_wide = [coverage_of(qi, t, False) for t in targets]
+print("coverage 0-based identical/superset/wide:", zb_same, "/", zb_super, "/", zb_wide)
+print("coverage 1-based identical/superset/wide:", ob_same, "/", ob_super, "/", ob_wide)
 
-# --- INVARIANTS: these hold across versions --------------------------------
+# --- INVARIANTS: these must hold on the pinned version ---------------------
 assert six.height == 3, "a BED6 file must round-trip all three records"
 assert six.row(0)[1] == 1 and raw.row(0)[1] == 0, "0-based file start 0 -> 1-based 1"
 assert six.row(0)[2] == 5, "end is unchanged by the 0-based -> 1-based shift"
@@ -521,21 +531,29 @@ assert merged.height == 2, "intervals 1-5 and 5-8 are bookended and must merge"
 assert merged.select("start", "end").rows() == [(1, 8), (22, 29)]
 assert hits["count"].to_list() == [1, 1, 1], "each interval meets exactly one target"
 assert three.height <= six.height, "BED3 can never yield more records than BED6"
-assert zb_same == zb_super == 10, "0-based: identical and superset targets both cover the query"
-assert zb_same <= 10 and ob_same <= 11, "coverage can never exceed the query's own length"
+# Every target here contains the query, so all three must return the query's own length.
+# This is the check that fails on the #450 bug: it returned 10 / 12 / 12 against a length
+# of 11, and it is the superset columns -- not the identical one -- that broke.
+assert zb_same == zb_super == zb_wide == 10, "0-based [10,20) spans 10 bases; every covering target must return 10"
+assert ob_same == ob_super == ob_wide == 11, "1-based [10,20] spans 11 bases; every covering target must return 11 (needs >=0.35.1)"
 
 # --- OBSERVED 2026-09-05, polars-bio 0.35.1: drift, not failure ------------
 print()
 print("BED3 rows observed:", three.height, "(expected 0 on 0.33.1 through 0.35.1)")
 print("column count      :", len(six.columns), "(expected 4 — score/strand are dropped)")
-print("1-based coverage  :", ob_same, "/", ob_super, "(expected 11 / 11 on >=0.35.1 — Pitfall 12)")
+print("1-based coverage  :", ob_same, "/", ob_super, "/", ob_wide, "(expected 11 / 11 / 11 on >=0.35.1 — Pitfall 12)")
 ```
 
 **Expect** — the invariants above are assertions and must pass. The three values below are
-*observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug. This
-block was re-executed on **0.35.1** on 2026-09-05 to confirm the Pitfall 12 fix; the
-`verified:` block in the frontmatter still describes the full 0.34.0 sweep, which the rest of
-the skill has not been re-run against:
+*observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug.
+
+**Scope of the last check, stated plainly.** This block was re-executed on **0.35.1** on
+2026-09-05 to confirm the Pitfall 12 fix, and the install pins throughout the skill now name
+that release. The frontmatter `verified:` block still records the full 38-block sweep made
+against **0.34.0** on 2026-08-26 — every other runnable block in this skill was last executed
+there, not on 0.35.1. Nothing in the 0.35.1 fix is expected to touch them, but "not expected
+to" is not the same as "re-run", and the frontmatter says which one this is. A full re-sweep
+is tracked in heurekalabsco/heurekaskills#226:
 
 ```
 BED3 rows : 0    <- Pitfall 10
@@ -545,20 +563,21 @@ dtypes    : ['String', 'UInt32', 'UInt32', 'String']
 file 0-based start : 0 | default 1-based start : 1
 merged    : [(1, 8), (22, 29)]
 overlaps  : [1, 1, 1]
-coverage 0-based identical/superset: 10 / 10
-coverage 1-based identical/superset: 11 / 11
+coverage 0-based identical/superset/wide: 10 / 10 / 10
+coverage 1-based identical/superset/wide: 11 / 11 / 11
 
 BED3 rows observed: 0 (expected 0 on 0.33.1 through 0.35.1)
 column count      : 4 (expected 4 — score/strand are dropped)
-1-based coverage  : 11 / 11 (expected 11 / 11 on >=0.35.1 — Pitfall 12)
+1-based coverage  : 11 / 11 / 11 (expected 11 / 11 / 11 on >=0.35.1 — Pitfall 12)
 ```
 
 If `BED3 rows` prints `3`, upstream has fixed the record-parsing bug and Pitfall 10 should be
 retired. If the schema grows past four columns, the extended-field note in
 `references/file_io.md` needs updating with it. If `1-based coverage` prints `10 / 12` you
-are on a release older than 0.35.1 and are hitting biodatageeks/polars-bio#450 — upgrade, or
-follow the workaround in Pitfall 12. Anything other than `11 / 11` or that known-bad
-`10 / 12` is new drift and worth investigating.
+are on a release older than 0.35.1 and are hitting biodatageeks/polars-bio#450 — the
+`assert` above will have fired first. Upgrade, or follow the workaround in Pitfall 12 and
+its caveat. Anything other than `11 / 11 / 11` or that known-bad `10 / 12 / 12` is new
+drift and worth investigating.
 
 ## Resources
 
