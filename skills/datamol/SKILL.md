@@ -5,11 +5,20 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.3.0
 tags: [cheminformatics, rdkit, smiles, descriptors, fingerprints]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-09-05
+  against: datamol 0.12.5 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.5 / NumPy 2.4.6 / scikit-learn 1.9.0 / Python 3.11.15
+  executed: 7
+  unverified: 1
+  unverified_reason: >-
+    The end-to-end pipeline in references/workflow_patterns.md opens a user-supplied SDF
+    (`compounds.sdf`) as step 1, so it has no input of its own to run against. Every datamol
+    call in it is exercised by other blocks that do run. It would be verifiable by giving it
+    an inline-written SDF, which is the fix if this page is revised again.
 ---
 # Datamol Cheminformatics Skill
 
@@ -17,7 +26,7 @@ verified: pending
 
 Datamol is a Python library that provides a lightweight, Pythonic abstraction layer over RDKit for molecular cheminformatics. Simplify complex molecular operations with sensible defaults, efficient parallelization, and modern I/O capabilities. All molecular objects are native `rdkit.Chem.Mol` instances, ensuring full compatibility with the RDKit ecosystem.
 
-**Version note:** Examples target **datamol 0.12.x**. 0.12.5 (June 2024) is still the PyPI stable release as of August 2026. Since 0.10.0, modules are lazy-loaded by default (set `DATAMOL_DISABLE_LAZY_LOADING=1` to disable). Since 0.12.2, RDKit is a direct PyPI dependency of datamol. Fingerprints use RDKit's `rdFingerprintGenerator` API (0.12.5+).
+**Version note:** Examples target **datamol 0.12.x**. 0.12.5 (June 2024) is still the PyPI stable release as of September 2026 — over two years without a release, which is why the mismatches below are with datamol's dependencies rather than with datamol itself. Since 0.10.0, modules are lazy-loaded by default (set `DATAMOL_DISABLE_LAZY_LOADING=1` to disable). Since 0.12.2, RDKit is a direct PyPI dependency of datamol. Fingerprints use RDKit's `rdFingerprintGenerator` API (0.12.5+).
 
 **datamol has not been released in two years, and its dependencies have moved.** A fresh
 `uv pip install datamol` today pairs 0.12.5 with a current RDKit and joblib, and three calls
@@ -30,7 +39,9 @@ that older tutorials still show now raise:
 | `dm.descriptors.compute_many_descriptors(mol)["logp"]` | `KeyError` | `"clogp"`, `"n_lipinski_hbd"`, `"n_lipinski_hba"` |
 
 `## Try it` at the end of this file asserts all three, so you can tell in one run whether
-your install still behaves this way.
+your install still behaves this way. It also pins the four return shapes and defaults that
+this page previously documented wrongly — `apply_reaction`, `to_image`, `fuzzy_scaffolding`
+and `viz.conformers` — so a future release that changes any of them fails loudly here.
 
 **Key capabilities**:
 - Molecular format conversion (SMILES, SELFIES, InChI)
@@ -128,7 +139,7 @@ For detailed API documentation, consult these reference files:
    ```python
    mol = dm.to_mol(smiles)
    if mol is None:
-       # Handle invalid SMILES
+       raise ValueError(f"could not parse SMILES: {smiles}")
    ```
 
 3. **Use parallel processing** for large datasets:
@@ -225,6 +236,27 @@ predictions = model.predict(X_test)
 **Issue**: Clustering results look wrong or unpack strangely
 - **Solution**: `dm.cluster_mols` returns a 2-tuple, `(index_clusters, molecule_clusters)`. Iterating the return value gives you those two items, not your clusters — unpack it
 
+**Issue**: `AttributeError: module 'rdkit.Chem' has no attribute 'rdChemReactions'`
+- **Solution**: `from rdkit import Chem` does not pull in the reactions submodule. Import it
+  directly: `from rdkit.Chem import rdChemReactions`
+
+**Issue**: A reaction product will not sanitize, draw or convert to SMILES
+- **Solution**: `dm.reactions.apply_reaction` returns a **nested list**, one inner list per
+  product group — `[[Mol]]` with the defaults, so the molecule is `result[0][0]`. A reactant
+  that does not match returns `[]`, never `None`, so `if p is not None` filters nothing.
+  `single_product_group=True` flattens one level. And mind the argument order: `product_index`
+  is the third parameter, so a positional `apply_reaction(rxn, reactants, True)` sets that,
+  not `as_smiles`
+
+**Issue**: A saved `.png` grid will not open, or a grid is missing molecules
+- **Solution**: Both are `dm.viz.to_image` defaults. `use_svg` is **True**, so `outfile="x.png"`
+  writes SVG bytes under a `.png` name — pass `use_svg=False`, or name it `.svg`. And
+  `max_mols` is **32**, so a longer list is silently truncated — pass `max_mols=len(mols)`
+
+**Issue**: `TypeError: 'Mol' object is not iterable` from `dm.scaffold.fuzzy_scaffolding`
+- **Solution**: It takes a **list** of molecules and returns a 3-tuple,
+  `(scaffolds, scaffold_infos, all_scaffolds)`. `dm.to_scaffold_murcko` is the per-molecule one
+
 ## Try it
 
 A self-contained check that this skill still works. No key, no account, no GPU — just
@@ -292,6 +324,26 @@ dist = dm.pdist(mols)
 cluster_indices, mol_clusters = dm.cluster_mols(mols, cutoff=0.7)
 flat = sorted(i for c in cluster_indices for i in c)
 
+# 6. Reactions. rdChemReactions needs its own import — `from rdkit import Chem` alone
+#    leaves Chem.rdChemReactions raising AttributeError. apply_reaction returns a NESTED
+#    list (one inner list per product group), and a non-matching reactant gives [].
+from rdkit.Chem import rdChemReactions
+rxn = rdChemReactions.ReactionFromSmarts('[C:1][OH:2].[C:3](=[O:4])[OH:5]>>[C:1][O:2][C:3](=[O:4])')
+ester = dm.reactions.apply_reaction(rxn, (dm.to_mol("CCO"), dm.to_mol("CC(=O)O")))
+no_match = dm.reactions.apply_reaction(rxn, (dm.to_mol("c1ccccc1"), dm.to_mol("c1ccccc1")))
+
+# 7. to_image defaults: SVG (a str), and only the first 32 molecules.
+grid_svg = dm.viz.to_image(mols)
+truncating = dm.viz.to_image([dm.to_mol("C" * (i % 8 + 1)) for i in range(40)], n_cols=4)
+complete = dm.viz.to_image([dm.to_mol("C" * (i % 8 + 1)) for i in range(40)], n_cols=4,
+                           max_mols=40)
+
+# 8. fuzzy_scaffolding takes a LIST and returns a 3-tuple — to_scaffold_murcko is the
+#    per-molecule one. RDKit prints hydrogen warnings to stderr here; they are not failures.
+series = [dm.to_mol(s) for s in ("c1ccc2ncnc(N)c2c1", "Cc1ccc2ncnc(N)c2c1",
+                                 "Clc1ccc2ncnc(N)c2c1", "COc1ccc2ncnc(N)c2c1")]
+scaffolds, scaffold_infos, all_scaffolds = dm.scaffold.fuzzy_scaffolding(series)
+
 print("datamol        :", dm.__version__)
 print("descriptors    :", df.shape, "| keys include clogp/n_lipinski_hbd, not logp/hbd")
 print("aspirin mw     : %.6f (exact) vs RDKit MolWt %.3f (average)"
@@ -301,6 +353,11 @@ print("ecfp4 / maccs  :", fp.shape, fp.dtype, "on-bits", int(fp.sum()), "|", mac
 print("distance matrix:", dist.shape, "| diagonal max %.1f" % dist.diagonal().max())
 print("aspirin~salicylic %.4f  <  aspirin~caffeine %.4f" % (dist[asp, sal], dist[asp, caf]))
 print("clusters       :", len(cluster_indices), "sizes", [len(c) for c in cluster_indices])
+print("apply_reaction :", type(ester).__name__, "of", type(ester[0]).__name__,
+      "->", dm.to_smiles(ester[0][0]), "| no match ->", no_match)
+print("to_image       :", type(grid_svg).__name__, "| 40 mols default vs max_mols=40:",
+      len(truncating), "vs", len(complete), "chars")
+print("fuzzy_scaffolds:", sorted(scaffolds))
 
 assert d["mw"] == Descriptors.ExactMolWt(mols[asp]) != Descriptors.MolWt(mols[asp])
 assert {"mw", "clogp", "n_lipinski_hbd", "n_lipinski_hba"} <= d.keys()
@@ -311,6 +368,22 @@ assert dist.diagonal().max() == 0.0, "distance, not similarity: a molecule is 0 
 assert dist[asp, sal] < dist[asp, caf], "aspirin is closer to salicylic acid than to caffeine"
 assert len(mol_clusters) == len(cluster_indices)
 assert flat == list(range(len(mols))), "clusters must partition the input exactly once"
+
+# apply_reaction: nested list, and [] rather than None when nothing matches
+assert isinstance(ester, list) and isinstance(ester[0], list), "product groups nest one deep"
+assert dm.to_smiles(ester[0][0]) == "CCOC(C)=O"
+assert no_match == [], "a non-matching reactant returns an empty list, not None"
+# to_image: SVG string by default, and max_mols=32 truncates without warning
+assert isinstance(grid_svg, str) and grid_svg.lstrip().startswith("<?xml"), "use_svg is True"
+assert len(complete) > len(truncating), "max_mols defaults to 32, so 40 molecules truncate"
+# fuzzy_scaffolding: a list in, a 3-tuple out
+assert scaffolds == {"Nc1ncnc2ccc([*:1])cc12", "Nc1ncnc2ccccc12"}
+assert isinstance(scaffold_infos, type(df)) and isinstance(all_scaffolds, type(df))
+try:
+    dm.scaffold.fuzzy_scaffolding(mols[asp])
+    raise SystemExit("expected TypeError: fuzzy_scaffolding takes a list of molecules")
+except TypeError:
+    pass
 print("invariants OK")
 ```
 
@@ -335,9 +408,20 @@ failure means this skill is wrong:
   dropped or repeated.
 - **`batch_compute_many_descriptors` needs `batch_size` when `n_jobs` > 1.** If this line
   starts working without it, joblib changed, not this skill.
+- **`dm.reactions.apply_reaction` returns a nested list**, one inner list per product group,
+  so the molecule is `result[0][0]`. A reactant that matches nothing returns `[]` — not
+  `None`, and not an exception.
+- **`dm.viz.to_image` returns an SVG `str` by default** (`use_svg=True`), and shows at most
+  `max_mols=32` molecules with no warning. The block renders 40 twice, once at the default
+  and once at `max_mols=40`, and asserts the second is larger.
+- **`dm.scaffold.fuzzy_scaffolding` takes a list and returns a 3-tuple.** Passing a single
+  molecule raises `TypeError`, which the block asserts. The two scaffolds recovered from the
+  4-aminoquinazoline series are a chemical fact about that series, not a version detail.
 
-Observed 2026-08-13 on datamol 0.12.5 / RDKit 2026.03.5 / joblib 1.5.3 / NumPy 2.4.6,
-Python 3.11 — treat a mismatch here as drift to investigate, not a failure:
+Observed 2026-09-05 on datamol 0.12.5 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.5 /
+NumPy 2.4.6, Python 3.11.15 — treat a mismatch here as drift to investigate, not a failure.
+The character counts in the `to_image` line are the loosest thing here; only their ordering
+is asserted:
 
 ```
 datamol        : 0.12.5
@@ -348,8 +432,15 @@ ecfp4 / maccs  : (2048,) uint8 on-bits 24 | (167,)
 distance matrix: (8, 8) | diagonal max 0.0
 aspirin~salicylic 0.6410  <  aspirin~caffeine 0.9344
 clusters       : 6 sizes [2, 2, 1, 1, 1, 1]
+apply_reaction : list of list -> CCOC(C)=O | no match -> []
+to_image       : str | 40 mols default vs max_mols=40: 42857 vs 53513 chars
+fuzzy_scaffolds: ['Nc1ncnc2ccc([*:1])cc12', 'Nc1ncnc2ccccc12']
 invariants OK
 ```
+
+RDKit also writes `not removing hydrogen atom without neighbors` warnings to **stderr**
+during the `fuzzy_scaffolding` step. They come from its fuzzy-matching internals and do not
+indicate a failure — the block exits 0.
 
 At `cutoff=0.7` the only pairs that cluster together are aspirin with salicylic acid and
 caffeine with theophylline — both genuine structural pairs, which is the result worth

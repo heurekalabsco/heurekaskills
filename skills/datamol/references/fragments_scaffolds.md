@@ -33,10 +33,34 @@ most_common = scaffold_counts.most_common(10)
 
 ### Fuzzy Scaffolds
 
-#### `dm.scaffold.fuzzy_scaffolding(mol, ...)`
+#### `dm.scaffold.fuzzy_scaffolding(mols, enforce_subs=None, n_atom_cuttoff=8, additional_templates=None, ignore_non_ring=False, mcs_params=None)`
 Generate fuzzy scaffolds with enforceable groups that must appear in the core.
 - **Purpose**: More flexible scaffold definition allowing specified functional groups
 - **Use case**: Custom scaffold definitions beyond Murcko rules
+- **Takes a LIST of molecules, not one.** It works over a series to find shared cores, so
+  handing it a single `Mol` raises `TypeError: 'Mol' object is not iterable`. This is the
+  opposite of `dm.to_scaffold_murcko(mol)`, which is per-molecule.
+- **Returns**: a **3-tuple** `(scaffolds, scaffold_infos, all_scaffolds)` — a `set` of scaffold
+  SMILES and two `DataFrame`s. Unpack it; a single name binds the tuple.
+- **Example**:
+  ```python
+  import datamol as dm
+
+  # A 4-aminoquinazoline series. Give it a congeneric series with a ring system —
+  # `ignore_non_ring` is False by default, and an acyclic or single-ring set often
+  # returns an empty set rather than an error.
+  series = [dm.to_mol(s) for s in
+            ["c1ccc2ncnc(N)c2c1", "Cc1ccc2ncnc(N)c2c1",
+             "Clc1ccc2ncnc(N)c2c1", "COc1ccc2ncnc(N)c2c1"]]
+  scaffolds, scaffold_infos, all_scaffolds = dm.scaffold.fuzzy_scaffolding(series)
+  print(sorted(scaffolds))
+  # ['Nc1ncnc2ccc([*:1])cc12', 'Nc1ncnc2ccccc12']
+  print(len(scaffolds), scaffold_infos.shape, all_scaffolds.shape)
+  # 2 (1, 3) (1, 5)
+  ```
+  `[*:1]` marks the substitution point the series varies at. RDKit prints
+  `not removing hydrogen atom without neighbors` warnings to stderr during this call; they
+  are noise from the fuzzy-matching step, not a failure.
 
 ### Applications
 
