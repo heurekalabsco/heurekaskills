@@ -5,11 +5,15 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.2.1
 tags: [power-analysis, sample-size, effect-size, study-planning]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-09-02
+  against: statsmodels 0.15.0 / scipy 1.17.1 / numpy 2.4.6 / pingouin 0.6.1 / lifelines 0.30.3 / Python 3.11.15
+  executed: 16
+  unverified: 0
 ---
 # Statistical Power & Sample Size
 
@@ -277,8 +281,10 @@ skill is wrong:
 - n = 64 per group for d = 0.5 at α = .05, 80% power is the textbook value (Cohen 1988) — a
   useful sanity anchor for any power tool.
 
-Observed 2026-08-12 on statsmodels 0.14.6 / scipy 1.17.1 / numpy 2.4.6, Python 3.11 — a
-mismatch here is drift to investigate, not a failure:
+Observed 2026-08-12 on statsmodels 0.14.6 / scipy 1.17.1 / numpy 2.4.6, Python 3.11, and
+re-confirmed unchanged on 2026-09-02 against statsmodels 0.15.0 — every figure below is
+identical across that minor release, so the numbers are a stable anchor rather than a
+snapshot of one build. A mismatch here is drift to investigate, not a failure:
 
 ```
 t-test n per group : 63.7656 -> enrol 64
