@@ -5,11 +5,21 @@ category: communication
 license: BSD-2-Clause
 author: Pachter Lab (adapted by Heureka Labs)
 attribution: https://github.com/pachterlab/paperpush
-version: 1.2.0
-try-it: pending
+version: 1.3.0
+datasets: []
 tags: [manuscript, preprint, submission, publishing]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-09-01
+  against: paperpush 0.1.5 / Python 3.11
+  executed: 8
+  unverified: 1
+  unverified_reason: >-
+    The install block's `playwright install chromium` downloads a browser the validating
+    environment does not fetch, so the browser half of the install is unrun; `login` and
+    `submit` need that browser plus real portal credentials, which is why they are shown
+    as plain output rather than runnable blocks. Re-run from a host that can download a
+    Playwright browser and holds a test account on a venue.
 ---
 
 # Submitting a manuscript with paperpush
@@ -111,8 +121,10 @@ remember from another venue — the columns differ between portals.
 
 By default `subfile` pre-populates fields that have a default value. Note what those
 defaults are before assuming they are correct: bioRxiv's `license` defaults to
-`CC-BY-NC-ND`, the most restrictive reuse option it offers, and `author_consent`
-defaults to `no`. Use
+`CC-BY-NC-ND`, the most restrictive of the Creative Commons options it offers — the list
+also carries a stricter `No reuse without permission` — and `author_consent` defaults to
+`no`. Neither default is one to accept on the author's behalf; both are `never` fields.
+Use
 `--dont-fill-defaults` to leave them empty instead, and `--force` to overwrite an
 existing `.sub`.
 
@@ -174,7 +186,8 @@ paperpush autofill -d ./manuscript --engine manual --values values.json biorxiv.
 manuscript, so a second extraction pass adds cost and a second chance to be wrong. If
 the `.sub` does not exist yet, `autofill` creates it from the venue slug in the filename.
 
-The command prints a four-part summary. Read all four parts back to the author:
+The command prints a four-part summary, plus a validation-warning section whenever the
+run raises one. Read all four parts back to the author:
 
 ```
 Filled 5 field(s):            written, high confidence, not a judgment call
@@ -250,15 +263,111 @@ If a step breaks, the browser is left open at the point of failure so it can be 
 by hand. `--timeout SECONDS` raises the per-action limit (default 10s, `0` waits forever)
 on a slow portal, and `--new-session` discards a saved session after an account switch.
 
+## Try it
+
+Runs the whole deterministic core end to end — template, autofill, validate — in a fresh
+empty directory. It never signs in and never submits, so it is safe to run anywhere.
+
+**Data.** Generated inline, which is why the frontmatter declares `datasets: []`. There is
+no public dataset to fetch here: the input to this tool is an author's own unpublished
+manuscript, and a real one is exactly what should not be checked into a registry. The block
+writes a three-line manuscript and a valid one-page PDF instead. The author is fictional and
+the address sits in the reserved `example.org` documentation domain, so nothing here can
+reach a real mailbox — the file is a fixture, not a submission.
+
+**Run.**
+
+```bash
+pip install paperpush
+mkdir -p paper && cd paper
+cat > manuscript.md <<'EOF'
+# A reproducible workflow for counting transcripts
+
+**Abstract.** We describe a workflow that counts transcripts from short-read
+RNA-seq data and reports per-gene estimates with calibrated uncertainty.
+EOF
+python3 - <<'PY'
+# a valid one-page PDF, padded past paperpush's 1 KB "may be empty" warning
+body = b"BT /F1 12 Tf 72 720 Td (A reproducible workflow for counting transcripts) Tj ET"
+objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+        b" /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(body) + body + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+out, offs = bytearray(b"%PDF-1.4\n% " + b"padding " * 128 + b"\n"), []
+for i, o in enumerate(objs, 1):
+    offs.append(len(out)); out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+x = len(out)
+out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+for off in offs: out += b"%010d 00000 n \n" % off
+out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+open("manuscript.pdf", "wb").write(out)
+PY
+cd ..
+cat > values.json <<'EOF'
+{
+  "fields": [
+    {"id": "title", "value": "A reproducible workflow for counting transcripts", "confidence": "high", "source": "manuscript.md title"},
+    {"id": "abstract", "value": "We describe a workflow that counts transcripts from short-read RNA-seq data.", "confidence": "high", "source": "manuscript.md Abstract"},
+    {"id": "authors", "value": "Ada Lovelace | ada@example.org | Institute of Computation | 0000-0002-1825-0097 | yes", "confidence": "high", "source": "manuscript.md title block"},
+    {"id": "manuscript_file", "value": "manuscript.pdf", "confidence": "high", "source": "the only PDF in the directory"},
+    {"id": "subject_category", "value": "Bioinformatics", "confidence": "medium", "source": "classified from the abstract"},
+    {"id": "license", "value": "CC-BY", "confidence": "high", "source": "deliberately proposed - license is a never field"}
+  ],
+  "unfilled": [
+    {"id": "author_consent", "reason": "an attestation only the corresponding author can make"}
+  ]
+}
+EOF
+paperpush subfile biorxiv
+grep -E '^(license|author_consent):' biorxiv.sub
+paperpush autofill -d ./paper --engine manual --values values.json biorxiv.sub
+paperpush validate biorxiv.sub; echo "validate exit: $?"
+```
+
+The `license` entry in `values.json` is proposed **on purpose, at `high` confidence**, to
+route the run through the gotcha this skill exists to teach: `license` is a `never` field,
+so a confident proposal is still refused. Do not "fix" it.
+
+**Expect.**
+
+*Invariants — a mismatch means the skill is wrong.*
+
+- `license` is **not** written. It appears under `Left for you to set (2)` alongside
+  `author_consent`, even though it was proposed at `high` confidence. Confidence cannot buy
+  a `never` field.
+- `author_consent`, listed in `unfilled`, also lands under *Left for you to set* rather than
+  being silently dropped.
+- `subject_category`, proposed at `medium`, lands under `1 field(s) need your review` rather
+  than under *Filled* — the confidence you declare decides which list a value appears in.
+- `validate` **exits 1** while `author_consent` is `no`, and the error names that field.
+  Setting it to `yes` in `biorxiv.sub` and re-running exits `0` with
+  `biorxiv.sub passed validation for biorxiv; ready to submit.` That is the whole contract:
+  a non-zero exit is a blocking problem, zero is ready.
+- The one warning — no repository link found in the manuscript — is advisory and does **not**
+  change the exit code. Warnings never block.
+
+*Observed values — paperpush 0.1.5, checked 2026-09-01. A mismatch is drift to investigate,
+not a bug: bioRxiv changes its form, and the template tracks it.*
+
+- `paperpush subfile biorxiv` reports `19 fields (11 required)`.
+- The pre-populated defaults are `license: CC-BY-NC-ND` and `author_consent: no`.
+- `autofill` reports `Filled 4 field(s)` — title, abstract, authors, manuscript_file.
+
+No network beyond the install: the generated manuscript cites no URLs, so `validate`'s link
+probe has nothing to fetch and the sensitive-information scan reads local files only.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
 | `error: unknown venue 'x'` | The slug is wrong. Run `paperpush --venues` — the slug is the parenthesised name. |
 | `error: venue 'v' has no field 'f'` | The `id` is not in that venue's `.sub`. Read the generated file for the real names. |
-| A field reported as `unknown` in the summary | Same cause — the id does not exist for this venue and nothing was written. |
+| `ignored proposed field 'f': not a field in the <venue> template` | Same cause — the id does not exist for this venue and nothing was written. |
 | `Looks like Playwright was just installed…` | The browser is missing. Run `playwright install chromium`. |
-| `invalid pdf header` / `EOF marker not found` | The manuscript file is not a real PDF, or is truncated. Check the file before re-running. |
+| `<file> does not look like a valid PDF (missing %PDF header)` | The manuscript file is not a real PDF. Check the file before re-running. |
+| `could not detect any pages in <file>` / `<file> is only N bytes; it may be empty` | Advisory warnings, not errors — the PDF parsed but looks truncated or blank. Confirm you pointed at the built manuscript, not a stub. |
 | A value you proposed appears under *Left for you to set* | It is a `never` field. Working as designed — ask the author. |
 | A value you proposed is missing entirely | It fell below `--min-confidence`, or its `value` was empty. |
 

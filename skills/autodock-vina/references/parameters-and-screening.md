@@ -84,16 +84,17 @@ the score differences people use to rank compounds.
 
 ## The Python API
 
-> **Not executed here.** Unlike everything else in this skill, the snippet below
-> was not run — the `vina` PyPI package could not be built in the environment
-> used to write this file (details below). It reflects the upstream API rather
-> than a verified run. Treat it as a starting point and check the output of the
-> first call, rather than assuming it works.
+The snippet below **was executed**, against Vina 1.2.7 on x86_64 Linux, where
+`pip install vina` fetches a prebuilt manylinux wheel for CPython 3.8–3.12 and
+no build step runs at all. An earlier revision of this file could not run it and
+said so; that no longer applies on this platform.
 
-The package builds from source and needs Boost headers. On Apple Silicon with
-Homebrew this fails even when Boost is installed, because its build script
-searches only the conda prefix, `/usr/local/include` and `/usr/include` — it
-ignores `BOOST_ROOT`, `CPPFLAGS`, and Homebrew's `/opt/homebrew` prefix:
+Where there is no wheel — macOS on either architecture, Linux aarch64 — pip
+falls back to the sdist and builds from source, which needs Boost headers. On
+Apple Silicon with Homebrew that fails even when Boost is installed, because the
+build script searches only the conda prefix, `/usr/local/include` and
+`/usr/include` — it ignores `BOOST_ROOT`, `CPPFLAGS`, and Homebrew's
+`/opt/homebrew` prefix:
 
 ```
 ValueError: Boost library location was not found!
@@ -101,9 +102,10 @@ Directories searched: conda env, /usr/local/include and /usr/include.
 ```
 
 A conda environment with `boost-cpp` installed is the path of least resistance
-if you need the bindings. **For ordinary docking you do not** — the binary
-covers it. Where the API earns its place is scripted scoring loops that would
-otherwise pay process-startup and map-computation cost per ligand.
+there. **For ordinary docking you need none of this** — the binary covers it,
+and the wheel does not contain one: the package is the bindings only. Where the
+API earns its place is scripted scoring loops that would otherwise pay
+process-startup and map-computation cost per ligand.
 
 ```python
 from vina import Vina
@@ -119,6 +121,12 @@ v.write_poses('docked.pdbqt', n_poses=9, overwrite=True)
 print(v.energies())          # per-pose energy terms
 print(v.score())             # score the current pose without searching
 ```
+
+`energies()` is filtered by `--energy_range` exactly as the output file is: a
+run asking for 9 poses returned 7 rows, and the stdout table still printed 9.
+The mismatch documented in *Sharp edges* is therefore not a quirk of parsing
+stdout — it reaches the API too. Take the pose count from what you were handed,
+never from the table.
 
 `compute_vina_maps` is the expensive step. Computing maps once and looping
 `set_ligand_from_file` / `dock` over many ligands is the reason to use the API
