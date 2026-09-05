@@ -4,16 +4,16 @@ description: Find, triage and download public gene expression datasets from NCBI
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.2.0
+version: 1.3.0
 tags: [geo, rna-seq, transcriptomics, public-data, entrez]
 covers: [geo, gse, gsm, gds, gpl, rna-seq, microarray, scRNA-seq, spatial transcriptomics, expression, transcriptomics, counts matrix, series matrix, superseries, multi-platform, soft, aging, senescence, skeletal muscle, liver, brain, heart, kidney, blood, pbmc, lung, cancer, human, mouse, e-utilities]
 papers: [PMID:11752295, PMID:23193258, PMID:27008011, PMID:17496320, PMID:36516485, PMID:31862890]
 access: [open]
-datasets: [https://ftp.ncbi.nlm.nih.gov/geo/series/GSE263nnn/GSE263566/suppl/GSE263566_ageingRNAcounts.csv.gz, https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263566&targ=self&form=text&view=brief, https://ftp.ncbi.nlm.nih.gov/geo/series/GSEnnn/GSE935/matrix/GSE935_series_matrix.txt.gz, https://ftp.ncbi.nlm.nih.gov/geo/series/GSE3nnn/GSE3353/matrix/GSE3353-GPL180_series_matrix.txt.gz, https://ftp.ncbi.nlm.nih.gov/geo/series/GSE276nnn/GSE276743/suppl/GSE276743_counts_1st.csv.gz]
+datasets: [https://ftp.ncbi.nlm.nih.gov/geo/series/GSE263nnn/GSE263566/suppl/GSE263566_ageingRNAcounts.csv.gz, https://ftp.ncbi.nlm.nih.gov/geo/series/GSE263nnn/GSE263566/soft/GSE263566_family.soft.gz, https://ftp.ncbi.nlm.nih.gov/geo/series/GSEnnn/GSE935/matrix/GSE935_series_matrix.txt.gz, https://ftp.ncbi.nlm.nih.gov/geo/series/GSE3nnn/GSE3353/matrix/GSE3353-GPL180_series_matrix.txt.gz, https://ftp.ncbi.nlm.nih.gov/geo/series/GSE276nnn/GSE276743/suppl/GSE276743_counts_1st.csv.gz]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-18
-  against: NCBI E-utilities JSON 0.3 / db=gds build 2026-08-16 / acc.cgi + ftp.ncbi.nlm.nih.gov 2026-08-18 / Python 3.12.8 / pandas 2.3.2 / curl 8.7.1
+  against: NCBI E-utilities JSON 0.3 / db=gds build 2026-08-16 / ftp.ncbi.nlm.nih.gov 2026-09-01 (acc.cgi bot-gated since, see notes) / Python 3.12.8 / pandas 2.3.2 / curl 8.7.1
   executed: 15
   unverified: 0
 ---
@@ -441,6 +441,27 @@ mean different things:
 | `Could not find a public or private accession "…"` | no such accession — **or** it exists and is still private. GEO gives one message for both |
 | `Accession "…" was deleted by the GEO staff on <date>` | **withdrawn.** The record existed, was public, and was retracted |
 | a redirect to `GDSbrowser` | a valid GDS accession that this endpoint does not serve |
+| a Google reCAPTCHA challenge page | **the endpoint is bot-gated from your address** — see below |
+
+**As of 2026-09-01 `acc.cgi` answers programmatic requests with a reCAPTCHA challenge.**
+Checked from an ordinary network with four different `User-Agent` strings, including a
+browser one and a `tool (email)` string: all four got the challenge, so this is not something
+a header fixes. It is specific to this endpoint — `https://www.ncbi.nlm.nih.gov/` itself
+answers `200` normally from the same address. Treat the code below as the shape of the
+problem rather than a route you can rely on today, and take metadata from one of these two
+instead, both verified working on 2026-09-01:
+
+- **The same SOFT record over FTP**, which is what this skill now declares in `datasets:` —
+  `https://ftp.ncbi.nlm.nih.gov/geo/series/GSE263nnn/GSE263566/soft/GSE263566_family.soft.gz`.
+  Identical content (`^SERIES = GSE263566`, `!Series_…` fields), gzipped, on a host that is
+  not gated. This is the direct substitute for `targ=self&form=text`.
+- **E-utilities**, which this skill already uses for search — `esearch` on
+  `db=gds&term=<ACC>[ACCN]` then `esummary`, which returns `accession`, `title`, `n_samples`
+  and `taxon` as JSON. Sanctioned for programmatic access and not gated.
+
+The withdrawn-vs-nonexistent distinction below is still real and still matters; it just has to
+be drawn from the SOFT record rather than from this endpoint's HTML while the gate is up.
+
 
 A withdrawn accession is not a typo, and code that reports "check the accession" for
 `GSE100030` — deleted 16 Feb 2018 — hides the one fact the reader needs. Entrez cannot tell you

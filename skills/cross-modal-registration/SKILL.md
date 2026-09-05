@@ -4,9 +4,9 @@ description: Bring a fluorescence, CODEX or IHC section into the same coordinate
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [microscopy, multiplex-imaging, image-analysis, registration, spatial]
-datasets: [https://zenodo.org/records/5675686/files/DAB-thumbnail.jpg, https://zenodo.org/records/5675686/files/Fluo-thumbnail.jpg, https://zenodo.org/records/12624860/files/ZH811_INF_v6.ome.tif, https://zenodo.org/records/12624860/files/HE_scans.zip]
+datasets: [https://zenodo.org/api/records/5675686/files/DAB-thumbnail.jpg/content, https://zenodo.org/api/records/5675686/files/Fluo-thumbnail.jpg/content, https://zenodo.org/api/records/12624860/files/ZH811_INF_v6.ome.tif/content, https://zenodo.org/api/records/12624860/files/HE_scans.zip/content]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-29
@@ -754,9 +754,15 @@ and perfect alignment scores **0.7500**.
 
 ### Tier 1 — a real cross-modal registration and the null control
 
+Every Zenodo URL here uses the API route, `​/api/records/<id>/files/<name>/content`, rather
+than the browser one. Same bytes, and it is what `datasets:` declares, so the nightly probe
+checks the address you actually run. The browser route works from a laptop but has been seen
+answering HTML instead of the file when the request comes from a datacenter address — CI,
+Colab, a cloud VM — which is exactly where an unattended run of this skill lives.
+
 ```bash
-curl -sL -o DAB-thumbnail.jpg  "https://zenodo.org/records/5675686/files/DAB-thumbnail.jpg?download=1"
-curl -sL -o Fluo-thumbnail.jpg "https://zenodo.org/records/5675686/files/Fluo-thumbnail.jpg?download=1"
+curl -sL -o DAB-thumbnail.jpg  "https://zenodo.org/api/records/5675686/files/DAB-thumbnail.jpg/content"
+curl -sL -o Fluo-thumbnail.jpg "https://zenodo.org/api/records/5675686/files/Fluo-thumbnail.jpg/content"
 ```
 
 ```python
@@ -962,11 +968,11 @@ variant from the framing, not from the modality name.
 
 ```bash
 curl -sL --retry 5 --retry-delay 15 -o HE_scans.zip \
-  "https://zenodo.org/records/12624860/files/HE_scans.zip?download=1"
+  "https://zenodo.org/api/records/12624860/files/HE_scans.zip/content"
 unzip -q HE_scans.zip
 until [ "$(stat -f%z ZH811_INF_v6.ome.tif 2>/dev/null || stat -c%s ZH811_INF_v6.ome.tif 2>/dev/null || echo 0)" -ge 718135498 ]; do
   curl -sL --retry 5 --retry-delay 15 -o ZH811_INF_v6.ome.tif \
-    "https://zenodo.org/records/12624860/files/ZH811_INF_v6.ome.tif?download=1"
+    "https://zenodo.org/api/records/12624860/files/ZH811_INF_v6.ome.tif/content"
 done
 ```
 
