@@ -5,7 +5,7 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.3.0
+version: 1.4.0
 tags: [genomic-intervals, bed, vcf, polars, file-io]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
@@ -398,32 +398,37 @@ DataFusion streaming is enabled by default for interval operations, processing d
 
 11. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
 
-12. **`coverage` is only trustworthy once you set the coordinate system.** The global default
-    is **1-based** (`datafusion.bio.coordinate_system_zero_based = false`), which is the path
-    you get for a hand-built DataFrame with no `config_meta` — and on that path `coverage`
-    returns numbers that contradict each other. For a query `[10, 20]`, whose 1-based
-    inclusive length is 11:
+12. **`coverage` was wrong on the 1-based path before 0.35.1 — pin at or above it.** The
+    global default is **1-based** (`datafusion.bio.coordinate_system_zero_based = false`),
+    which is the path a hand-built DataFrame with no `config_meta` gets. On `0.35.0` and
+    earlier, `coverage` returned numbers on that path that contradicted each other. For a
+    query `[10, 20]`, whose 1-based inclusive length is 11:
 
-    | target | coverage |
-    |---|---|
-    | identical to the query | 10 |
-    | `[5, 25]`, a strict superset | 12 |
-    | `[0, 100]`, a much larger superset | 12 |
+    | target | ≤ 0.35.0 | ≥ 0.35.1 |
+    |---|---|---|
+    | identical to the query | 10 | **11** |
+    | `[5, 25]`, a strict superset | 12 | **11** |
+    | `[0, 100]`, a much larger superset | 12 | **11** |
 
     A target identical to the query and one strictly containing it must both return the
-    query's own length. They return 10 and 12, and the length is 11 — three answers where
-    there can only be one, and the superset exceeds the interval it is measuring. Set the
-    metadata explicitly and the same three rows return 10, 10, 10 against a length of 10:
+    query's own length. The old numbers were 10 and 12 against a length of 11 — three
+    answers where there can only be one, and the superset exceeding the interval it
+    measures. Fixed in **0.35.1** (biodatageeks/polars-bio#450); the same release also
+    stopped a zero-length target reporting one covered base on the 0-based path. The
+    0-based path was correct throughout and is unchanged.
+
+    If you are pinned below 0.35.1 and cannot move, set the metadata explicitly on **both**
+    frames — that routes you onto the 0-based path, which was always right:
 
     ```python
     for df in (query, target):
         df.config_meta.set(coordinate_system_zero_based=True)   # BED semantics
     ```
 
-    Do this on **both** frames before any `coverage` call. Pitfall 4 covers the metadata
-    generally; this is the operation where getting it wrong returns a plausible wrong number
-    instead of an error. Reported upstream as biodatageeks/polars-bio#450; observed on 0.33.1
-    and 0.34.0.
+    Setting it is worth doing regardless of version: Pitfall 4 covers coordinate metadata
+    generally, and `coverage` is the operation where leaving it unset historically returned
+    a plausible wrong number instead of an error.
+
 
 ## Best Practices
 
@@ -516,16 +521,20 @@ assert merged.select("start", "end").rows() == [(1, 8), (22, 29)]
 assert hits["count"].to_list() == [1, 1, 1], "each interval meets exactly one target"
 assert three.height <= six.height, "BED3 can never yield more records than BED6"
 assert zb_same == zb_super == 10, "0-based: identical and superset targets both cover the query"
+assert zb_same <= 10 and ob_same <= 11, "coverage can never exceed the query's own length"
 
-# --- OBSERVED 2026-08-26, polars-bio 0.34.0: drift, not failure ------------
+# --- OBSERVED 2026-09-05, polars-bio 0.35.1: drift, not failure ------------
 print()
-print("BED3 rows observed:", three.height, "(expected 0 on 0.33.1 and 0.34.0)")
+print("BED3 rows observed:", three.height, "(expected 0 on 0.33.1 through 0.35.1)")
 print("column count      :", len(six.columns), "(expected 4 — score/strand are dropped)")
-print("1-based coverage  :", ob_same, "/", ob_super, "(expected 10 / 12 — Pitfall 12)")
+print("1-based coverage  :", ob_same, "/", ob_super, "(expected 11 / 11 on >=0.35.1 — Pitfall 12)")
 ```
 
 **Expect** — the invariants above are assertions and must pass. The three values below are
-*observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug:
+*observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug. This
+block was re-executed on **0.35.1** on 2026-09-05 to confirm the Pitfall 12 fix; the
+`verified:` block in the frontmatter still describes the full 0.34.0 sweep, which the rest of
+the skill has not been re-run against:
 
 ```
 BED3 rows : 0    <- Pitfall 10
@@ -536,18 +545,19 @@ file 0-based start : 0 | default 1-based start : 1
 merged    : [(1, 8), (22, 29)]
 overlaps  : [1, 1, 1]
 coverage 0-based identical/superset: 10 / 10
-coverage 1-based identical/superset: 10 / 12
+coverage 1-based identical/superset: 11 / 11
 
-BED3 rows observed: 0 (expected 0 on 0.33.1 and 0.34.0)
+BED3 rows observed: 0 (expected 0 on 0.33.1 through 0.35.1)
 column count      : 4 (expected 4 — score/strand are dropped)
-1-based coverage  : 10 / 12 (expected 10 / 12 — Pitfall 12)
+1-based coverage  : 11 / 11 (expected 11 / 11 on >=0.35.1 — Pitfall 12)
 ```
 
 If `BED3 rows` prints `3`, upstream has fixed the record-parsing bug and Pitfall 10 should be
 retired. If the schema grows past four columns, the extended-field note in
-`references/file_io.md` needs updating with it. If `1-based coverage` prints `11 / 11`,
-biodatageeks/polars-bio#450 has been fixed and Pitfall 12 should be retired — the assertion
-above only pins the 0-based path, which is correct today and must stay that way.
+`references/file_io.md` needs updating with it. If `1-based coverage` prints `10 / 12` you
+are on a release older than 0.35.1 and are hitting biodatageeks/polars-bio#450 — upgrade, or
+follow the workaround in Pitfall 12. Anything other than `11 / 11` or that known-bad
+`10 / 12` is new drift and worth investigating.
 
 ## Resources
 
