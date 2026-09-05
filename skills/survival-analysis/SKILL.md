@@ -23,7 +23,7 @@ nothing more. That is **right-censoring**, and it is information, not missing da
 
 This is the whole reason survival analysis exists as a separate field. Delete the censored
 rows and you keep only the people who had the event, which is a sample of the unlucky.
-Treat censored times as events and you record survivors as deaths. Both mistakes push the
+Treat censored times as events and you record event-free patients as having had one. Both mistakes push the
 answer the same direction — too pessimistic — and neither announces itself.
 
 This skill covers the three things almost every time-to-event analysis needs — an estimate
@@ -38,10 +38,10 @@ No account, no API key, no GPU. Pure Python.
 pip install lifelines
 ```
 
-It pulls in numpy, scipy, pandas, autograd and formulaic. Everything below runs on CPU in
+It pulls in numpy, scipy, pandas, matplotlib, autograd, autograd-gamma and formulaic. Everything below runs on CPU in
 seconds.
 
-The example data ships **inside the package** — 25 datasets, including several real clinical
+The example data ships **inside the package** — 27 datasets, including several real clinical
 trials. Nothing here downloads anything, which is also why every block on this page can be
 re-run to check the skill still holds.
 
@@ -79,13 +79,15 @@ Two rules worth enforcing in code, because both are silent failures:
 
 - **Durations must be positive.** A zero or negative duration is a data-entry error or a
   wrong origin, and most estimators will happily consume it.
-- **Administrative censoring is still censoring.** Someone alive at the study close is
+- **Administrative censoring is still censoring.** Someone event-free at the study close is
   censored at the close date, not an event, and not a dropped row.
 
 ## What censoring does to a naive average
 
 Worth seeing once, with numbers. The GBSG2 trial below has 686 breast-cancer patients, of
-whom 387 (56%) were still alive when the study ended.
+whom 387 (56%) were still event-free when the study ended. GBSG2's endpoint is
+**recurrence-free survival**, so an event is a recurrence *or* a death, not a death alone —
+`time` is "recurrence free survival time (in days)" and `cens` is the event indicator.
 
 ```python
 import pandas as pd
@@ -108,8 +110,8 @@ naive, all rows    : 1084.0
 naive, events only : 646.0
 ```
 
-The correct median is **1,807 days**. Treating censored times as deaths gives 1,084 days.
-Keeping only the patients who died gives 646 days — an answer wrong by a factor of nearly
+The correct median is **1,807 days**. Treating censored times as events gives 1,084 days.
+Keeping only the patients who had an event gives 646 days — an answer wrong by a factor of nearly
 three, produced by a one-line `groupby` that raises no error and looks entirely reasonable
 in a table.
 
@@ -346,8 +348,8 @@ violation was not distorting the primary result.
 Stratifying does not clear the page, and the output above is honest about that — `age` and
 `pnodes` now cross 0.05 (p = 0.042 and p = 0.018) where they did not before. Removing a
 covariate from the model changes the residuals of the ones that remain, so a re-test after
-stratifying is a new set of tests, not a confirmation of the old one. With nine covariates
-at α = 0.05, some of this is multiplicity. Treat a borderline flag as a prompt to plot the
+stratifying is a new set of tests, not a confirmation of the old one. With eight covariates
+left after `tgrade_III` becomes the strata, tested at α = 0.05, some of this is multiplicity. Treat a borderline flag as a prompt to plot the
 scaled Schoenfeld residuals and look at the shape, not as a verdict — the question is whether
 the effect drifts enough over follow-up to change what you would report.
 
@@ -446,8 +448,8 @@ A self-contained check that this skill still works. The data ships inside the pa
 this needs no network, no account and no key — `pip install lifelines` is the only setup.
 
 **Data** — the GBSG2 cohort, `lifelines.datasets.load_gbsg2()`. 686 node-positive breast
-cancer patients from the German Breast Cancer Study Group 2 trial, 299 deaths and 387
-censored, distributed inside the lifelines wheel under the package's MIT licence. Because it
+cancer patients from the German Breast Cancer Study Group 2 trial, 299 events and 387
+censored (the endpoint is recurrence-free survival, so an event is recurrence or death), distributed inside the lifelines wheel under the package's MIT licence. Because it
 is bundled rather than fetched, this block cannot rot from a URL going dead — it is pinned to
 the installed version, and `datasets: []` in the frontmatter records that there is nothing to
 probe. The example routes through the trap the page is built around — a model that looks
@@ -469,8 +471,8 @@ km = KaplanMeierFitter().fit(df["time"], df["cens"])
 naive_all = df["time"].median()
 naive_evt = df.loc[df["cens"] == 1, "time"].median()
 print(f"KM median      : {km.median_survival_time_:.0f} days")
-print(f"naive (all)    : {naive_all:.0f} days   <- censored times treated as deaths")
-print(f"naive (events) : {naive_evt:.0f} days   <- survivors dropped entirely")
+print(f"naive (all)    : {naive_all:.0f} days   <- censored times treated as events")
+print(f"naive (events) : {naive_evt:.0f} days   <- event-free patients dropped")
 
 # --- two arms of the trial ---
 arms = {}
@@ -543,8 +545,8 @@ releases; a mismatch is drift to investigate, not an automatic failure:
 ```
 cohort         : 686 patients, 299 events, 387 censored
 KM median      : 1807 days
-naive (all)    : 1084 days   <- censored times treated as deaths
-naive (events) : 646 days   <- survivors dropped entirely
+naive (all)    : 1084 days   <- censored times treated as events
+naive (events) : 646 days   <- event-free patients dropped
 horTh=no       : n=440  events=205  median=1528 d
 horTh=yes      : n=246  events= 94  median=2018 d
 log-rank       : chi2=8.5648  p=0.003427
