@@ -9,7 +9,7 @@ tags: [crystal-structure, materials, plausibility, synthesizability, screening]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
 verified:
-  date: 2026-09-03
+  date: 2026-09-06
   against: PRIS at commit 34e6c86 (the repository is untagged) / pymatgen 2026.5.4 / spglib 2.7.0 / numpy 2.4.6 / pandas 3.0.5 / scipy 1.17.1 / Python 3.11.15
   executed: 6
   unverified: 0
@@ -322,7 +322,7 @@ assert sq["1"]["state"] == "pass"           # the distance floor does NOT
 assert rows["mgo_squashed.cif"]["sets"]["Set 4"]["unsatisfied"] == ["Law 8"]
 assert rows["mgo.cif"]["pss"] > rows["mgo_squashed.cif"]["pss"]
 
-# --- OBSERVED 2026-09-03: a mismatch here is drift, not a bug --------------
+# --- OBSERVED 2026-09-06: a mismatch here is drift, not a bug --------------
 for f, r in rows.items():
     print(f'{f:18} {r["verdict"]:12} PSS {r.get("pss", float("nan")):+.3f}')
 mg = rows["mgo.cif"]["laws"]
@@ -333,7 +333,7 @@ PY
 ```
 
 **Expect** — the assertions above are invariants and must hold. The printed
-numbers are observed values recorded on 2026-09-03 against the pinned commit; if
+numbers are observed values recorded on 2026-09-06 against the pinned commit; if
 they move, the frozen artefacts or pymatgen's radii changed, which is drift to
 investigate rather than a bug:
 
