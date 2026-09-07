@@ -5,11 +5,15 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.3.0
 tags: [doe, randomization, blocking, factorial, study-design]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-09-06
+  against: pyDOE3 1.6.2 / pandas 3.0.5 / NumPy 2.4.6 / Python 3.11.15 — Try it re-run under NumPy 2.5.2 / Python 3.13.12, and under pydoe 1.5.0
+  executed: 5
+  unverified: 0
 ---
 # Experimental Design
 
@@ -50,10 +54,17 @@ order.
 
 One note before you pin the dependency. The lineage runs pyDOE → pyDOE2 → pyDOE3 and, as
 of 2026, continues in `pydoe`, which reclaims the original name and carries the whole
-copyright chain; pyDOE2 has been dormant since 2020. Everything below is written and
-checked against `pyDOE3` 1.6.2 (released 2026-01-12). `pydoe` 1.4.0 (2026-08-05) exposes
-the same generators under the same names, so these imports work unchanged if you switch.
-Both are BSD-3-Clause.
+copyright chain; pyDOE2 has been dormant since 2020. **`pyDOE3` is now deprecated** — its
+repository was archived on 2026-05-05, its last release is 1.6.2 (2026-01-12), and its own
+README states that active development has returned to the main PyDOE package. It still
+installs and still works: everything below is written and checked against it, so nothing
+here is broken. But if you are starting fresh, pin `pydoe` 1.5.0 (2026-08-20) instead.
+
+Switching costs one line rather than nothing. `pydoe` exposes the same five generators under
+the same names and returns identical shapes, but it installs as the module `pydoe` — so read
+`from pydoe import ff2n, fracfact, pbdesign, ccdesign, bbdesign` wherever the blocks below
+say `from pyDOE3 import …`. With that single substitution every block below runs unchanged
+and prints the same numbers. Both are BSD-3-Clause.
 
 ---
 
@@ -322,9 +333,12 @@ Invariants — these hold regardless of package version, and a failure means the
 - `block_size` not a multiple of `len(arms)` raises `ValueError` rather than silently
   producing an unbalanced schedule.
 
-Observed 2026-08-16 with `pyDOE3` 1.6.2, NumPy 2.4.6, pandas 3.0.5. The run is seeded and
-reproducible, but the simple-randomization figures depend on NumPy's generator stream — if
-those two numbers move, treat it as drift to investigate, not as a failure:
+Observed 2026-09-06 with `pyDOE3` 1.6.2 and pandas 3.0.5, under **both** NumPy 2.4.6 (Python
+3.11) and NumPy 2.5.2 (Python 3.13) — byte-identical output on both. NumPy 2.5 requires
+Python 3.12+, so which one `numpy>=1.26` resolves to depends on your interpreter; it does not
+change these numbers. The run is seeded and reproducible, but the simple-randomization
+figures depend on NumPy's generator stream — if those two numbers move, treat it as drift to
+investigate, not as a failure:
 
 ```
 max running imbalance  blocked(bs=4): 2   simple: 9
