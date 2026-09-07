@@ -84,6 +84,15 @@ it. Which routes stay open:
   obtain terms from the copyright owner for the table, or screen on Sets 1 to 3
   and treat Set 4 and PSS as unavailable rather than as passes.
 
+  **Choosing that entry point is not enough on its own.** A clone brings the
+  table with it, and `elec_feat.bv_table()` opens it whenever it is present —
+  `apply_rules.py` reaches that loader through `elec_feats` like every other
+  path. To stay off the restricted route, delete `data/bvparm2020.cif` after
+  cloning, or point `NEWPAULING_BVPARM` at a table you are licensed for. The
+  loader catches the missing file and returns an empty table, so Sets 1 to 3
+  still produce real verdicts — that is the behaviour to rely on, not the choice
+  of script.
+
 **Know what the unrestricted route does not catch.** Law 8 is the bond-valence
 law, so it is the one that fails on the compressed structure in "What a distance
 cutoff misses" below — the demonstration this page opens with. Screening on
@@ -254,11 +263,16 @@ the `## Try it` block below reproduces it exactly.
   whose composition admits no integer charge balance are skipped rather than
   guessed at.
 - **`src/apply_rules.py` is a lighter path that covers only Set 1 to Set 3** — it
-  does not read the bond-valence table (it still needs spglib, as every path
+  does not require the bond-valence table (it still needs spglib, as every path
   does). Be aware that it prints its
   verdicts in Chinese (`合理` plausible, `不合理` implausible, `跳过` skipped),
   which will silently break any parser written against the English output of
-  `pris_analyze`. Prefer `pris_analyze --json` for anything automated.
+  `pris_analyze`. **It shares the exit-0 trap described above**: its `main()`
+  returns 0 unconditionally, and a file it cannot read is counted into the
+  trailing `跳过` total rather than raising. A batch where every structure failed
+  to parse therefore reports `合理 0 / 不合理 0 / 跳过 N` and exits clean, exactly
+  as `pris_analyze` does. Check the skip count, not the exit status. Prefer
+  `pris_analyze --json` for anything automated.
 - **Most other scripts in `src/` are an audit trail, not a library.** The
   project says so directly: many still contain absolute paths from the machine
   the original campaign ran on. Treat `pris_analyze.py` and `apply_rules.py` as
