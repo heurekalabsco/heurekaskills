@@ -79,10 +79,25 @@ It matters because Law 8 is the bond-valence law, and the table is what evaluate
 it. Which routes stay open:
 
 - **Non-profit use** — everything, including Law 8, Set 4 and PSS.
-- **Otherwise** — Sets 1 to 3 are unaffected. They need neither the table nor
-  spglib, and `src/apply_rules.py` is the entry point that covers exactly that
-  range. Either obtain terms from the copyright owner for the table, or screen on
-  Sets 1 to 3 and treat Set 4 and PSS as unavailable rather than as passes.
+- **Otherwise** — Sets 1 to 3 are unaffected by the table, and
+  `src/apply_rules.py` is the entry point that covers exactly that range. Either
+  obtain terms from the copyright owner for the table, or screen on Sets 1 to 3
+  and treat Set 4 and PSS as unavailable rather than as passes.
+
+**Know what the unrestricted route does not catch.** Law 8 is the bond-valence
+law, so it is the one that fails on the compressed structure in "What a distance
+cutoff misses" below — the demonstration this page opens with. Screening on
+Sets 1 to 3 alone returns *plausible* for that structure. That route is a
+coarser filter than the full set, not the same filter minus a column, and on the
+compression case specifically it behaves like the distance cutoff the opening
+argument is against.
+
+**spglib is required either way.** Both entry points import it through
+`pymatgen`'s structure reader, and pymatgen declares it only under an extra, so
+it can be absent. Without it every structure is skipped with
+`No module named 'spglib'` and the run still exits 0 — the install line below
+includes it for that reason. It is BSD-3-Clause and unrestricted; only the
+bond-valence table carries the non-commercial terms.
 
 Verify this against the file header yourself before relying on either reading;
 the terms are stated there in full, and this is a summary of them, not advice.
@@ -239,7 +254,8 @@ the `## Try it` block below reproduces it exactly.
   whose composition admits no integer charge balance are skipped rather than
   guessed at.
 - **`src/apply_rules.py` is a lighter path that covers only Set 1 to Set 3** — it
-  needs neither spglib nor the bond-valence table. Be aware that it prints its
+  does not read the bond-valence table (it still needs spglib, as every path
+  does). Be aware that it prints its
   verdicts in Chinese (`合理` plausible, `不合理` implausible, `跳过` skipped),
   which will silently break any parser written against the English output of
   `pris_analyze`. Prefer `pris_analyze --json` for anything automated.
@@ -269,6 +285,11 @@ the `## Try it` block below reproduces it exactly.
 
 A self-contained check that this skill still holds. It clones the tool, builds its
 own inputs and needs no data source of any kind.
+
+**It exercises Law 8, so it runs on the non-profit route.** The clone brings the
+bond-valence table with it, and the assertions below read that law. On any other
+route, run this block only under terms you have obtained from the copyright
+owner — see the licence section above.
 
 **Data** — generated inline, which is why `datasets:` is empty. The analyser's
 input is a local structure file, and the two structures here are built from
