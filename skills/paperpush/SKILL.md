@@ -5,13 +5,13 @@ category: communication
 license: BSD-2-Clause
 author: Pachter Lab (adapted by Heureka Labs)
 attribution: https://github.com/pachterlab/paperpush
-version: 1.3.0
+version: 1.4.0
 datasets: []
 tags: [manuscript, preprint, submission, publishing]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-01
-  against: paperpush 0.1.5 / Python 3.11
+  date: 2026-09-09
+  against: paperpush 0.1.5 / pypdf 6.18.0 / Python 3.11
   executed: 8
   unverified: 1
   unverified_reason: >-
@@ -366,7 +366,7 @@ probe has nothing to fetch and the sensitive-information scan reads local files 
 | `error: venue 'v' has no field 'f'` | The `id` is not in that venue's `.sub`. Read the generated file for the real names. |
 | `ignored proposed field 'f': not a field in the <venue> template` | Same cause — the id does not exist for this venue and nothing was written. |
 | `Looks like Playwright was just installed…` | The browser is missing. Run `playwright install chromium`. |
-| `<file> does not look like a valid PDF (missing %PDF header)` | The manuscript file is not a real PDF. Check the file before re-running. |
+| `<file> does not look like a valid PDF (missing %PDF header)`, preceded on stderr by pypdf's own `invalid pdf header: b'…'` and `EOF marker not found`, four times each | The manuscript file is not a real PDF. The pypdf lines come first and name no field, so search for the paperpush message — it is the one that says which field is at fault. Both `autofill` and `validate` report it. Check the file before re-running. |
 | `could not detect any pages in <file>` / `<file> is only N bytes; it may be empty` | Advisory warnings, not errors — the PDF parsed but looks truncated or blank. Confirm you pointed at the built manuscript, not a stub. |
 | A value you proposed appears under *Left for you to set* | It is a `never` field. Working as designed — ask the author. |
 | A value you proposed is missing entirely | It fell below `--min-confidence`, or its `value` was empty. |
