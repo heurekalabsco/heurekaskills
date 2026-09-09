@@ -5,11 +5,15 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.4.0
 tags: [doe, randomization, blocking, factorial, study-design]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-09-08
+  against: pydoe 1.5.0 / pandas 3.0.5 / NumPy 2.4.6 / Python 3.11.15 — Try it re-run cold under NumPy 2.5.3 / Python 3.13.7, and against the deprecated pyDOE3 1.6.2 for output equality
+  executed: 5
+  unverified: 0
 ---
 # Experimental Design
 
@@ -40,20 +44,30 @@ This skill helps you choose among design types, generate the actual randomizatio
 ## Installation
 
 ```bash
-uv pip install "numpy>=1.26" "pandas>=2.0" pyDOE3
+uv pip install "numpy>=1.26" "pandas>=2.0" "pydoe>=1.5"
 ```
 
-`pyDOE3` supplies factorial, fractional-factorial, Plackett-Burman, central-composite,
+`pydoe` supplies factorial, fractional-factorial, Plackett-Burman, central-composite,
 Box-Behnken, and Latin-hypercube generators. It returns coded matrices; the `to_real`
 helper below converts them to real factor units with named columns and randomized run
 order.
 
-One note before you pin the dependency. The lineage runs pyDOE → pyDOE2 → pyDOE3 and, as
-of 2026, continues in `pydoe`, which reclaims the original name and carries the whole
-copyright chain; pyDOE2 has been dormant since 2020. Everything below is written and
-checked against `pyDOE3` 1.6.2 (released 2026-01-12). `pydoe` 1.4.0 (2026-08-05) exposes
-the same generators under the same names, so these imports work unchanged if you switch.
-Both are BSD-3-Clause.
+One note on which package that is, because the name has moved. The lineage runs pyDOE →
+pyDOE2 → pyDOE3 and, as of 2026, continues in `pydoe`, which reclaims the original name and
+carries the whole copyright chain; pyDOE2 has been dormant since 2020. **`pyDOE3` is
+deprecated** — its repository was archived on 2026-05-05, its last release is 1.6.2
+(2026-01-12), and its own README states that active development has returned to the main
+PyDOE package. Everything below is written and checked against `pydoe` 1.5.0 (2026-08-20),
+which is the one to pin.
+
+If you have existing code on `pyDOE3`, moving costs one line per file rather than a rewrite.
+The module name is the only thing that changes: `ff2n`, `fracfact`, `pbdesign`, `ccdesign`,
+`bbdesign` and `lhs` keep their names, their parameters and their defaults, so
+`from pyDOE3 import ff2n, fracfact, pbdesign, ccdesign, bbdesign` becomes
+`from pydoe import …` and nothing else moves. Every block below was run both ways and printed
+the same numbers. `pyDOE3` 1.6.2 still installs and still works, so nothing breaks the day
+you read this if you stay on it — but it is archived, and a bug found there will not be
+fixed. Both are BSD-3-Clause.
 
 ---
 
@@ -147,16 +161,16 @@ intervention is delivered at a group level. See
 
 ### DOE matrices
 
-`pyDOE3` generates the coded matrices; scale them into real units yourself so the
+`pydoe` generates the coded matrices; scale them into real units yourself so the
 saved run sheet is directly usable at the bench.
 
 ```bash
-uv pip install pyDOE3 numpy pandas
+uv pip install "pydoe>=1.5" numpy pandas
 ```
 
 ```python
 import numpy as np, pandas as pd
-from pyDOE3 import ff2n, fracfact, pbdesign, ccdesign, bbdesign
+from pydoe import ff2n, fracfact, pbdesign, ccdesign, bbdesign
 
 def to_real(coded, factors, seed=None):
     """Map a coded design (-1..+1) to real units and randomize run order."""
@@ -249,7 +263,7 @@ nothing to fetch, and every assertion below is checkable from the design matrix 
 
 ```python
 import numpy as np, pandas as pd
-from pyDOE3 import ff2n, fracfact
+from pydoe import ff2n, fracfact
 
 def block_randomization(n, arms, block_size=None, seed=None):
     rng = np.random.default_rng(seed)
@@ -322,9 +336,14 @@ Invariants — these hold regardless of package version, and a failure means the
 - `block_size` not a multiple of `len(arms)` raises `ValueError` rather than silently
   producing an unbalanced schedule.
 
-Observed 2026-08-16 with `pyDOE3` 1.6.2, NumPy 2.4.6, pandas 3.0.5. The run is seeded and
-reproducible, but the simple-randomization figures depend on NumPy's generator stream — if
-those two numbers move, treat it as drift to investigate, not as a failure:
+Observed 2026-09-08 with `pydoe` 1.5.0 and pandas 3.0.5, under **both** NumPy 2.4.6 (Python
+3.11.15) and NumPy 2.5.3 (Python 3.13.7) — byte-identical output on both, and byte-identical
+again with the import switched back to the deprecated `pyDOE3` 1.6.2, which is the evidence
+behind the one-line migration claimed above. NumPy 2.5 requires Python 3.12+, so which one
+`numpy>=1.26` resolves to depends on your interpreter; it does not change these numbers. The
+run is seeded and reproducible, but the simple-randomization
+figures depend on NumPy's generator stream — if those two numbers move, treat it as drift to
+investigate, not as a failure:
 
 ```
 max running imbalance  blocked(bs=4): 2   simple: 9
