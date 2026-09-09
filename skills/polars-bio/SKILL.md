@@ -19,6 +19,9 @@ verified:
     a BigBed track, a VCF Zarr store, a Hi-C pairs file, a CRAM plus its reference, or a
     VCF carrying AF/DP INFO and GQ FORMAT fields. Re-run with a set of real sample files
     in those formats; everything else in the skill executes against inline-generated data.
+    Note the version gap: this sweep ran on 0.34.0, while the install lines now pin 0.35.1
+    after the upstream coverage fix. Only the `## Try it` self-check has been re-executed
+    there; the full re-sweep is tracked in heurekalabsco/heurekaskills#226.
 ---
 # polars-bio
 
@@ -553,7 +556,7 @@ that release. The frontmatter `verified:` block still records the full 38-block 
 against **0.34.0** on 2026-08-26 — every other runnable block in this skill was last executed
 there, not on 0.35.1. Nothing in the 0.35.1 fix is expected to touch them, but "not expected
 to" is not the same as "re-run", and the frontmatter says which one this is. A full re-sweep
-is tracked in heurekalabsco/heurekaskills#226:
+is tracked in heurekalabsco/heurekaskills#226.
 
 ```
 BED3 rows : 0    <- Pitfall 10
