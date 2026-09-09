@@ -5,7 +5,7 @@ When several factors might affect a response, testing them **one factor at a tim
 *together*, so you estimate every main effect and interaction from the same runs,
 with better precision per run. This file covers the family of DOE designs and the
 concepts (resolution, aliasing) needed to read them. Generate the matrices with
-pyDOE3 as shown in SKILL.md.
+pydoe as shown in SKILL.md.
 
 ## Table of contents
 - [Why factorial beats OFAT](#why-factorial-beats-ofat)
