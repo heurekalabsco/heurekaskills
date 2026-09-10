@@ -88,8 +88,9 @@ input looks like an empty interval set rather than an error.
 awk 'BEGIN{OFS="\t"} {print $1,$2,$3,(NF>3?$4:"r"NR)}' three_col.bed > four_col.bed
 ```
 
-Confirmed identical on polars-bio 0.33.1 and 0.34.0 (2026-08-26), so this is long-standing
-behaviour rather than a recent regression. Check `df.height` after reading any BED you did
+Confirmed identical on polars-bio 0.33.1, 0.34.0 and 0.35.1 (rechecked 2026-09-05), so this
+is long-standing behaviour rather than a recent regression. Reported upstream as
+biodatageeks/polars-bio#456. Check `df.height` after reading any BED you did
 not write yourself.
 
 ## VCF Format
