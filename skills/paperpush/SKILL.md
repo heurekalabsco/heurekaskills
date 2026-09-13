@@ -5,21 +5,25 @@ category: communication
 license: BSD-2-Clause
 author: Pachter Lab (adapted by Heureka Labs)
 attribution: https://github.com/pachterlab/paperpush
-version: 1.4.0
+version: 1.5.0
 datasets: []
 tags: [manuscript, preprint, submission, publishing]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-09
-  against: paperpush 0.1.5 / pypdf 6.18.0 / Python 3.11
-  executed: 8
+  date: 2026-09-13
+  against: paperpush 0.2.0 / pypdf 6.18.1 / pydantic 2.13.5 / Python 3.11.15
+  executed: 9
   unverified: 1
   unverified_reason: >-
     The install block's `playwright install chromium` downloads a browser the validating
     environment does not fetch, so the browser half of the install is unrun; `login` and
     `submit` need that browser plus real portal credentials, which is why they are shown
     as plain output rather than runnable blocks. Re-run from a host that can download a
-    Playwright browser and holds a test account on a venue.
+    Playwright browser and holds a test account on a venue. Separately, `validate`'s
+    reference pass was exercised only as far as parsing — the DOIs were read out of a
+    `.bib` and handed to the resolver, but doi.org was unreachable from the validating
+    host, so no warning text for a mismatched or unregistered DOI was observed. Re-run
+    from a host that can reach doi.org to confirm those messages.
 ---
 
 # Submitting a manuscript with paperpush
@@ -82,6 +86,10 @@ paperpush --version
 paperpush --venues
 ```
 
+`paperpush --agent-guide` prints the project's own guidance for agents driving the CLI.
+It is worth reading once: it is upstream's statement of the same split this page describes,
+so where the two ever diverge, the tool's copy is the current one.
+
 ## Step 1 — check the author is signed in
 
 Do this first. It decides whether the run can finish at all.
@@ -125,8 +133,8 @@ defaults are before assuming they are correct: bioRxiv's `license` defaults to
 also carries a stricter `No reuse without permission` — and `author_consent` defaults to
 `no`. Neither default is one to accept on the author's behalf; both are `never` fields.
 Use
-`--dont-fill-defaults` to leave them empty instead, and `--force` to overwrite an
-existing `.sub`.
+`--dont-fill-defaults` to leave them empty instead (`--fill-defaults` is the default and
+is there to say so explicitly), and `--force` to overwrite an existing `.sub`.
 
 For a long or nested option list, query it directly rather than scrolling the comments:
 
@@ -197,8 +205,12 @@ N field(s) still need filling in before submit
 ```
 
 Useful flags: `-o OUTPUT` writes elsewhere instead of overwriting the `.sub`,
-`--min-confidence medium|high` refuses to write anything weaker, and `--dry-run` reports
-the decisions without touching the file.
+`--min-confidence low|medium|high` refuses to write anything weaker, and `--dry-run`
+reports the decisions without touching the file. The floor **defaults to `low`**, which
+writes everything you propose — if you want the tool to hold back your guesses, you have
+to ask for it. Every subcommand also takes `-v`/`-vv` and `-q`, or the `PAPERPUSH_LOG_LEVEL`
+environment variable, which is how you see what a check actually did rather than only what
+it concluded.
 
 ### What the tool refuses to fill
 
@@ -219,24 +231,79 @@ paperpush validate biorxiv.sub
 ```
 
 Exits `0` when the file is ready and non-zero when it is not, printing each blocking
-problem with its field name. Warnings are advisory and do not block. By default it also
-probes the URLs cited in the manuscript for dead links (including repositories that are
-still private) and scans the referenced files for material that should not be published —
-API keys, passwords, private keys, GPS coordinates embedded in figures, links to editable
-documents, and LaTeX source comments. Both passes are worth keeping on; skip them with
-`--dont-check-links` and `--dont-check-for-sensitive-info` if the author asks.
+problem with its field name. Warnings are advisory and do not block.
+
+Five passes run **by default**. The field check is the one that decides the exit code; the
+other four only ever warn, and each of those has its own opt-out.
+
+| pass | what it does | network | skip with |
+|---|---|---|---|
+| fields | required fields present, values legal for the venue | no | — (this is the exit code) |
+| links | probes URLs cited in the uploads, including still-private repositories | yes | `--dont-check-links` |
+| sensitive info | scans the uploads for API keys, passwords, private keys, GPS coordinates in figures, editable-document links and LaTeX source comments; nudges when no public repository is linked | no | `--dont-check-for-sensitive-info` |
+| references | reads the bibliography — `.bib` uploads and the reference list in the manuscript itself — and resolves each DOI, warning when one is malformed, duplicated, unregistered, or registered to a different title, author or year | yes | `--dont-check-references` |
+| manuscript | measures the uploads against the venue's own author guidelines | no | `--dont-check-manuscript` |
+
+The last two are new in 0.2.0, and both change what a clean run means. Keep them on.
+
+**The reference pass reads the uploads, not the directory.** It resolves DOIs found in the
+files the `.sub` actually lists — `manuscript_file`, `supplementary_files`, and so on. A
+`.bib` sitting in the manuscript directory that no field points at is never opened, and
+nothing says so. If you want the bibliography checked, put it in the submission.
+
+**And it fails silent.** When the DOI registry cannot be reached, every lookup is abandoned
+at debug level and **no warning is printed** — a run against an unreachable doi.org is
+indistinguishable from a clean bibliography, right down to the exit code. Verified on
+2026-09-13 with a deliberately unregistered DOI, which passed without comment. So do not
+report "references check out"; report that the check ran. `-v` prints the
+`Resolving N of N distinct DOI(s)` line, which is the only evidence the pass did anything.
 
 A typical first run:
 
 ```
 warning: no GitHub repository link found in the manuscript files; if the paper has
          associated code, add a link to its public repository
+08:17:55 WARNING paperpush.cli: validation failed for biorxiv: 1 error(s)
 error: 1 problem(s) in biorxiv.sub must be fixed before submitting:
   - [author_consent] All authors consent to deposit and to the chosen license must be
     confirmed (set to yes)
 ```
 
-That error is the author's to clear, not yours. Ask them.
+That error is the author's to clear, not yours. Ask them. The timestamped `WARNING` line
+is the logger restating the count on stderr; it carries nothing the `error:` block below it
+does not, so read the `error:` block to the author and leave the log line out.
+
+### What the venue actually requires
+
+The manuscript pass measures the uploads against rules paperpush ships for each venue, and
+`requirements` prints those same rules — so you can read what the submission will be judged
+against before you build it, rather than discovering it from warnings afterwards.
+
+```bash
+paperpush requirements biorxiv
+paperpush requirements nature --article-type "Matters Arising"
+paperpush requirements nature --json
+```
+
+The summary names the guideline pages it was read from and the date it was read, then lists
+the manuscript, figure and supplementary rules — accepted formats, size caps, word and
+display-item limits, required section headings and declarations, and free-text notes for
+everything that does not reduce to a number. Where a venue runs different rules for other
+article types, the header lists them and `--article-type` switches to one — for Nature the
+default research article allows 4,300 words and 6 display items, while `Matters Arising`
+allows 1,200 and 2. `--json` prints the same content as data.
+
+Spell that string the way the header spells it. An article type the venue has no overrides
+for does **not** fail: it warns once and prints the default rules anyway, so a typo hands
+you the wrong limits under the right heading. Exit status is `0` either way.
+
+Two things about it are worth holding onto. It is **a recorded snapshot, not a live fetch** —
+the header's date is when a human last read those pages, and a venue can change its
+guidelines the day after. Treat a rule that matters as something to confirm on the venue's
+own page, which the header links. And the manuscript pass is **advisory only**: every finding
+is a warning, so a submission that breaks a stated word limit still exits `0`. Those warnings
+are for the author to weigh, not for you to clear on their behalf — and a heading the tool
+cannot find in a PDF is as likely to be an extraction miss as a missing section.
 
 ## Step 6 — hand it back
 
@@ -320,6 +387,7 @@ cat > values.json <<'EOF'
   ]
 }
 EOF
+paperpush requirements biorxiv | head -8
 paperpush subfile biorxiv
 grep -E '^(license|author_consent):' biorxiv.sub
 paperpush autofill -d ./paper --engine manual --values values.json biorxiv.sub
@@ -348,15 +416,24 @@ so a confident proposal is still refused. Do not "fix" it.
 - The one warning — no repository link found in the manuscript — is advisory and does **not**
   change the exit code. Warnings never block.
 
-*Observed values — paperpush 0.1.5, checked 2026-09-01. A mismatch is drift to investigate,
+*Observed values — paperpush 0.2.0, checked 2026-09-13. A mismatch is drift to investigate,
 not a bug: bioRxiv changes its form, and the template tracks it.*
 
 - `paperpush subfile biorxiv` reports `19 fields (11 required)`.
 - The pre-populated defaults are `license: CC-BY-NC-ND` and `author_consent: no`.
 - `autofill` reports `Filled 4 field(s)` — title, abstract, authors, manuscript_file.
+- `paperpush requirements biorxiv` reports guidelines `read from the author guidelines on
+  2026-09-10` and accepted manuscript formats `.docx, .pdf`. That date is the snapshot the
+  installed version carries, so it moves with the release, not with today.
+- `validate`'s failing run prints a timestamped `WARNING paperpush.cli: validation failed
+  for biorxiv: 1 error(s)` line on stderr ahead of the `error:` block.
 
-No network beyond the install: the generated manuscript cites no URLs, so `validate`'s link
-probe has nothing to fetch and the sensitive-information scan reads local files only.
+No network beyond the install: the generated manuscript cites no URLs and carries no
+references, so `validate`'s link probe has nothing to fetch, its reference pass has no DOI
+to resolve, and the sensitive-information and manuscript passes read local files only. That
+is what makes this block runnable on a restricted host — and also why it does not exercise
+the two network passes. Checking those needs a manuscript with real URLs and a real
+bibliography, on a host that can reach them.
 
 ## Troubleshooting
 
@@ -370,10 +447,17 @@ probe has nothing to fetch and the sensitive-information scan reads local files 
 | `could not detect any pages in <file>` / `<file> is only N bytes; it may be empty` | Advisory warnings, not errors — the PDF parsed but looks truncated or blank. Confirm you pointed at the built manuscript, not a stub. |
 | A value you proposed appears under *Left for you to set* | It is a `never` field. Working as designed — ask the author. |
 | A value you proposed is missing entirely | It fell below `--min-confidence`, or its `value` was empty. |
+| `validate` reports no reference problems and you expected some | Either the bibliography is not in the uploads (the pass reads the files the `.sub` lists, not the directory), or doi.org was unreachable and every lookup was dropped silently. Re-run with `-v` and read the `Resolving N of N distinct DOI(s)` line: no line means nothing was read, `0 of 0` means nothing was found. |
+| A pile of `no 'X' section heading found` warnings on a manuscript that has them | The manuscript pass reads text extracted from the upload. A heading in a figure, an image-only PDF, or unusual typesetting will not be found. Warnings never block, so confirm by eye and move on. |
+| `error: unknown venue 'x'` or `venue 'v' has no field 'f'` exits `2` | Usage errors exit `2`, a failed validation exits `1`, success exits `0`. Do not treat every non-zero exit as a validation failure. |
 
 ## What this does not do
 
 It does not submit. It does not choose a venue, a licence, or a set of suggested
-reviewers. It does not check the manuscript against a journal's formatting or policy
-requirements beyond the fields in the form. And it does not relieve the author of reading
-the filled form before they press submit — say so when you hand it back.
+reviewers. And it does not relieve the author of reading the filled form before they press
+submit — say so when you hand it back.
+
+It *does* now check the manuscript itself against the venue's recorded author guidelines
+and the bibliography against the DOI registry — both added in 0.2.0, both advisory. Neither
+is a substitute for the venue's own page: the guidelines are a dated snapshot, and the DOI
+pass reports nothing at all when it cannot reach the registry.
