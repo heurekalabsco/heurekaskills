@@ -212,6 +212,70 @@ sc.tl.umap(adata)
 sc.pl.umap(adata, color="cell_type")
 ```
 
+## VIVS (Gene–Response Dependencies)
+
+**Purpose**: Decide which genes genuinely carry information about a separately measured
+readout — a protein panel, a spatial neighbourhood summary, any matrix parked in `.obsm` —
+as opposed to the many that merely move with it. Added in scvi-tools 1.5.1.
+
+**Key Features**:
+- Conditional randomization test, using a deep generative model of expression as the
+  sampler that produces the null
+- Calibrated p-values and adjusted p-values, one per gene per response column
+- Separates dependence from the shared latent structure that makes a marginal correlation
+  misleading
+- Accepts an already-trained model through `x_model=` instead of fitting its own
+
+**When to Use**:
+- Asking which genes *drive* a measured response, not which genes track it
+- CITE-seq: which transcripts a surface protein depends on, holding the rest constant
+- Spatial: which genes depend on niche composition
+- Anywhere a marginal correlation would be confounded by shared latent structure
+
+**Basic Usage** (VIVS lives in `scvi.external`):
+```python
+import numpy as np
+import scvi
+from scvi.external import VIVS
+
+scvi.settings.seed = 0
+adata = scvi.data.synthetic_iid()   # 400 cells x 100 genes; protein_expression in .obsm
+
+# Y is the response the genes are tested against — here the 100 surface proteins.
+VIVS.setup_anndata(adata, y_obsm_key="protein_expression", batch_key="batch")
+
+model = VIVS(adata, n_latent=10, x_likelihood="nb")
+model.train(x_max_epochs=20, xy_max_epochs=20)
+
+# The conditional randomization test: importance per gene against the response.
+imp = model.get_importance(n_mc_samples=50)
+for k in sorted(imp):
+    print(f"{k:15s}: shape {np.asarray(imp[k]).shape}")
+```
+
+Training takes two epoch budgets, not one: `x_max_epochs` fits the generative model of
+expression, `xy_max_epochs` the importance-score net. `max_epochs` sets both at once.
+
+**The default scores the held-out split, deliberately.** `get_importance()` called with
+neither `adata` nor `indices` uses `self.validation_indices` — the cells the importance net
+was *not* fit on — because a randomization-test p-value computed on training cells is not
+calibrated. Passing `indices=np.arange(adata.n_obs)` uses every cell and trades that
+calibration away; do it knowingly rather than to make a result look stronger.
+
+**Return shapes.** `get_importance()` hands back a dict, not a DataFrame. On the 400 x 100
+example above with a 100-column response and `n_mc_samples=50`:
+
+| key | shape | what it is |
+|---|---|---|
+| `pvalues` | `(100, 100)` | genes x response columns |
+| `padj` | `(100, 100)` | the same, multiplicity-adjusted |
+| `obs_ts` | `(100,)` | observed test statistic per gene |
+| `null_ts` | `(50, 100, 100)` | the sampled null — Monte-Carlo draws x genes x responses |
+
+`null_ts` is the memory cost to watch: it scales with `n_mc_samples`, and the default is
+500 rather than the 50 used here. `use_vmap="auto"` vectorises the per-gene resampling loop
+below 2000 genes; switching it to `False` is the first lever to reach for when memory runs short.
+
 ## Model-Specific Best Practices
 
 ### MethylVI/MethylANVI
@@ -294,6 +358,7 @@ multivi_model = scvi.model.MULTIVI(
    - Batch correction → CytoVI, SysVI
    - Trajectory/pseudotime → Decipher
    - Methylation patterns → MethylVI/ANVI
+   - Which genes a measured response depends on → VIVS
 
 ## Example: Complete Methylation Analysis
 
@@ -374,3 +439,4 @@ These external tools extend scvi-tools functionality for specific use cases.
 | SysVI | scRNA-seq | Large-scale integration | No |
 | Decipher | scRNA-seq | Trajectory inference | No |
 | SOLO | scRNA-seq | Doublet detection | Semi |
+| VIVS | scRNA-seq + a response | Gene–response dependence | No |

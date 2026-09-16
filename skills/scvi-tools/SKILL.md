@@ -5,14 +5,14 @@ category: models
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.4.0
+version: 1.5.0
 tags: [single-cell, batch-correction, generative-models, scvi, multimodal]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-30
-  against: scvi-tools 1.5.0.post1 / torch 2.13.0 / scanpy 1.12.4 / Python 3.12.3
-  executed: 3
+  date: 2026-09-16
+  against: scvi-tools 1.5.1 / torch 2.14.0 / scanpy 1.12.4 / anndata 0.13.3.post0 / Python 3.12.3
+  executed: 4
   unverified: 1
   unverified_reason: >-
     The Typical Workflow block calls scvi.data.heart_cell_atlas_subsampled(), which
@@ -20,15 +20,15 @@ verified:
     outbound route to that host — the block was not run rather than found broken.
     Re-run it from a host that can reach exampledata.scverse.org. The optional GPU
     line of the install block ("scvi-tools[cuda]") also went unrun for want of a CUDA
-    host; the extra itself is present in the 1.5.0.post1 metadata.
+    host; the extra itself is present in the 1.5.1 metadata.
 ---
 # scvi-tools
 
 ## Overview
 
-scvi-tools is a comprehensive Python framework for probabilistic models in single-cell genomics. Built on PyTorch and PyTorch Lightning, it provides deep generative models using variational inference for analyzing diverse single-cell data modalities. Current stable release: **scvi-tools 1.5.0** (July 2026).
+scvi-tools is a comprehensive Python framework for probabilistic models in single-cell genomics. Built on PyTorch and PyTorch Lightning, it provides deep generative models using variational inference for analyzing diverse single-cell data modalities. Current stable release: **scvi-tools 1.5.1** (September 2026).
 
-**Model namespaces matter:** core models (scVI, scANVI, totalVI, MultiVI, PeakVI, AUTOZI, CondSCVI, DestVI, LinearSCVI, AmortizedLDA) live under `scvi.model`. Most other models (VeloVI, contrastiveVI, CellAssign, PoissonVI, scBasset, MrVI, MethylVI/MethylANVI, CytoVI, SysVI, Decipher, gimVI, scVIVA, ResolVI, Stereoscope, Solo, totalANVI, DIAGVI, DRVI, JointEmbeddingSCVI) live under `scvi.external`. The reference files specify the correct namespace per model. Class attributes are mostly upper-case (`scvi.external.VELOVI`, `scvi.external.POISSONVI`, `scvi.external.RNAStereoscope`) — take the exact spelling from the reference file rather than from the prose name.
+**Model namespaces matter:** core models (scVI, scANVI, totalVI, MultiVI, PeakVI, AUTOZI, CondSCVI, DestVI, LinearSCVI, AmortizedLDA) live under `scvi.model`. Most other models (VeloVI, contrastiveVI, CellAssign, PoissonVI, scBasset, MrVI, MethylVI/MethylANVI, CytoVI, SysVI, Decipher, gimVI, scVIVA, ResolVI, Stereoscope, Solo, totalANVI, DIAGVI, DRVI, JointEmbeddingSCVI, VIVS) live under `scvi.external`. The reference files specify the correct namespace per model. Class attributes are mostly upper-case (`scvi.external.VELOVI`, `scvi.external.POISSONVI`, `scvi.external.RNAStereoscope`) — take the exact spelling from the reference file rather than from the prose name.
 
 ## When to Use This Skill
 
@@ -85,6 +85,8 @@ Additional specialized analysis tools. See `references/models-specialized.md` fo
 - **CytoVI**: Flow/mass cytometry batch correction
 - **Solo**: Doublet detection
 - **CellAssign**: Marker-based cell type annotation
+- **VIVS**: Which genes actually carry information about a separately measured readout — a
+  protein panel, a neighbourhood summary — via a conditional randomization test (added in 1.5.1)
 
 ## Typical Workflow
 
@@ -202,7 +204,7 @@ uv pip install scvi-tools
 uv pip install "scvi-tools[cuda]"
 ```
 
-For reproducible environments, pin a version: `uv pip install scvi-tools==1.5.0.post1`.
+For reproducible environments, pin a version: `uv pip install scvi-tools==1.5.1`.
 
 The scanpy steps in the workflow above need one extra: `sc.tl.leiden` raises
 `ModuleNotFoundError` on a stock install, so add `uv pip install "scanpy[leiden]"` (or
@@ -213,6 +215,16 @@ The scanpy steps in the workflow above need one extra: `sc.tl.leiden` raises
 defaulted to JAX now run on PyTorch, including `scvi.external.MRVI` and
 `scvi.external.Tangram`. An experimental MLX backend for Apple silicon
 (`scvi.model.mlxSCVI`) remains, and raises `ModuleNotFoundError` until `mlx` is installed.
+Separately from MLX, 1.5.1 widened native **`mps`** support to the draws it had not yet
+reached — gamma, Poisson, Dirichlet and binomial — plus the `lgamma` calls left over, so
+Apple-silicon users get more of the library on the GPU without installing anything.
+
+**One training default moved in 1.5.1.** `scvi.train.TrainingPlan` now uses the *fused* `Adam`
+and `AdamW` implementations where the backend supports them. It is a speed change rather than
+an API one, but it is the kind of thing to pin down first if numbers shift after an upgrade —
+pass `plan_kwargs={"fused_optimizer": False}` to `train()` to restore the previous behaviour.
+The same release also makes `compile=True` announce itself when compilation quietly reverted
+to eager execution, which until now left no trace for the caller to notice.
 
 ## Best Practices
 
@@ -241,7 +253,7 @@ which is what makes the differential-expression result below a test rather than 
 **Run** — needs Python 3.12+. Takes well under a minute on CPU:
 
 ```bash
-uv pip install "scvi-tools==1.5.0.post1"
+uv pip install "scvi-tools==1.5.1"
 ```
 
 ```python
@@ -308,7 +320,7 @@ print("max proba_de   : %.4f" % de["proba_de"].max())
 - `scvi.external.CYTOVI` exists while `scvi.external.CytoVI` does not, and
   `scvi.model.JaxSCVI` raises `AttributeError`.
 
-*Observed* on scvi-tools 1.5.0.post1 / torch 2.13.0 / Python 3.12.3, 2026-08-30 — a
+*Observed* on scvi-tools 1.5.1 / torch 2.14.0 / Python 3.12.3, 2026-09-16 — a
 mismatch here is **drift to investigate**, not a bug:
 
 ```
@@ -323,4 +335,10 @@ max proba_de   : 0.2926
 one distribution, so a correct change-mode test should call nothing significant on it; a
 non-zero count means the test is finding structure that is not there. With the seed pinned
 the run is deterministic — repeated runs returned these numbers unchanged.
+
+These are the same five lines the 1.5.0.post1 run recorded on 2026-08-30, reproduced exactly
+on 1.5.1 with torch moving 2.13.0 → 2.14.0 underneath. `max proba_de` agreeing to four
+decimals across both a library and a framework upgrade is the useful part: it says the
+seeded path really is reproducible, so a future mismatch is worth investigating rather than
+shrugging off as numerical noise.
 
