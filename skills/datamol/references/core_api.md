@@ -40,6 +40,27 @@ Convert molecule to SMARTS pattern.
 ### `to_selfies(mol)`
 Convert molecule to SELFIES (Self-Referencing Embedded Strings) format.
 
+## Lossless interchange (added in 0.13.0)
+
+Unlike SMILES, these preserve conformers and molecule properties. Note the singular/plural
+split in the signatures — it is the same trap `fuzzy_scaffolding` sets.
+
+### `to_binary(mol)`
+Serialize **one** molecule to RDKit's binary representation.
+- **Returns**: `bytes`, or `None` when given `None`
+- **Reading it back**: RDKit's own constructor — `Chem.Mol(blob)`. There is no `from_binary`
+- **Example**: `blob = dm.to_binary(mol)` → `mol2 = Chem.Mol(blob)` (209 bytes for aspirin)
+
+### `to_dict(mols)`
+Serialize a **sequence** of molecules to RDKit's JSON-compatible dict.
+- **Parameters**: `mols` — a sequence. Passing a single molecule raises
+  `AttributeError: 'Mol' object has no attribute '__iter__'`
+- **Returns**: `dict` with the keys `rdkitjson`, `defaults` and `molecules`
+
+### `from_dict(mol_dict)`
+Rebuild molecules from `to_dict` output.
+- **Returns**: a **`list`** of molecules, even for a single-molecule dict
+
 ## Sanitization and Standardization
 
 ### `sanitize_mol(mol, ...)`
@@ -90,7 +111,7 @@ Generate molecular fingerprints for similarity calculations.
   - `'atompair'` - Atom pair fingerprints
   - `'rdkit'` - RDKit topological fingerprint
   - Count variants: `'ecfp-count'`, `'fcfp-count'`, `'atompair-count'`, etc.
-- **Implementation**: Uses RDKit `rdFingerprintGenerator` (datamol ≥ 0.12.5)
+- **Implementation**: Uses RDKit `rdFingerprintGenerator` (datamol ≥ 0.12.5; still the case on 0.13.0)
 - **Common parameters**: `fpSize` (default 2048), `radius` (default 3, i.e. ECFP6). Extra
   keywords are forwarded to the RDKit generator, so they use RDKit's spelling — `n_bits`
   raises `Boost.Python.ArgumentError`
