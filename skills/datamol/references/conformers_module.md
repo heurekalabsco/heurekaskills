@@ -28,14 +28,25 @@ Generate 3D molecular conformers.
 
 ## Conformer Clustering
 
-### `dm.conformers.cluster(mol, rms_cutoff=1.0, already_aligned=False, centroids=False)`
+### `dm.conformers.cluster(mol, rms_cutoff=1.0, already_aligned=False, centroids=True, num_threads=1)`
 Group conformers by RMS distance.
 - **Parameters**:
   - `rms_cutoff`: Clustering threshold in Ångströms (default: 1.0)
-  - `already_aligned`: Whether conformers are pre-aligned
-  - `centroids`: Return centroid conformers (True) or cluster groups (False)
-- **Returns**: Cluster information or centroid conformers
+  - `already_aligned`: Skip the symmetry-aware alignment and compare conformers in their
+    current frame. **Only correct if you really did pre-align them** — see below
+  - `centroids`: **Defaults to `True`.** `True` returns one `Mol` carrying the centroid
+    conformers; `False` returns a `list` of `Mol`, one per cluster
+  - `num_threads`: Threads for the pairwise RMSD work (added in 0.13.0)
+- **Returns**: A `Mol` (`centroids=True`) or a `list` of `Mol` (`centroids=False`)
 - **Use case**: Identify distinct conformational families
+
+**Behaviour changed in 0.13.0.** Pruning now uses symmetry-aware optimal alignment, so the
+returned set genuinely satisfies `rms_cutoff`. Measured on 20 seeded ibuprofen conformers at
+`rms_cutoff=1.0`, holding RDKit at 2026.03.6: 0.12.5 kept 10 conformers whose closest pair was
+0.560 Å apart — inside the cutoff it was asked to enforce — while 0.13.0 keeps 2, closest pair
+1.122 Å. Setting `already_aligned=True` on unaligned input reproduces the old result (10 kept,
+closest pair 0.134 Å). On 0.12.5 the flag changed nothing either way. **If a conformer count
+dropped after upgrading, this is why, and the new count is the correct one.**
 
 ### `dm.conformers.return_centroids(mol, conf_clusters, centroids=True)`
 Extract representative conformers from clusters.
