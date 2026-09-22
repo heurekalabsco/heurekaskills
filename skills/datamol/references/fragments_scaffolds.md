@@ -37,6 +37,9 @@ most_common = scaffold_counts.most_common(10)
 Generate fuzzy scaffolds with enforceable groups that must appear in the core.
 - **Purpose**: More flexible scaffold definition allowing specified functional groups
 - **Use case**: Custom scaffold definitions beyond Murcko rules
+- **`enforce_subs` accepts SMARTS strings from 0.13.0.** Passing a list of SMARTS on 0.12.5
+  raises `Boost.Python.ArgumentError` from `Mol.GetSubstructMatch(Mol, str)`, because the
+  string reached RDKit unparsed. On 0.13.0 the same call works
 - **Takes a LIST of molecules, not one.** It works over a series to find shared cores, so
   handing it a single `Mol` raises `TypeError: 'Mol' object is not iterable`. This is the
   opposite of `dm.to_scaffold_murcko(mol)`, which is per-molecule.

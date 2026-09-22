@@ -4,6 +4,29 @@
 
 The descriptors module provides tools for computing molecular properties and descriptors.
 
+### The default descriptor set
+
+`dm.descriptors.compute_many_descriptors(mol)` returns a 22-key dict. The keys are datamol's
+own names, not RDKit's or Lipinski's — notably `clogp` (not `logp`), `n_lipinski_hbd`,
+`n_lipinski_hba`, and `mw`, which is the **exact (monoisotopic)** mass rather than the average
+molecular weight. Full set:
+
+```
+clogp  fsp3  mw  qed  sas  tpsa
+n_heavy_atoms  n_hetero_atoms  n_radical_electrons  n_rotatable_bonds
+n_lipinski_hba  n_lipinski_hbd
+n_rings  n_aromatic_rings  n_aliphatic_rings  n_saturated_rings
+n_aromatic_carbocycles  n_aliphatic_carbocycles  n_saturated_carbocycles
+n_aromatic_heterocycles  n_aliphatic_heterocycles  n_saturated_heterocycles
+```
+
+**Three of those keys changed spelling in 0.13.0.** Through 0.12.5 the heterocycle keys were
+each a `c` short — `n_aromatic_heterocyles`, `n_aliphatic_heterocyles`,
+`n_saturated_heterocyles`. The dict is still 22 keys, so the shape is unchanged; only the
+spelling moved. Indexing the old name raises `KeyError`, and `.get()` on it returns `None`
+without complaint. The misspelled **functions** (`dm.descriptors.n_aromatic_heterocyles(mol)`
+and friends) still exist as deprecated aliases and emit a `DeprecationWarning`.
+
 ### Specialized Descriptor Functions
 
 #### `dm.descriptors.n_aromatic_atoms(mol)`
