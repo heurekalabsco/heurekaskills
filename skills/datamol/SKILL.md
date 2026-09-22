@@ -5,20 +5,15 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.3.0
+version: 1.4.0
 tags: [cheminformatics, rdkit, smiles, descriptors, fingerprints]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-05
-  against: datamol 0.12.5 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.5 / NumPy 2.4.6 / scikit-learn 1.9.0 / Python 3.11.15
-  executed: 7
-  unverified: 1
-  unverified_reason: >-
-    The end-to-end pipeline in references/workflow_patterns.md opens a user-supplied SDF
-    (`compounds.sdf`) as step 1, so it has no input of its own to run against. Every datamol
-    call in it is exercised by other blocks that do run. It would be verifiable by giving it
-    an inline-written SDF, which is the fix if this page is revised again.
+  date: 2026-09-19
+  against: datamol 0.13.0 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.6 / NumPy 2.4.6 / scikit-learn 1.9.1 / Python 3.11.15. Conformer and descriptor differences additionally measured against datamol 0.12.5 on the same RDKit build
+  executed: 8
+  unverified: 0
 ---
 # Datamol Cheminformatics Skill
 
@@ -26,11 +21,17 @@ verified:
 
 Datamol is a Python library that provides a lightweight, Pythonic abstraction layer over RDKit for molecular cheminformatics. Simplify complex molecular operations with sensible defaults, efficient parallelization, and modern I/O capabilities. All molecular objects are native `rdkit.Chem.Mol` instances, ensuring full compatibility with the RDKit ecosystem.
 
-**Version note:** Examples target **datamol 0.12.x**. 0.12.5 (June 2024) is still the PyPI stable release as of September 2026 — over two years without a release, which is why the mismatches below are with datamol's dependencies rather than with datamol itself. Since 0.10.0, modules are lazy-loaded by default (set `DATAMOL_DISABLE_LAZY_LOADING=1` to disable). Since 0.12.2, RDKit is a direct PyPI dependency of datamol. Fingerprints use RDKit's `rdFingerprintGenerator` API (0.12.5+).
+**Version note:** Examples target **datamol 0.13.x**. **0.13.0 reached PyPI on 2026-09-09**,
+ending the long 0.12.5 plateau (June 2024). It needs **Python 3.11+ and RDKit 2024.09+**. The
+optional-dependency groups are gone: a plain install now pulls the cloud filesystem backends,
+the spreadsheet and Parquet readers, the drawing stack and SELFIES, so there is no longer an
+extras bracket to get right. Since 0.10.0,
+modules are lazy-loaded by default (set `DATAMOL_DISABLE_LAZY_LOADING=1` to disable). Since
+0.12.2, RDKit is a direct PyPI dependency. Fingerprints go through RDKit's
+`rdFingerprintGenerator` API.
 
-**datamol has not been released in two years, and its dependencies have moved.** A fresh
-`uv pip install datamol` today pairs 0.12.5 with a current RDKit and joblib, and three calls
-that older tutorials still show now raise:
+**Three calls that older tutorials still show continue to raise on 0.13.0** — each re-tested
+on this release, not carried over:
 
 | Call | What happens | Use instead |
 | --- | --- | --- |
@@ -38,10 +39,40 @@ that older tutorials still show now raise:
 | `dm.descriptors.batch_compute_many_descriptors(mols, n_jobs=-1)` | `ValueError: batch_size must be 'auto' or a positive integer, got: None` | add `batch_size="auto"` |
 | `dm.descriptors.compute_many_descriptors(mol)["logp"]` | `KeyError` | `"clogp"`, `"n_lipinski_hbd"`, `"n_lipinski_hba"` |
 
-`## Try it` at the end of this file asserts all three, so you can tell in one run whether
-your install still behaves this way. It also pins the four return shapes and defaults that
-this page previously documented wrongly — `apply_reaction`, `to_image`, `fuzzy_scaffolding`
-and `viz.conformers` — so a future release that changes any of them fails loudly here.
+### Upgrading from 0.12.5: two changes that alter results without raising
+
+Both were measured here on **the same RDKit build (2026.03.6)**, so what follows is datamol's
+doing and not a dependency moving underneath it. Neither raises, which is what makes them
+worth stating.
+
+**1. Conformer pruning actually honours `rms_cutoff` now, so you keep far fewer conformers.**
+`dm.conformers.cluster` prunes with symmetry-aware optimal alignment on 0.13.0. On 20 seeded
+conformers of ibuprofen at `rms_cutoff=1.0`:
+
+| | conformers kept | closest pair in the kept set | honours the 1.0 Å cutoff |
+| --- | --- | --- | --- |
+| 0.12.5 | 10 | 0.560 Å | no |
+| 0.13.0 (default) | **2** | 1.122 Å | **yes** |
+| 0.13.0, `already_aligned=True` | 10 | 0.134 Å | no |
+
+A pipeline that pinned a conformer count, or that budgeted downstream work on one, changes by
+5× on this input. `already_aligned=True` skips the alignment step and compares conformers where
+they sit, which is cheaper and is only correct if you really did align them first — on 0.12.5
+the flag changed nothing either way, so code that sets it was getting the wrong answer
+regardless of what it asked for.
+
+**2. Three descriptor keys were misspelled and are now spelled correctly.**
+`compute_many_descriptors` returns `n_aliphatic_heterocycles`, `n_aromatic_heterocycles` and
+`n_saturated_heterocycles`; through 0.12.5 each of those keys was missing its second `c`
+(`…heterocyles`). The dict is still 22 keys, so nothing changed shape — but code that indexed
+the old spelling now raises `KeyError`, and code that used `.get(...)` silently reads `None`.
+The misspelled *callables* survive as deprecated aliases that emit a `DeprecationWarning`; the
+misspelled *dict keys* are simply gone.
+
+`## Try it` at the end of this file asserts the three traps above, the corrected key spelling,
+and the conformer cutoff — so a future release that changes any of them fails loudly here. It
+also pins the four return shapes and defaults that this page once documented wrongly:
+`apply_reaction`, `to_image`, `fuzzy_scaffolding` and `viz.conformers`.
 
 **Key capabilities**:
 - Molecular format conversion (SMILES, SELFIES, InChI)
@@ -63,11 +94,15 @@ Guide users to install datamol:
 uv pip install datamol
 ```
 
-RDKit is installed automatically with datamol. For remote file paths (S3, GCS, HTTP), install the matching fsspec backend:
+RDKit is installed automatically with datamol, and **0.13.0 needs Python 3.11 or newer**.
+
+As of 0.13.0 the fsspec backends for remote file paths ship with the package — `s3fs` and
+`gcsfs` both import straight after a plain install, so there is nothing extra to add for
+`s3://` or `gs://` paths. Visualization, Excel/Parquet I/O and SELFIES arrive the same way.
+On 0.12.5 and earlier these were separate installs:
 
 ```bash
-uv pip install s3fs   # AWS S3
-uv pip install gcsfs  # Google Cloud Storage
+uv pip install s3fs gcsfs   # only needed on datamol <= 0.12.5
 ```
 
 **Import convention**:
@@ -233,6 +268,29 @@ predictions = model.predict(X_test)
 **Issue**: `KeyError` on a descriptor you know exists
 - **Solution**: The keys are datamol's, not RDKit's or Lipinski's — `clogp`, `n_lipinski_hbd`, `n_lipinski_hba`. Print `.keys()` once rather than guessing. Note `mw` is the **exact (monoisotopic)** mass, not the average molecular weight
 
+**Issue**: `KeyError: 'n_aromatic_heterocyles'` (or the aliphatic/saturated equivalents) after upgrading
+- **Solution**: Those keys were misspelled through 0.12.5 and are corrected in 0.13.0 — add the
+  missing second `c`: `n_aromatic_heterocycles`. The same-named *functions* still exist as
+  deprecated aliases, so `dm.descriptors.n_aromatic_heterocyles(mol)` keeps working with a
+  `DeprecationWarning` while the dict key does not. Watch for `.get("n_aromatic_heterocyles")`,
+  which returns `None` instead of raising
+
+**Issue**: Conformer clustering suddenly returns far fewer conformers than it used to
+- **Solution**: Expected on 0.13.0, and it is the old behaviour that was wrong.
+  `dm.conformers.cluster` now prunes with symmetry-aware optimal alignment, so the set it
+  returns genuinely satisfies your `rms_cutoff`; 0.12.5 returned conformers closer together
+  than you asked for. Do **not** reach for `already_aligned=True` to get the old count back —
+  that flag is for conformers you have actually pre-aligned, and on unaligned input it
+  reproduces the old, cutoff-violating result
+
+**Issue**: `TypeError` or `KeyError: 'mol'` right after `dm.read_sdf`
+- **Solution**: Two defaults, both easy to misread. `as_df` is **False**, so a bare
+  `dm.read_sdf(path)` hands you a `list` and subscripting it with `"mol"` raises `TypeError`.
+  And `mol_column` is **None**, so `as_df=True` on its own returns a frame with a `smiles`
+  column and no molecules — `KeyError`. Ask for both:
+  `dm.read_sdf(path, as_df=True, mol_column="mol")`. `dm.read_smi` is stricter still: it takes
+  only the path and always returns a sequence of molecules
+
 **Issue**: Clustering results look wrong or unpack strangely
 - **Solution**: `dm.cluster_mols` returns a 2-tuple, `(index_clusters, molecule_clusters)`. Iterating the return value gives you those two items, not your clusters — unpack it
 
@@ -269,9 +327,10 @@ cheminformatics, so there is no file to download and nothing that can 404 — th
 chosen so that a chemically obvious relationship (aspirin is a salicylic-acid derivative;
 caffeine is not) becomes an assertion.
 
-The block routes through the four traps this library actually sets, and asserts the two
-error paths rather than describing them — so a release that *fixes* `n_bits` fails here too,
-loudly, instead of leaving the note above quietly wrong.
+The block routes through the traps this library actually sets, and asserts the two error
+paths rather than describing them — so a release that *fixes* `n_bits` fails here too,
+loudly, instead of leaving the note above quietly wrong. The last step also generates
+conformers, which is the only part that takes more than a moment to run.
 
 ```python
 import datamol as dm
@@ -302,6 +361,12 @@ try:
     raise SystemExit("expected KeyError: the key is 'clogp'")
 except KeyError:
     pass
+
+# 1b. Three keys were misspelled through 0.12.5 (…heterocyles, one 'c' short) and are
+#     corrected in 0.13.0. The old spelling is gone from the dict — and .get() would hide
+#     that by returning None, so check membership rather than truthiness.
+het = sorted(k for k in d if "heterocy" in k)
+assert d.get("n_aromatic_heterocyles") is None, "0.12.5 spelling should no longer be a key"
 
 # 2. Parallel batch descriptors. n_jobs > 1 alone raises — batch_size defaults to None,
 #    which joblib rejects. Pass batch_size explicitly.
@@ -344,6 +409,19 @@ series = [dm.to_mol(s) for s in ("c1ccc2ncnc(N)c2c1", "Cc1ccc2ncnc(N)c2c1",
                                  "Clc1ccc2ncnc(N)c2c1", "COc1ccc2ncnc(N)c2c1")]
 scaffolds, scaffold_infos, all_scaffolds = dm.scaffold.fuzzy_scaffolding(series)
 
+# 9. Conformer pruning. 0.13.0 prunes with symmetry-aware optimal alignment, so the set it
+#    returns really does satisfy rms_cutoff. already_aligned=True is the faster common-frame
+#    path and is only valid for genuinely pre-aligned input — here it keeps conformers far
+#    closer than the cutoff, which is what 0.12.5 did for everyone.
+ibu = dm.conformers.generate(dm.to_mol(SMILES["ibuprofen"]), n_confs=20,
+                             minimize_energy=False, random_seed=42)
+def closest_pair(m):
+    R = dm.conformers.rmsd(m)
+    n = m.GetNumConformers()
+    return float(R[~np.eye(n, dtype=bool)].min()) if n > 1 else float("inf")
+pruned = dm.conformers.cluster(ibu, rms_cutoff=1.0, centroids=True)
+loose = dm.conformers.cluster(ibu, rms_cutoff=1.0, already_aligned=True, centroids=True)
+
 print("datamol        :", dm.__version__)
 print("descriptors    :", df.shape, "| keys include clogp/n_lipinski_hbd, not logp/hbd")
 print("aspirin mw     : %.6f (exact) vs RDKit MolWt %.3f (average)"
@@ -358,9 +436,15 @@ print("apply_reaction :", type(ester).__name__, "of", type(ester[0]).__name__,
 print("to_image       :", type(grid_svg).__name__, "| 40 mols default vs max_mols=40:",
       len(truncating), "vs", len(complete), "chars")
 print("fuzzy_scaffolds:", sorted(scaffolds))
+print("heterocycle keys:", het)
+print("conformers     : 20 seeded -> %d pruned (closest %.3f A) | already_aligned=True -> %d (closest %.3f A)"
+      % (pruned.GetNumConformers(), closest_pair(pruned),
+         loose.GetNumConformers(), closest_pair(loose)))
 
 assert d["mw"] == Descriptors.ExactMolWt(mols[asp]) != Descriptors.MolWt(mols[asp])
 assert {"mw", "clogp", "n_lipinski_hbd", "n_lipinski_hba"} <= d.keys()
+assert het == ["n_aliphatic_heterocycles", "n_aromatic_heterocycles",
+               "n_saturated_heterocycles"], "0.13.0 corrected the '…heterocyles' spelling"
 assert df.shape[0] == len(mols)
 assert fp.shape == (2048,) and maccs.shape == (167,)
 assert dist.shape == (len(mols), len(mols)) and np.allclose(dist, dist.T)
@@ -384,6 +468,11 @@ try:
     raise SystemExit("expected TypeError: fuzzy_scaffolding takes a list of molecules")
 except TypeError:
     pass
+# conformer pruning: the kept set must honour the cutoff it was given
+assert closest_pair(pruned) >= 1.0, "pruned conformers must be at least rms_cutoff apart"
+assert pruned.GetNumConformers() < loose.GetNumConformers(), \
+    "already_aligned=True skips the symmetry-aware alignment and keeps more"
+assert closest_pair(loose) < 1.0, "the opt-out path returns conformers closer than the cutoff"
 print("invariants OK")
 ```
 
@@ -417,14 +506,25 @@ failure means this skill is wrong:
 - **`dm.scaffold.fuzzy_scaffolding` takes a list and returns a 3-tuple.** Passing a single
   molecule raises `TypeError`, which the block asserts. The two scaffolds recovered from the
   4-aminoquinazoline series are a chemical fact about that series, not a version detail.
+- **A pruned conformer set honours the cutoff it was given.** The closest surviving pair is at
+  least `rms_cutoff` apart — that is what pruning means, and on 0.13.0 it finally holds. The
+  block asserts it, and asserts that `already_aligned=True` on unaligned input does *not*
+  hold it, so the faster path cannot be mistaken for a free one.
 
-Observed 2026-09-05 on datamol 0.12.5 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.5 /
-NumPy 2.4.6, Python 3.11.15 — treat a mismatch here as drift to investigate, not a failure.
-The character counts in the `to_image` line are the loosest thing here; only their ordering
-is asserted:
+Version-dependent observations — a mismatch is **drift to investigate**, not a failure:
+
+- **The descriptor keys spell `heterocycles` in full.** On 0.12.5 and earlier all three were
+  a `c` short. If this assertion fires, check your installed version before your code.
+- **Twenty seeded conformers of ibuprofen prune to 2 at `rms_cutoff=1.0`.** The count depends
+  on RDKit's embedding as well as datamol's pruning, so treat the number as observed; the
+  cutoff invariant above is the part that must hold.
+
+Observed 2026-09-19 on datamol 0.13.0 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.6 /
+NumPy 2.4.6, Python 3.11.15. The character counts in the `to_image` line are the loosest thing
+here; only their ordering is asserted:
 
 ```
-datamol        : 0.12.5
+datamol        : 0.13.0
 descriptors    : (8, 22) | keys include clogp/n_lipinski_hbd, not logp/hbd
 aspirin mw     : 180.042259 (exact) vs RDKit MolWt 180.159 (average)
 aspirin clogp  : 1.3101 | qed 0.5501 | tpsa 63.60
@@ -435,8 +535,14 @@ clusters       : 6 sizes [2, 2, 1, 1, 1, 1]
 apply_reaction : list of list -> CCOC(C)=O | no match -> []
 to_image       : str | 40 mols default vs max_mols=40: 42857 vs 53513 chars
 fuzzy_scaffolds: ['Nc1ncnc2ccc([*:1])cc12', 'Nc1ncnc2ccccc12']
+heterocycle keys: ['n_aliphatic_heterocycles', 'n_aromatic_heterocycles', 'n_saturated_heterocycles']
+conformers     : 20 seeded -> 2 pruned (closest 1.122 A) | already_aligned=True -> 10 (closest 0.134 A)
 invariants OK
 ```
+
+Every line above except the `datamol` version, the two new lines, and the conformer counts is
+**byte-identical to the 0.12.5 run recorded on 2026-09-05** — the upgrade left everything else
+this block asserts untouched.
 
 RDKit also writes `not removing hydrogen atom without neighbors` warnings to **stderr**
 during the `fuzzy_scaffolding` step. They come from its fuzzy-matching internals and do not
