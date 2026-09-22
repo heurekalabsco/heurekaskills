@@ -4,11 +4,20 @@ description: Quantify fluorescence microscopy images — open acquisition format
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.2.0
 tags: [microscopy, image-analysis, segmentation, cell-counting, scikit-image]
 datasets: [https://gitlab.com/scikit-image/data/-/raw/45e2cec9a2ebd24354beccf293e81dabc6220bbe/cells3d-with-metadata.tif]
 allowed-tools: Read, Write, Edit, Bash
-verified: pending
+verified:
+  date: 2026-09-14
+  against: scikit-image 0.26.0 / numpy 2.4.6 / scipy 1.17.1 / tifffile 2026.3.3 / pandas 3.0.5 / matplotlib 3.11.2 / bioio 3.5.0 / cellpose 4.2.1.1 / Python 3.11.15
+  executed: 13
+  unverified: 1
+  unverified_reason: >-
+    The Cellpose-SAM block is the only one not executed. The package installs and imports
+    cleanly at 4.2.1.1, but the first eval call fetches its checkpoint from the Hugging Face
+    CDN, which the validating environment has no route to. Re-run that block from a host
+    that can complete a Hugging Face file download; nothing else about it is in question.
 ---
 # Quantifying microscope images
 
@@ -407,7 +416,7 @@ Released **CC0**, no account or licence acceptance. The URL is pinned to a commi
 the bytes cannot change under it. This file is used rather than its sibling
 `cells3d.tif` because it carries real voxel spacing and channel metadata — and because
 the two files have opposite channel order, which is what the run below detects.
-Last confirmed reachable 2026-08-14.
+Last confirmed reachable 2026-09-14.
 
 ```python
 import urllib.request, numpy as np, tifffile
@@ -493,15 +502,20 @@ is wrong:
 - Nuclei are compact — minimum solidity above 0.9. A value near 0.2 means the membrane
   channel was measured.
 
-Observed 2026-08-14 with scikit-image **0.26.0**, numpy 2.5.2, tifffile 2026.7.31 —
-these move when the libraries change their defaults, so treat a mismatch as drift to
-investigate rather than a failure:
+Observed 2026-08-14 with scikit-image **0.26.0**, numpy 2.5.2, tifffile 2026.7.31, and
+re-run unchanged on 2026-09-14 under scikit-image 0.26.0, numpy 2.4.6, tifffile 2026.3.3.
+Every figure below reproduced exactly on both, which is worth more than either run alone:
+the numbers are stable across two different numpy and tifffile versions, so a mismatch is
+a real signal. These still move when the libraries change their defaults, so treat one as
+drift to investigate rather than a failure:
 
 - 11 objects, 2 dropped at 26.8 and 26.2 µm² · median area 118.1 µm² · median diameter
   12.26 µm · area range 88.6–166.6 µm² · minimum solidity 0.96
 - The 3D variant on the same stack: 12 nuclei, median volume 747 µm³
 - Cellpose-SAM 4.2.1.1 on the same plane: 11 objects, median area 123.0 µm² — the
-  cross-check described above, and the agreement is the point
+  cross-check described above, and the agreement is the point. Recorded 2026-08-14 and
+  **not re-run on 2026-09-14**: the checkpoint is fetched from the Hugging Face CDN, which
+  the validating environment cannot reach, so treat this line as the older of the two.
 
 ## Sources
 
