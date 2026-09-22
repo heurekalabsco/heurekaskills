@@ -7,12 +7,24 @@ relationship analysis by scaffold series, and a virtual screening pipeline.
 
 ### Complete Pipeline: Data Loading → Filtering → Analysis
 
+This one provisions its own input so it can be run as-is; swap the first step for your own
+file when you use it for real.
+
 ```python
 import datamol as dm
 import pandas as pd
 
-# 1. Load molecules
-df = dm.read_sdf("compounds.sdf")
+# 0. Provision an input so this pipeline runs standalone. Replace with your own path.
+seed = [dm.to_mol(s) for s in (
+    "CC(=O)Oc1ccccc1C(=O)O", "OC(=O)c1ccccc1O", "CC(=O)Nc1ccc(O)cc1",
+    "CC(C)Cc1ccc(cc1)C(C)C(=O)O", "Cn1cnc2c1c(=O)n(C)c(=O)n2C",
+    "Cn1c(=O)c2[nH]cnc2n(C)c1=O", "CN1CCC[C@H]1c1cccnc1", "c1ccccc1",
+)]
+dm.to_sdf(seed, "compounds.sdf")
+
+# 1. Load molecules. Without as_df you get a LIST, not a DataFrame; and mol_column
+#    defaults to None, so as_df alone gives you a 'smiles' column and no molecules.
+df = dm.read_sdf("compounds.sdf", as_df=True, mol_column="mol")
 
 # 2. Standardize
 df['mol'] = df['mol'].apply(lambda m: dm.standardize_mol(m) if m else None)
@@ -41,11 +53,13 @@ diverse_idx, diverse_mols = dm.pick_diverse(
     npick=min(100, len(filtered_df))
 )
 
-# 6. Visualize results
+# 6. Visualize results. use_svg defaults to True, so name the file .svg — or pass
+#    use_svg=False to get real PNG bytes. And max_mols defaults to 32.
 dm.viz.to_image(
     diverse_mols,
     legends=[dm.to_smiles(m) for m in diverse_mols],
-    outfile="diverse_compounds.png",
+    outfile="diverse_compounds.svg",
+    max_mols=len(diverse_mols),
     n_cols=10
 )
 ```
