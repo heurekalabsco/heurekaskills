@@ -4,24 +4,30 @@ The `datamol.io` module provides comprehensive file handling for molecular data 
 
 ## Reading Molecular Files
 
-### `dm.read_sdf(filename, sanitize=True, remove_hs=True, as_df=True, mol_column='mol', ...)`
+### `dm.read_sdf(urlpath, sanitize=True, as_df=False, smiles_column='smiles', mol_column=None, ..., n_jobs=1)`
 Read Structure-Data File (SDF) format.
 - **Parameters**:
-  - `filename`: Path to SDF file (supports local and remote paths via fsspec)
+  - `urlpath`: Path to SDF file (supports local and remote paths via fsspec)
   - `sanitize`: Apply sanitization to molecules
   - `remove_hs`: Remove explicit hydrogens
-  - `as_df`: Return as DataFrame (True) or list of molecules (False)
-  - `mol_column`: Name of molecule column in DataFrame
+  - `as_df`: **Defaults to `False`** — you get a `list` of molecules unless you ask for a frame
+  - `mol_column`: **Defaults to `None`**, so `as_df=True` alone returns a frame with a
+    `smiles` column and **no molecule column**. Pass `mol_column="mol"` to get `Mol` objects
   - `n_jobs`: Enable parallel processing
-- **Returns**: DataFrame or list of molecules
-- **Example**: `df = dm.read_sdf("compounds.sdf")`
+- **Returns**: `list` of molecules by default; `DataFrame` when `as_df=True`
+- **Example**: `df = dm.read_sdf("compounds.sdf", as_df=True, mol_column="mol")`
+- **Trap**: `dm.read_sdf("x.sdf")["mol"]` raises `TypeError` (it is a list), and
+  `dm.read_sdf("x.sdf", as_df=True)["mol"]` raises `KeyError` (no such column). Both need the
+  two keywords above
 
-### `dm.read_smi(filename, smiles_column='smiles', mol_column='mol', as_df=True, ...)`
+### `dm.read_smi(urlpath)`
 Read SMILES file (space-delimited by default).
 - **Common format**: SMILES followed by molecule ID/name
-- **Example**: `df = dm.read_smi("molecules.smi")`
+- **Takes the path and nothing else.** There is no `as_df`, `smiles_column` or `mol_column`
+  here — it always returns a **sequence of molecules**. Build a frame yourself if you need one
+- **Example**: `mols = dm.read_smi("molecules.smi")`
 
-### `dm.read_csv(filename, smiles_column='smiles', mol_column=None, ...)`
+### `dm.read_csv(urlpath, smiles_column=None, mol_column='mol', ...)`
 Read CSV file with optional automatic SMILES-to-molecule conversion.
 - **Parameters**:
   - `smiles_column`: Column containing SMILES strings
@@ -93,7 +99,8 @@ Save DataFrame in multiple formats (CSV, Excel, Parquet, JSON). Auto-detects for
 
 All I/O functions support remote file paths through fsspec integration:
 - **Supported protocols**: S3 (AWS), GCS (Google Cloud), Azure, HTTP/HTTPS
-- **Optional backends**: `uv pip install s3fs` (S3), `uv pip install gcsfs` (GCS)
+- **Backends**: `s3fs` and `gcsfs` ship with datamol from 0.13.0 — nothing extra to install.
+  On 0.12.5 and earlier: `uv pip install s3fs` (S3), `uv pip install gcsfs` (GCS)
 - **Credentials**: Standard provider environment variables only (`AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`, etc.). Datamol uses fsspec locally; confirm remote write paths with the user before saving.
 - **Example**:
   ```python
