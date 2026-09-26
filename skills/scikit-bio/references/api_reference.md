@@ -1,6 +1,6 @@
 # scikit-bio API Reference
 
-This document provides detailed API information, advanced examples, and troubleshooting guidance for working with scikit-bio. Every code block here was executed against **scikit-bio 0.7.3** on Python 3.11.
+This document provides detailed API information, advanced examples, and troubleshooting guidance for working with scikit-bio, checked against **scikit-bio 0.7.4** on Python 3.11. Many blocks here are fragments that continue from the example above them — they assume names such as `tree`, `dm` or `counts`, or a file on disk, and will not run on their own. The `verified:` counts in `SKILL.md` record how many blocks were executed standalone.
 
 ## Table of Contents
 1. [Sequence Classes](#sequence-classes)
@@ -643,13 +643,15 @@ r_partial, p_value, n = mantel(dm1, dm2, method='pearson',
 ### Differential Abundance
 
 `ancombc` (0.7.1) corrects the sampling-fraction bias that ANCOM ignores. It takes a
-metadata frame plus a formula, not a bare grouping vector, and returns a frame indexed
-by `(FeatureID, Covariate)`.
+metadata frame plus a formula, not a bare grouping vector. As of **0.7.4** it returns an
+`ANCOMBCResult` rather than a DataFrame; the table it wraps is `.result`, indexed by
+`(FeatureID, Covariate)`.
 
 ```python
 import numpy as np
 import pandas as pd
-from skbio.stats.composition import ancombc, struc_zero, dirmult_ttest, rclr
+from skbio.stats.composition import (ancombc, ancombc2, struc_zero,
+                                     dirmult_ttest, rclr)
 
 rng = np.random.default_rng(0)
 samples = [f'S{i}' for i in range(12)]
@@ -659,10 +661,18 @@ metadata = pd.DataFrame({'group': ['control'] * 6 + ['treated'] * 6,
                          'age': rng.integers(20, 60, 12)}, index=samples)
 
 res = ancombc(table, metadata, 'group')
-res.loc[:, ['Log2(FC)', 'qvalue', 'Signif']]
+res.result.loc[:, ['Log(FC)', 'qvalue', 'Signif']]
 
 # Adjust for a covariate with a formula
 res_adj = ancombc(table, metadata, 'group + age')
+
+# Global test across >= 3 groups, a method on the result since 0.7.4
+three = pd.DataFrame({'arm': ['a'] * 4 + ['b'] * 4 + ['c'] * 4}, index=samples)
+global_tab = ancombc(table, three, 'arm', grouping='arm').global_test()
+
+# ANCOM-BC2 (0.7.4) — same result object, with post-hoc analyses
+res2 = ancombc2(table, metadata, 'group')
+res2.result.loc[:, ['Log(FC)', 'qvalue', 'Signif']]
 
 # Structural zeros: features absent from an entire group
 zeros = struc_zero(table, metadata, 'group')
@@ -674,6 +684,18 @@ dmt = dirmult_ttest(table, metadata['group'],
 # Robust CLR — transforms only observed (non-zero) values (0.7.3)
 transformed = rclr(table.values)
 ```
+
+Three 0.7.4 changes to carry across from 0.7.3 code:
+
+- `ancombc(...)` returns `ANCOMBCResult`, so `res.loc[...]` now raises
+  `AttributeError: 'ANCOMBCResult' object has no attribute 'loc'`. Use `.result`.
+- `Log2(FC)` is now `Log(FC)`. The values were always on a natural-log scale; the rename
+  corrects the label rather than the numbers, so any code exponentiating them base-2 was
+  already wrong.
+- The global test is `ANCOMBCResult.global_test()` instead of a second return value, and
+  inaccurate global results were fixed in the same change. It requires three or more
+  groups and raises ``ValueError: `grouping` must contain at least three observed
+  groups.`` on two.
 
 ## Distance Matrices
 
