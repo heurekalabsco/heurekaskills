@@ -5,14 +5,14 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.3.0
 tags: [microbiome, diversity, unifrac, ordination, permanova]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
 verified:
-  date: 2026-08-25
-  against: scikit-bio 0.7.3 / NumPy 2.4.6 / pandas 3.0.5 / Python 3.11.15
-  executed: 33
+  date: 2026-09-23
+  against: scikit-bio 0.7.4 / NumPy 2.4.6 / pandas 3.0.6 / SciPy 1.17.1 / Python 3.11.15
+  executed: 21
   unverified: 0
 ---
 # scikit-bio
@@ -21,7 +21,9 @@ verified:
 
 scikit-bio is a comprehensive Python library for working with biological data. Apply this skill for bioinformatics analyses spanning sequence manipulation, alignment, phylogenetics, microbial ecology, and multivariate statistics.
 
-Everything below was executed against **scikit-bio 0.7.3** (released 1 June 2026) on Python 3.11. It requires **Python 3.10+ and NumPy 2.0+** — 0.7.1 dropped both Python 3.9 and NumPy 1.x — and installs from a pre-compiled wheel on most platforms.
+Everything below was executed against **scikit-bio 0.7.4** (released 21 September 2026) on Python 3.11. It requires **Python 3.10+ and NumPy 2.0+** — 0.7.1 dropped both Python 3.9 and NumPy 1.x — and installs from a pre-compiled wheel on most platforms.
+
+**Upgrading from 0.7.3?** One breaking change bites: `ancombc` now returns an `ANCOMBCResult` object rather than a DataFrame, and its fold-change column is `Log(FC)` rather than `Log2(FC)`. See §6.
 
 ## When to Use This Skill
 
@@ -88,7 +90,7 @@ Perform pairwise and multiple sequence alignments using the `pair_align` engine 
 - Convenience wrappers `pair_align_nucl` (BLASTN-like) and `pair_align_prot` (BLASTP-like)
 - Configurable scoring: match/mismatch tuple or named substitution matrix; linear or affine gap penalties
 - `PairAlignPath` results carry CIGAR strings and convert to aligned sequences
-- Multiple sequence alignment storage and manipulation with `TabularMSA`
+- Multiple sequence alignment construction with `multi_align` (0.7.4), storage and manipulation with `TabularMSA`
 
 **Common patterns:**
 ```python
@@ -127,6 +129,57 @@ gap_freqs = msa.gap_frequencies(axis='position')
 - `sub_score` accepts a `(match, mismatch)` tuple or a matrix name (e.g., `'NUC.4.4'`, `'BLOSUM62'`); `gap_cost` accepts a single number (linear) or `(open, extend)` tuple (affine)
 - The CIGAR string comes from `path.to_cigar()`; there is no `.cigar` attribute. Parse external CIGAR strings with `PairAlignPath.from_cigar('1I8M2D5M2I')`, and score an existing alignment with `align_score(...)`
 - `TabularMSA` carries `consensus()`, `conservation()` and `gap_frequencies()`. It has no `majority_consensus()`, `position_entropies()` or `omit_gap_positions()` — filter gappy columns from `gap_frequencies(axis='position', relative=True)` instead
+
+### Building a multiple alignment
+
+Before 0.7.4 `TabularMSA` could only *hold* an alignment somebody else produced. `multi_align`
+builds one — progressive alignment over a UPGMA guide tree — with `multi_align_nucl` and
+`multi_align_prot` carrying nucleotide and protein defaults.
+
+```python
+from skbio import DNA, Protein
+from skbio.alignment import multi_align, multi_align_nucl, multi_align_prot, TabularMSA
+
+seqs = [DNA('ACTACCAGATTACTTACGGATCAGG'),
+        DNA('CGAAACTACTAGATTACGGATCTTA'),
+        DNA('ACTACCAGATTACTTACGGATCTTA')]
+
+# Returns a MultiAlignResult; the alignment itself is .path
+res = multi_align_nucl(seqs)
+msa = TabularMSA.from_path_seqs(res.path, seqs)   # materialize as a TabularMSA
+msa.shape                                          # Shape(sequence=3, position=31)
+consensus = msa.consensus()
+
+# The guide tree and the distance matrix are discarded unless you ask for them
+res = multi_align_nucl(seqs, keep_tree=True, keep_distmat=True)
+guide_tree = res.tree          # TreeNode (UPGMA over pairwise distances)
+pairwise = res.distmat         # DistanceMatrix
+
+# Protein wrapper, and the general form with explicit scoring
+prot = multi_align_prot([Protein('HEAGAWGHEE'), Protein('PAWHEAE')])
+custom = multi_align(seqs, sub_score=(2, -3), gap_cost=(5, 2))
+```
+
+The three sequences above align to 31 positions:
+
+```
+----ACTACCAGATTACTTACGGATC--AGG
+CGAAACTACTAGATTAC----GGATCTTA--
+----ACTACCAGATTACTTACGGATCTTA--
+```
+
+**Important notes:**
+- `MultiAlignResult` carries `.path`, `.count`, `.index`, and — only with `keep_tree=True` /
+  `keep_distmat=True` — `.tree` and `.distmat`. Both are `None` otherwise, which reads as a
+  missing result rather than a declined one
+- The result is an `AlignPath`, not a `TabularMSA`. Pass it through
+  `TabularMSA.from_path_seqs(res.path, seqs)` to get sequences you can index and summarize.
+  `from_path_seqs` preserves the original sequences' metadata as of 0.7.4
+- Scoring is shared with `pair_align`: `sub_score` takes a `(match, mismatch)` tuple or a
+  matrix name, `gap_cost` a number (linear) or an `(open, extend)` tuple (affine)
+- Progressive alignment is greedy — an early mistake is never revisited. For a few dozen
+  sequences it is fine; beyond that, prefer a dedicated aligner and read the result back
+  through `TabularMSA.read`
 
 ### Evolutionary distances from an alignment
 
@@ -208,6 +261,7 @@ taxonomy_tree = TreeNode.from_taxonomy(lineages, extract_rank=True)
 - Use `upgma()` for UPGMA/WPGMA (assumes molecular clock)
 - GME and BME are highly scalable for large trees; refine topology with `nni()`. `bme` parallelizes by default since 0.7.3, and `nni()` raises on a tree whose root has a single child
 - `shear()` returns the sheared tree even when `inplace=True` (0.7.2), so the return value is safe to use either way
+- `prune()` and `bifurcate()` join it in 0.7.4: both now return the resulting tree and accept `inplace=False` to work on a copy. They used to mutate in place and return `None`, so code written against 0.7.3 that relied on the mutation still works, while `t2 = t.prune(inplace=False)` is the non-destructive form
 - Tips with `name is None` are excluded from `subset`, `subsets`, `bipart` and `cophenet` as of 0.7.2 — name every tip you expect to be counted
 - `cophenet()` (formerly `tip_tip_distances`) returns the patristic distance matrix; `compare_rfd()` is the Robinson-Foulds method (`compare_wrfd`/`compare_cophenet` for weighted/cophenetic variants)
 - `lca()` is the lowest common ancestor; `lowest_common_ancestor` remains as an alias
@@ -377,7 +431,7 @@ frame plus a formula rather than a bare grouping vector:
 ```python
 import numpy as np
 import pandas as pd
-from skbio.stats.composition import ancombc, struc_zero, rclr
+from skbio.stats.composition import ancombc, ancombc2, struc_zero, rclr
 
 rng = np.random.default_rng(0)
 samples = [f'S{i}' for i in range(12)]
@@ -386,8 +440,19 @@ feature_table = pd.DataFrame(rng.integers(1, 60, size=(12, 6)),
 sample_metadata = pd.DataFrame({'group': ['control'] * 6 + ['treated'] * 6},
                                index=samples)
 
+# 0.7.4 returns an ANCOMBCResult, not a DataFrame. The table is .result, and the
+# column is Log(FC) — a natural log, renamed from Log2(FC) to say so.
 res = ancombc(feature_table, sample_metadata, 'group')
-res.loc[:, ['Log2(FC)', 'qvalue', 'Signif']]     # indexed by (FeatureID, Covariate)
+res.result.loc[:, ['Log(FC)', 'qvalue', 'Signif']]   # indexed by (FeatureID, Covariate)
+
+# The global test is a method on the result now, and needs >= 3 groups
+three = pd.DataFrame({'arm': ['a'] * 4 + ['b'] * 4 + ['c'] * 4}, index=samples)
+res_g = ancombc(feature_table, three, 'arm', grouping='arm')
+global_tab = res_g.global_test()      # DataFrame: W, pvalue, qvalue, Signif
+
+# ANCOM-BC2 (0.7.4), same result object, with post-hoc analyses available
+res2 = ancombc2(feature_table, sample_metadata, 'group')
+res2.result.loc[:, ['Log(FC)', 'qvalue', 'Signif']]
 
 # Features absent from an entire group ("structural zeros"), which bias the above
 zeros = struc_zero(feature_table, sample_metadata, 'group')
@@ -396,11 +461,23 @@ zeros = struc_zero(feature_table, sample_metadata, 'group')
 transformed = rclr(feature_table.values)
 ```
 
+**0.7.4 changed this call's return type, and the old form fails loudly.** `ancombc`
+used to hand back a DataFrame (or a tuple of two when a global test was requested);
+it now returns an `ANCOMBCResult`, so `res.loc[...]` raises
+`AttributeError: 'ANCOMBCResult' object has no attribute 'loc'`. Reach the table
+through `.result`, or use the object itself. Two further consequences: the
+`Log2(FC)` column is now `Log(FC)` — the values were always natural-log, and the
+old name misreported their scale, so anything that exponentiated them as powers of
+two was wrong — and the global test moved from a second return value to
+`ANCOMBCResult.global_test()`, which also fixed inaccurate global results. The
+global test needs **three or more groups**; on two it raises
+`ValueError: `grouping` must contain at least three observed groups.`
+
 **Important notes:**
 - Permutation tests provide non-parametric significance testing
 - Use 999+ permutations for robust p-values
 - PERMANOVA sensitive to dispersion differences; pair with PERMDISP
-- **`permdisp` raises `ValueError: Invalid operation: cannot extend distance matrix size` on any distance matrix with fewer than 10 samples in 0.7.3.** Its `dimensions` default is 10 and it passes that straight to `pcoa`, which refuses to return more axes than the matrix has samples. Pass `dimensions=0` to use every axis, or any value ≤ the sample count
+- **`permdisp` raises `ValueError: Invalid operation: cannot extend distance matrix size` on any distance matrix with fewer than 10 samples, still in 0.7.4.** Its `dimensions` default is 10 and it passes that straight to `pcoa`, which refuses to return more axes than the matrix has samples. Pass `dimensions=0` to use every axis, or any value ≤ the sample count. 0.7.4 did fix a neighbouring crash — `test="median"` no longer raises `ZeroDivisionError` when every sample in a group shares coordinates
 - Mantel tests assess matrix correlation (e.g., geographic vs genetic distance); `mantel` and `permanova` accept condensed-form distance matrices as of 0.7.2
 - Supply differential-abundance tests with raw counts, not pre-normalized proportions, to preserve magnitude information
 
@@ -578,7 +655,7 @@ df = embed_vec_to_dataframe(vectors)                       # indexed by sequence
 
 ### Installation
 ```bash
-uv pip install "scikit-bio==0.7.3"
+uv pip install "scikit-bio==0.7.4"
 ```
 Requires Python 3.10+ and NumPy 2.0+. Pre-compiled wheels are published for each release since 0.7.0, so most platforms install without a compiler. Conda users can instead run `conda install -c conda-forge scikit-bio`. Nothing here needs an API key, an account or a GPU.
 
@@ -587,6 +664,37 @@ Requires Python 3.10+ and NumPy 2.0+. Pre-compiled wheels are published for each
 - For massive phylogenetic trees, prefer GME or BME over NJ — both were substantially accelerated in 0.7.3, and `bme` parallelizes by default
 - Store large distance matrices in condensed form to halve their memory footprint
 - BIOM format (HDF5) more efficient than JSON for large tables
+
+**Choosing a compute engine (0.7.4).** `permanova`, `mantel`, `permdisp`, `pcoa` and the
+UniFrac metrics gained an optional Numba backend. Defaults are unchanged, so nothing moves
+unless you ask:
+
+```python
+import numpy as np
+import skbio
+from skbio import DistanceMatrix
+from skbio.stats.distance import permanova
+
+skbio.get_config()          # {'table_output': 'pandas', 'compute_engine': 'cython'}
+
+rng = np.random.default_rng(7)
+x = rng.random((6, 4)); x[3:] += 1.5
+d = np.abs(x[:, None, :] - x[None, :, :]).sum(-1); np.fill_diagonal(d, 0.0)
+dm = DistanceMatrix(d, ids=[f'S{i}' for i in range(6)])
+grouping = ['control'] * 3 + ['treated'] * 3
+
+# Per call: 'fast' picks Numba when it is installed and Cython otherwise
+res = permanova(dm, grouping, permutations=999, seed=42, engine='fast')
+
+# Or process-wide, instead of per call
+skbio.set_config('compute_engine', 'cython')
+```
+
+`engine='fast'` is the safe choice — it degrades to Cython rather than failing when Numba
+is absent. `skbio.set_config('compute_engine', …)` applies one engine process-wide;
+explicit `engine=` arguments override it. The engine changes speed, not results: on this
+6-sample matrix — the same one `## Try it` uses — `engine='fast'` returns a pseudo-F of
+`37.805704`, matching the default path exactly.
 
 ### Integration with Ecosystem
 - Sequences interoperate with Biopython via standard formats
@@ -612,7 +720,7 @@ behaviour, and every figure below is either a mathematical identity or a seeded 
 Three of the four checks need a community whose true answer is known in advance — a four-tip
 tree with hand-chosen branch lengths — and a downloaded table cannot give you that.
 
-**Run** — `uv pip install "scikit-bio==0.7.3"`, then:
+**Run** — `uv pip install "scikit-bio==0.7.4"`, then:
 
 ```python
 import numpy as np
@@ -675,7 +783,7 @@ except ValueError as e:
 
 disp = permdisp(dm, grouping, permutations=99, seed=42, dimensions=0)
 
-# OBSERVED VALUES — scikit-bio 0.7.3, NumPy 2.4.6, seeded; a mismatch is drift to
+# OBSERVED VALUES — scikit-bio 0.7.4, NumPy 2.4.6, seeded; a mismatch is drift to
 # investigate, not necessarily a bug.
 res = permanova(dm, grouping, permutations=999, seed=42)
 ord_ = pcoa(dm)
@@ -714,9 +822,9 @@ What each line is worth, because the two kinds fail differently:
 - **Traps, asserted rather than described.** `find_with_regex` without a capture group
   returns nothing and raises nothing — the check pins the silent-miss behaviour so a future
   fix upstream is visible rather than invisible. `permdisp` is asserted to *fail* on a
-  6-sample matrix with its default `dimensions=10`: that failure is the documented 0.7.3
+  6-sample matrix with its default `dimensions=10`: that failure is the documented 0.7.4
   behaviour, so the day it stops failing, the note above it is stale.
-- **Observed values** are seeded, so they reproduce exactly on 0.7.3 and are drift to
+- **Observed values** are seeded, so they reproduce exactly on 0.7.4 and are drift to
   investigate if they move. Note the p-value floor: 3-vs-3 has only `C(6,3)/2 = 10` distinct
   labellings, so the smallest p any permutation test can return here is `0.1`, whatever
   `permutations=` says. Exhaustive enumeration of all 20 labellings puts 2 at or above the
