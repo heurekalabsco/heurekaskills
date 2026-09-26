@@ -118,6 +118,26 @@ function looksLikeLogin(u, contentType) {
 // someone else's rate limit is a job people learn to ignore.
 const isTransient = (status) => status === 429 || (status >= 500 && status < 600);
 
+// Where the chain actually ended, when that is not where it started. A refusal several hops
+// downstream is otherwise indistinguishable from the declared host refusing, and they call for
+// opposite responses: the declared host refusing is upstream decay and a finding; a refusal at
+// an object-storage host the prober cannot reach is our own network path and is not.
+//
+// On 2026-09-24 that distinction cost a night. Six datasets were reported dead on HTTP 403 —
+// four HuggingFace weight URLs, an NIH RePORTER export and an NSF template. Every declared host
+// answered fine and redirected to storage on a different hostname (`us.aws.cdn.hf.co`,
+// `public.era.nih.gov`, `nsf-gov-resources.nsf.gov`) that the run had no route to. Naming the
+// host that actually refused makes that a glance instead of an investigation.
+const provenance = (startUrl, finalHref) => {
+  try {
+    const from = new URL(startUrl).host;
+    const to = new URL(finalHref).host;
+    return from === to ? {} : { via: to, finalUrl: finalHref };
+  } catch {
+    return {};
+  }
+};
+
 async function once(url, method) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
@@ -170,16 +190,33 @@ async function probeOnce(startUrl) {
 
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location');
-      if (!loc) return { state: 'dead', status: res.status, reason: `HTTP ${res.status} with no Location header` };
+      if (!loc) {
+        return { state: 'dead', status: res.status, reason: `HTTP ${res.status} with no Location header`, ...provenance(startUrl, u.href) };
+      }
       url = new URL(loc, u).href;
       continue;
     }
 
+    const where = provenance(startUrl, u.href);
+
+    // Transient BEFORE gated, and the order is the whole point. A 429 or 5xx says nothing
+    // about whether a host has added a login — it says the host would not answer this time.
+    // Several hosts serve their rate-limit page as `text/html`, and the gating heuristic below
+    // reads any unexpected HTML as "the host may now gate this behind a page", so testing it
+    // first turns a rate limit into a permanent death.
+    //
+    // OSF does exactly this. On 2026-09-24 `bioagent-bench` was filed dead on a 429 served as
+    // an HTML error page. That misfiling was not cosmetic: the nightshift's egress preflight
+    // decides whether to believe a dead list by looking for one status repeated across
+    // unrelated hosts, and this stray entry added a second distinct status to a report that was
+    // otherwise six identical 403s — so the gate stayed silent and certified six false
+    // positives as real findings. One misclassified entry disarmed the check.
+    if (isTransient(res.status)) return { state: 'transient', status: res.status, reason: `HTTP ${res.status}`, ...where };
+
     const gated = looksLikeLogin(u, res.headers.get('content-type'));
-    if (gated) return { state: 'dead', status: res.status, reason: gated };
-    if (isTransient(res.status)) return { state: 'transient', status: res.status, reason: `HTTP ${res.status}` };
-    if (!res.ok) return { state: 'dead', status: res.status, reason: `HTTP ${res.status}` };
-    return { state: 'ok', status: res.status };
+    if (gated) return { state: 'dead', status: res.status, reason: gated, ...where };
+    if (!res.ok) return { state: 'dead', status: res.status, reason: `HTTP ${res.status}`, ...where };
+    return { state: 'ok', status: res.status, ...where };
   }
   return { state: 'dead', reason: `more than ${MAX_REDIRECTS} redirects` };
 }
@@ -317,9 +354,17 @@ if (JSON_OUT) {
 } else {
   const declaring = skills.filter((s) => s.urls.length).length;
   console.log(`Probed ${jobs.length} dataset(s) declared by ${declaring} of ${skills.length} skill(s).`);
-  for (const d of dead) console.log(`  ✗ ${d.slug}: ${d.url} — ${d.reason}`);
+  for (const d of dead) {
+    // Name the host that actually refused. Without this a refusal three hops downstream reads
+    // as the declared host going dark, which is a different problem with a different owner.
+    const via = d.via ? ` [refused at ${d.via}, not the declared host]` : '';
+    console.log(`  ✗ ${d.slug}: ${d.url} — ${d.reason}${via}`);
+  }
   for (const u of unprobed) console.log(`  ✗ ${u.slug}: declared "${u.value}" — ${u.reason}, so it was never checked`);
-  for (const t of inconclusive) console.log(`  ? ${t.slug}: ${t.url} — ${t.reason} after ${RETRIES + 1} attempts (not counted as dead)`);
+  for (const t of inconclusive) {
+    const via = t.via ? ` [at ${t.via}]` : '';
+    console.log(`  ? ${t.slug}: ${t.url} — ${t.reason}${via} after ${RETRIES + 1} attempts (not counted as dead)`);
+  }
   for (const v of staleVerify) console.log(`  ⧗ ${v.slug}: last verified ${v.verifiedOn} (${v.ageDays}d ago) — past the ${STALE_AFTER_DAYS}d re-audit window`);
   if (unverifiedYet.length) console.log(`  · ${unverifiedYet.length} skill(s) awaiting first verification: ${unverifiedYet.map((s) => s.slug).join(', ')}`);
   if (meanCoverage !== null) console.log(`  · mean executed share across ${covered.length} verified skill(s): ${Math.round(meanCoverage * 100)}%`);
