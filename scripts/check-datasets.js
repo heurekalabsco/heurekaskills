@@ -31,6 +31,14 @@ const SKILLS_DIR = process.env.SKILLS_DIR
   : path.join(ROOT, 'skills');
 
 const JSON_OUT = process.argv.includes('--json');
+// `--json-out <path>` writes the machine-readable report to a file while stdout keeps the
+// human output. Two invocations would mean probing every declared dataset twice — slow here and
+// discourteous to the hosts — and the report is needed for corroboration (scripts/corroborate.js)
+// on exactly the runs whose log a person also reads.
+const JSON_OUT_PATH = (() => {
+  const i = process.argv.indexOf('--json-out');
+  return i === -1 ? null : process.argv[i + 1] ?? null;
+})();
 const MAX_REDIRECTS = 5;
 // A skill verified long enough ago has quietly become a claim about the past. This does not
 // fail the build — staleness is a queue, not a break — but it must be visible, or "verified"
@@ -361,8 +369,7 @@ const meanCoverage = covered.length
   : null;
 const failed = dead.length + unprobed.length;
 
-if (JSON_OUT) {
-  console.log(JSON.stringify({
+const report = {
     checkedAt: new Date().toISOString(),
     skills: skills.length,
     datasets: jobs.length,
@@ -380,7 +387,15 @@ if (JSON_OUT) {
     withoutGetFiles: withoutGetFiles.map((s) => s.slug),
     inlineByDesign: inline.map((s) => s.slug),
     ok: failed === 0,
-  }, null, 2));
+};
+
+if (JSON_OUT_PATH) {
+  // Written before stdout so a consumer waiting on the file is not racing the console.
+  fs.writeFileSync(JSON_OUT_PATH, JSON.stringify(report, null, 2));
+}
+
+if (JSON_OUT) {
+  console.log(JSON.stringify(report, null, 2));
 } else {
   const declaring = skills.filter((s) => s.urls.length).length;
   console.log(`Probed ${jobs.length} dataset(s) declared by ${declaring} of ${skills.length} skill(s).`);
