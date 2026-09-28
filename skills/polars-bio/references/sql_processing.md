@@ -24,7 +24,7 @@ pb.register_pairs("contacts.pairs", name="hic_contacts")
 pb.register_fasta("reference.fasta", name="reference")
 pb.register_bigwig("coverage.bw", name="signal")
 pb.register_bigbed("peaks.bb", name="peaks")
-pb.register_vcf_zarr("/path/to/vcf.zarr", name="zarr_variants")
+pb.register_vcf_zarr("variants.vcf.zarr", name="zarr_variants")
 ```
 
 ### Parameters
@@ -234,14 +234,19 @@ import polars_bio as pb
 pb.register_vcf("cohort.vcf.gz", name="variants")
 pb.register_bed("genome_windows_1mb.bed", name="windows")
 
-# Count variants per window using SQL
+# Count variants per window using SQL.
+# The interval test goes in the aggregate, not in the JOIN ... ON: a range-inequality
+# ON clause takes a planner path that fails with
+#   Invalid arithmetic operation: UInt32 - Int32
+# because position columns are UInt32 (Pitfall 14 in SKILL.md). Joining on the
+# chromosome alone also keeps empty windows, which an inner join would drop.
 result = pb.sql("""
-    SELECT w.chrom, w.start, w.end, COUNT(v.start) as variant_count
+    SELECT w.chrom, w.start, w."end",
+           SUM(CASE WHEN v.start >= w.start AND v.start < w."end" THEN 1 ELSE 0 END)
+             AS variant_count
     FROM windows w
     LEFT JOIN variants v ON w.chrom = v.chrom
-        AND v.start >= w.start
-        AND v.start < w.end
-    GROUP BY w.chrom, w.start, w.end
+    GROUP BY w.chrom, w.start, w."end"
     ORDER BY variant_count DESC
 """).collect()
 ```
@@ -253,13 +258,29 @@ import polars_bio as pb
 
 pb.register_gff("gencode.gff3", name="genes")
 
-# Find all protein-coding genes on chromosome 1
+# Find all protein-coding genes on chromosome 1.
+# `attributes` is List(Struct({tag, value})), not the raw ninth-column text, so LIKE
+# cannot match it and casting it to Utf8 is unimplemented (Pitfall 13 in SKILL.md).
+# Unnest it in a subquery and filter on the tag and value:
 coding_genes = pb.sql("""
-    SELECT chrom, start, "end", attributes
+    SELECT chrom, start, "end", attr.tag AS tag, attr.value AS value
+    FROM (
+        SELECT chrom, start, "end", type, UNNEST(attributes) AS attr FROM genes
+    )
+    WHERE type = 'gene'
+        AND chrom = 'chr1'
+        AND attr.tag = 'gene_type'
+        AND attr.value = 'protein_coding'
+    ORDER BY start
+""").collect()
+
+# Or test for membership directly when you only need the matching rows:
+coding_only = pb.sql("""
+    SELECT chrom, start, "end"
     FROM genes
     WHERE type = 'gene'
         AND chrom = 'chr1'
-        AND attributes LIKE '%protein_coding%'
+        AND array_has(attributes, {'tag': 'gene_type', 'value': 'protein_coding'})
     ORDER BY start
 """).collect()
 ```

@@ -76,22 +76,29 @@ need them.
 | `end` | UInt32 | End position |
 | `name` | String | Feature name (BED column 4) |
 
-### A BED3 file reads as zero rows, silently
+### A BED3 file read as zero rows, silently — fixed in 0.36.0
 
 Because `name` is part of the fixed schema, a file with only the three mandatory columns
-fails to parse on every record. The Rust layer logs `Error reading record from BED file` to
-stderr and the call then returns an **empty DataFrame** — no exception is raised, so a BED3
-input looks like an empty interval set rather than an error.
+failed to parse on every record up to and including **0.35.1**. The Rust layer logged
+`Error reading record from BED file` to stderr and the call then returned an **empty
+DataFrame** — no exception was raised, so a BED3 input looked like an empty interval set
+rather than an error. One malformed record had the same effect on the whole file.
+
+**0.36.0 closes it** (biodatageeks/polars-bio#456). Reading one three-record BED3 file on
+each release on 2026-09-28 returned 0 rows on 0.35.1 and 3 rows on 0.36.0, with `name` null
+where the fourth field is absent, and the same holds through the eager, lazy and SQL entry
+points. Giving that file a single bad coordinate now raises an error naming the line it
+failed on, where 0.35.1 logged to stderr and handed back an empty frame.
+
+On a pin at or below 0.35.1, give the file a name column before reading it:
 
 ```bash
 # Give a BED3 file a name column before reading it
 awk 'BEGIN{OFS="\t"} {print $1,$2,$3,(NF>3?$4:"r"NR)}' three_col.bed > four_col.bed
 ```
 
-Confirmed identical on polars-bio 0.33.1, 0.34.0 and 0.35.1 (rechecked 2026-09-05), so this
-is long-standing behaviour rather than a recent regression. Reported upstream as
-biodatageeks/polars-bio#456. Check `df.height` after reading any BED you did
-not write yourself.
+Checking `df.height` after reading a BED you did not write yourself is still cheap insurance
+on an older pin.
 
 ## VCF Format
 
@@ -159,17 +166,17 @@ Read analysis-ready [VCF Zarr](https://github.com/sgkit-dev/vcf-zarr-spec) store
 import polars_bio as pb
 
 # Eager read from a Zarr store directory
-df = pb.read_vcf_zarr("/path/to/vcf.zarr")
+df = pb.read_vcf_zarr("variants.vcf.zarr")
 
 # Lazy scan (preferred for large stores)
 lf = pb.scan_vcf_zarr(
-    "/path/to/vcf.zarr",
+    "variants.vcf.zarr",
     info_fields=["AF", "END"],
     format_fields=["GT", "DP"],
 )
 
 # Disable INFO/FORMAT discovery explicitly
-lf = pb.scan_vcf_zarr("/path/to/vcf.zarr", info_fields=[], format_fields=[])
+lf = pb.scan_vcf_zarr("variants.vcf.zarr", info_fields=[], format_fields=[])
 ```
 
 ### Additional Parameters
@@ -182,19 +189,20 @@ Same as VCF where applicable: `info_fields`, `format_fields`, `samples`, `projec
 import polars_bio as pb
 
 # Register a store as a SQL table (same projection parameters as scan_vcf_zarr)
-pb.register_vcf_zarr("/path/to/vcf.zarr", name="zarr_variants", info_fields=["AF"])
+pb.register_vcf_zarr("variants.vcf.zarr", name="zarr_variants", info_fields=["AF"])
 
 # Introspect the store's logical VCF schema
-schema = pb.describe_vcf_zarr("/path/to/vcf.zarr")
+schema = pb.describe_vcf_zarr("variants.vcf.zarr")
 ```
 
 **Note:** VCF Zarr is currently local-path only (no cloud URI support).
 
 **Spec version:** the readers accept `vcf_zarr_version` **0.4** and reject anything else up
 front — a 0.5 store fails with `unsupported vcf_zarr_version '0.5' at <path>/.zattrs; expected
-0.4` before any data is read. Recent `bio2zarr` releases write 0.5 by default, so a store that
-was just converted may need a writer pinned to a 0.4-emitting version. Check `.zattrs` in the
-store directory first when a Zarr path fails immediately.
+0.4` before any data is read. The writer boundary, measured 2026-09-28 against polars-bio
+0.36.0: `bio2zarr` **0.1.8 and 0.2.0 write 0.4** and their stores read correctly, while
+**0.2.1 writes 0.5** and is rejected. So pin the converter — `pip install "bio2zarr[vcf]==0.2.0"`
+— or check `.zattrs` in the store directory first when a Zarr path fails immediately.
 
 ## BAM Format
 

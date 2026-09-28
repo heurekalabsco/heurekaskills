@@ -5,23 +5,25 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.4.0
+version: 1.5.0
 tags: [genomic-intervals, bed, vcf, polars, file-io]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
 verified:
-  date: 2026-08-26
-  against: polars-bio 0.34.0 / polars 1.44.1 / Python 3.11.15 / bioframe 0.8.0
-  executed: 38
-  unverified: 19
+  date: 2026-09-28
+  against: polars-bio 0.36.0 / polars 1.44.2 / bioframe 0.8.0 / pandas 3.0.6 / NumPy 2.4.6 / Python 3.11.15. Every runnable block in SKILL.md and all seven references/*.md re-executed on 0.36.0; inputs synthesised locally with pysam 0.24.1 (BAM, CRAM, SAM, BGZF VCF with AF/DP/END INFO and GT/GQ/DP FORMAT, FASTQ), pyBigWig (BigWig) and bio2zarr 0.2.0 (a spec-0.4 VCF Zarr store), plus BED3/BED4/BED6, GFF3, GTF, FASTA and a Hi-C .pairs file written inline
+  executed: 85
+  unverified: 6
   unverified_reason: >-
-    Each needs a format-specific input the validating environment could not synthesise —
-    a BigBed track, a VCF Zarr store, a Hi-C pairs file, a CRAM plus its reference, or a
-    VCF carrying AF/DP INFO and GQ FORMAT fields. Re-run with a set of real sample files
-    in those formats; everything else in the skill executes against inline-generated data.
-    Note the version gap: this sweep ran on 0.34.0, while the install lines now pin 0.35.1
-    after the upstream coverage fix. Only the `## Try it` self-check has been re-executed
-    there; the full re-sweep is tracked in heurekalabsco/heurekaskills#226.
+    Four are cloud reads whose URIs are placeholder buckets — s3://bucket/regions.bed,
+    gs://bucket/variants.vcf.gz and az://container/aligned.bam — so they need a reachable
+    object store and credentials, not a local file; re-run them from a host with a bucket
+    of your own and they exercise the same readers as the local paths. The other two open
+    a BigBed track (peaks.bb): pyBigWig reads bigBed but cannot write one, and no
+    bedToBigBed binary was available, so no BigBed input could be authored here. Re-run
+    with a real .bb track. Of 104 fenced blocks, 13 are narrative fragments that continue
+    an earlier block's variables and cannot run standalone by construction, so they are
+    counted in neither figure: 85 + 6 = 91 runnable blocks, 93.4% executed.
 ---
 # polars-bio
 
@@ -54,13 +56,13 @@ Use this skill when:
 Requires Python 3.11–3.14 (see [PyPI](https://pypi.org/project/polars-bio/)).
 
 ```bash
-uv pip install "polars-bio==0.35.1"
+uv pip install "polars-bio==0.36.0"
 ```
 
 For pandas compatibility (pandas ≥3.0):
 
 ```bash
-uv pip install "polars-bio[pandas]==0.35.1"
+uv pip install "polars-bio[pandas]==0.36.0"
 ```
 
 Nothing else is needed — the wheel bundles the Rust engine and its Polars runtime.
@@ -383,22 +385,38 @@ DataFusion streaming is enabled by default for interval operations, processing d
 
 9. **CRAM has separate functions:** Use `read_cram`/`scan_cram`/`register_cram` for CRAM files (not `read_bam`). CRAM functions require a `reference_path` parameter.
 
-10. **A BED3 file reads as zero rows, and nothing raises.** `read_bed` / `scan_bed` /
-    `register_bed` project every BED to a fixed four-column schema — `chrom`, `start`,
-    `end`, `name` — and a file with only the three mandatory columns has no `name` field,
-    so every record fails to parse. The failure is *logged* by the Rust layer
-    (`Error reading record from BED file` on stderr) and then swallowed: you get an empty
-    DataFrame, not an exception. BED4 through BED12 all read correctly, so the fix is to
-    give the file a name column:
+10. **A BED3 file read silently as zero rows below 0.36.0 — fixed, but check your pin.**
+    `read_bed` / `scan_bed` / `register_bed` project every BED to a fixed four-column
+    schema — `chrom`, `start`, `end`, `name`. Up to and including **0.35.1**, a file with
+    only the three mandatory columns had no `name` field, every record failed to parse, and
+    the failure was *logged* by the Rust layer (`Error reading record from BED file` on
+    stderr) and then swallowed: you got an empty DataFrame, not an exception.
+
+    **0.36.0 closes both halves** (biodatageeks/polars-bio#456, the issue this skill
+    filed). Reading the same three-record BED3 file on each release on 2026-09-28 gave 0
+    rows on 0.35.1 and 3 rows on 0.36.0, `name` coming back null where the fourth field
+    is absent; feeding it one bad coordinate raised
+    `BED <file>: IO error: BED line <n>: start must be …`, which names the offending line
+    rather than logging to stderr and returning nothing:
+
+    | on a BED3 file | ≤ 0.35.1 | ≥ 0.36.0 |
+    |---|---|---|
+    | 3 valid records | 0 rows, no exception | **3 rows, `name` null** |
+    | 1 malformed record | 0 rows, no exception | **raises, naming the line** |
+
+    Note what the old behaviour cost: a single bad record took the *whole file* with it, so
+    the result was not "the bad row is missing" but "there is no data". On the pinned
+    release neither case can pass unnoticed.
+
+    If you are pinned at or below 0.35.1, give the file a name column before reading it:
 
     ```bash
     awk 'BEGIN{OFS="\t"} {print $1,$2,$3,(NF>3?$4:"r"NR)}' three_col.bed > four_col.bed
     ```
 
-    Check `df.height` after reading any BED you did not write yourself. A zero-row result
-    from a non-empty file means this, not an empty interval set. Observed on 0.33.1, 0.34.0
-    and 0.35.1 alike, so it is long-standing behaviour rather than a recent regression.
-    Reported upstream as biodatageeks/polars-bio#456.
+    Checking `df.height` after reading a BED you did not write yourself remains cheap and
+    is still worth doing — on an older pin a zero-row result from a non-empty file means
+    this, not an empty interval set.
 
 11. **`end` is a reserved SQL word:** `pb.sql("SELECT chrom, start, end FROM regions")` fails with a `ParserError`. Double-quote it — `SELECT chrom, start, "end" FROM regions`. It parses unquoted when table-qualified (`v.end`), inside a function (`MAX(end)`), or in a `WHERE` clause; only a bare select-list position breaks.
 
@@ -443,6 +461,49 @@ DataFusion streaming is enabled by default for interval operations, processing d
     returned a plausible wrong number instead of an error.
 
 
+13. **A GFF/GTF `attributes` column is structured, so `LIKE` cannot match it.**
+    `register_gff` / `register_gtf` expose `attributes` as
+    `List(Struct({tag: String, value: String}))`, not as the raw ninth-column text. A
+    query like `WHERE attributes LIKE '%protein_coding%'` therefore fails at planning time
+    with `There isn't a common type to coerce List(Struct(...)) and Utf8 in LIKE
+    expression`, and casting the column to `Utf8` is not implemented either. Filter on the
+    tag and value instead — unnest in a subquery when you want them as columns:
+
+    ```sql
+    SELECT chrom, start, "end", attr.tag AS tag, attr.value AS value
+    FROM (SELECT chrom, start, "end", type, UNNEST(attributes) AS attr FROM genes)
+    WHERE type = 'gene' AND attr.tag = 'gene_type' AND attr.value = 'protein_coding'
+    ```
+
+    or test for membership directly when you only need the rows:
+
+    ```sql
+    SELECT chrom, start, "end" FROM genes
+    WHERE type = 'gene'
+      AND array_has(attributes, {'tag': 'gene_type', 'value': 'protein_coding'})
+    ```
+
+14. **Put an interval test in a conditional aggregate, not in a range `JOIN ... ON`.** A
+    join whose `ON` clause carries the inequality pair — `ON a.chrom = b.chrom AND
+    b.start >= a.start AND b.start < a."end"` — takes a range-join path that fails with
+    `Arrow error: Invalid argument error: Invalid arithmetic operation: UInt32 - Int32`,
+    because genomic position columns are `UInt32` while the planner's offsets are signed.
+    Casting the operands does not avoid it. Join on the chromosome only and move the
+    interval test into the aggregate:
+
+    ```sql
+    SELECT w.chrom, w.start, w."end",
+           SUM(CASE WHEN v.start >= w.start AND v.start < w."end" THEN 1 ELSE 0 END)
+             AS variant_count
+    FROM windows w LEFT JOIN variants v ON w.chrom = v.chrom
+    GROUP BY w.chrom, w.start, w."end" ORDER BY w.start
+    ```
+
+    This also keeps the `LEFT JOIN` doing what it was there for: windows with no variants
+    stay in the result with a count of `0`, which an inner join drops. For a plain overlap
+    count, `pb.count_overlaps` is faster and does not need SQL at all.
+
+
 ## Best Practices
 
 1. **Use `scan_*` for large files:** Prefer `scan_bed`, `scan_vcf`, etc. over `read_*` for files larger than available RAM. Scan functions enable streaming and predicate pushdown.
@@ -460,7 +521,7 @@ DataFusion streaming is enabled by default for interval operations, processing d
    df = pb.read_vcf("large.vcf.gz").select("chrom", "start", "end", "ref", "alt")
    ```
 
-5. **Use cloud paths directly:** Pass S3/GCS/Azure URIs directly to read/scan/register functions instead of downloading files first. Authenticated access uses your cloud SDK credentials (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, Azure defaults) only when those cloud paths are accessed:
+5. **Use cloud paths directly:** Pass S3/GCS/Azure URIs directly to read/scan/register functions instead of downloading files first. Authenticated access uses your cloud SDK credentials (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, Azure defaults) only when those cloud paths are accessed. Since **0.36.0** `concurrent_fetches` defaults to `8` rather than `1` across every `read_*`/`scan_*`/`describe_*`/`register_*` that exposes it, so a whole-object read is split into parallel ranged requests by default; pass `concurrent_fetches=1` to go back to a single sequential request:
    ```python
    df = pb.read_bed("s3://my-bucket/regions.bed", allow_anonymous=True)
    ```
@@ -478,7 +539,7 @@ a BED file, not the contents of any particular public dataset. Two files are wri
 differ only in column count, which is exactly the axis Pitfall 10 turns on. Nothing here can
 rot behind a URL.
 
-**Run** — in a fresh empty directory, after `uv pip install "polars-bio==0.35.1"`:
+**Run** — in a fresh empty directory, after `uv pip install "polars-bio==0.36.0"`:
 
 ```python
 import polars as pl
@@ -540,9 +601,9 @@ assert three.height <= six.height, "BED3 can never yield more records than BED6"
 assert zb_same == zb_super == zb_wide == 10, "0-based [10,20) spans 10 bases; every covering target must return 10"
 assert ob_same == ob_super == ob_wide == 11, "1-based [10,20] spans 11 bases; every covering target must return 11 (needs >=0.35.1)"
 
-# --- OBSERVED 2026-09-05, polars-bio 0.35.1: drift, not failure ------------
+# --- OBSERVED 2026-09-28, polars-bio 0.36.0: drift, not failure ------------
 print()
-print("BED3 rows observed:", three.height, "(expected 0 on 0.33.1 through 0.35.1)")
+print("BED3 rows observed:", three.height, "(expected 3 on >=0.36.0; 0 on 0.33.1-0.35.1)")
 print("column count      :", len(six.columns), "(expected 4 — score/strand are dropped)")
 print("1-based coverage  :", ob_same, "/", ob_super, "/", ob_wide, "(expected 11 / 11 / 11 on >=0.35.1 — Pitfall 12)")
 ```
@@ -550,16 +611,15 @@ print("1-based coverage  :", ob_same, "/", ob_super, "/", ob_wide, "(expected 11
 **Expect** — the invariants above are assertions and must pass. The three values below are
 *observed*, dated, and version-stamped; a mismatch is drift to investigate, not a bug.
 
-**Scope of the last check, stated plainly.** This block was re-executed on **0.35.1** on
-2026-09-05 to confirm the Pitfall 12 fix, and the install pins throughout the skill now name
-that release. The frontmatter `verified:` block still records the full 38-block sweep made
-against **0.34.0** on 2026-08-26 — every other runnable block in this skill was last executed
-there, not on 0.35.1. Nothing in the 0.35.1 fix is expected to touch them, but "not expected
-to" is not the same as "re-run", and the frontmatter says which one this is. A full re-sweep
-is tracked in heurekalabsco/heurekaskills#226.
+**Scope of the last check, stated plainly.** This block and every other runnable block in
+this skill — `SKILL.md` and all seven `references/*.md` — were re-executed against **0.36.0**
+on 2026-09-28, and the install pins throughout the skill name that release. The frontmatter
+`verified:` block reports the counts that run produced, so `against:` and the install lines
+now describe the same release; the split state recorded here through September, where one
+block had moved to a newer pin and the rest had not, is closed.
 
 ```
-BED3 rows : 0    <- Pitfall 10
+BED3 rows : 3    <- Pitfall 10
 BED6 rows : 3
 schema    : ['chrom', 'start', 'end', 'name']
 dtypes    : ['String', 'UInt32', 'UInt32', 'String']
@@ -569,13 +629,14 @@ overlaps  : [1, 1, 1]
 coverage 0-based identical/superset/wide: 10 / 10 / 10
 coverage 1-based identical/superset/wide: 11 / 11 / 11
 
-BED3 rows observed: 0 (expected 0 on 0.33.1 through 0.35.1)
+BED3 rows observed: 3 (expected 3 on >=0.36.0; 0 on 0.33.1-0.35.1)
 column count      : 4 (expected 4 — score/strand are dropped)
 1-based coverage  : 11 / 11 / 11 (expected 11 / 11 / 11 on >=0.35.1 — Pitfall 12)
 ```
 
-If `BED3 rows` prints `3`, upstream has fixed the record-parsing bug and Pitfall 10 should be
-retired. If the schema grows past four columns, the extended-field note in
+If `BED3 rows` prints `0`, you are on a release at or below 0.35.1 and are seeing the
+record-parsing bug of biodatageeks/polars-bio#456 — upgrade, or give the file a name column
+as Pitfall 10 shows. If the schema grows past four columns, the extended-field note in
 `references/file_io.md` needs updating with it. If `1-based coverage` prints `10 / 12` you
 are on a release older than 0.35.1 and are hitting biodatageeks/polars-bio#450 — the
 `assert` above will have fired first. Upgrade, or follow the workaround in Pitfall 12 and
