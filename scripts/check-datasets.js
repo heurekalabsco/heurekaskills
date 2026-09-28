@@ -118,6 +118,12 @@ function looksLikeLogin(u, contentType) {
 // someone else's rate limit is a job people learn to ignore.
 const isTransient = (status) => status === 429 || (status >= 500 && status < 600);
 
+// Access-denied shapes, as opposed to "this is not here". The distinction matters only when
+// the refusal arrives at a host we were redirected to: 403 from an object store is a refusal
+// we cannot attribute, because our own egress produces exactly the same status; 404 from the
+// same store means the file is genuinely gone and is a real finding either way.
+const isRefusal = (status) => [401, 403, 407, 451].includes(status);
+
 // Where the chain actually ended, when that is not where it started. A refusal several hops
 // downstream is otherwise indistinguishable from the declared host refusing, and they call for
 // opposite responses: the declared host refusing is upstream decay and a finding; a refusal at
@@ -212,6 +218,30 @@ async function probeOnce(startUrl) {
     // otherwise six identical 403s — so the gate stayed silent and certified six false
     // positives as real findings. One misclassified entry disarmed the check.
     if (isTransient(res.status)) return { state: 'transient', status: res.status, reason: `HTTP ${res.status}`, ...where };
+
+    // A refusal that arrives at a host we were REDIRECTED to is not evidence about upstream.
+    // The declared host answered and handed us on; the hop that refused is one our own egress
+    // may simply not be permitted to reach, and a proxy denial is indistinguishable from the
+    // store's own 403. Reporting that as a dead dataset is how six live model repositories
+    // came to be listed as dead on 2026-09-24 — every one of them public, ungated, and
+    // carrying the file.
+    //
+    // Deliberately narrow. Only access-denied shapes are excused, and only when the host
+    // actually changed. A 404 or 410 from the same store still means the file is gone, which
+    // is a real finding whoever is asking. And `via` is still recorded, so an excused entry
+    // names the hop rather than disappearing.
+    //
+    // This is the registry's own rule applied one layer down: do not judge what you could not
+    // reach. `inconclusive` is the bucket that already means "nobody is entitled to a verdict
+    // here", and it does not fail the build.
+    if (where.via && isRefusal(res.status)) {
+      return {
+        state: 'transient',
+        status: res.status,
+        reason: `HTTP ${res.status} from a redirect target, not the declared host — unattributable`,
+        ...where,
+      };
+    }
 
     const gated = looksLikeLogin(u, res.headers.get('content-type'));
     if (gated) return { state: 'dead', status: res.status, reason: gated, ...where };
