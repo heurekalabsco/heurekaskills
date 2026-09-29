@@ -18,8 +18,9 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # the wrong reason, with the logic under test never reached.
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 MINUS_1H=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+MINUS_13H=$(date -u -d '13 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-13H +%Y-%m-%dT%H:%M:%SZ)
 for f in "$FIX"/*.json; do
-  sed -e "s/__NOW__/$NOW/" -e "s/__MINUS_1H__/$MINUS_1H/" "$f" > "$TMP/$(basename "$f")"
+  sed -e "s/__NOW__/$NOW/" -e "s/__MINUS_1H__/$MINUS_1H/" -e "s/__MINUS_13H__/$MINUS_13H/" "$f" > "$TMP/$(basename "$f")"
 done
 
 fail=0
@@ -41,6 +42,10 @@ expect 1 "both vantages saw it die -> stays dead"            agree-ours.json    
 expect 0 "only one vantage saw it -> downgraded"             disagree-ours.json disagree-theirs.json
 expect 2 "corroborator failed across 3 hosts -> refused"     agree-ours.json    blanket-theirs.json
 expect 2 "corroborator has wrong-typed inconclusive"         agree-ours.json    badtype-theirs.json
+# The gap bound is a measured constant, not a chosen one: the liveness workflow's cron said 07:00
+# and it fired five to seven hours late on eight consecutive days, so a six-hour bound refused
+# every night. Pin it, or the next person "tidies" it back to something the scheduler cannot meet.
+expect 2 "reports 13h apart -> too far apart to corroborate"  agree-ours.json    stale-gap-theirs.json
 
 # The downgrade must say the other vantage REACHED it. Before okUrls existed this read "not in
 # their report" — the inverse of the truth, in the field a human uses to pick which network to

@@ -15,3 +15,4 @@ Each case pins a behaviour that was wrong in the first version of the script, fo
 | `disagree-*` | a death only one vantage sees is downgraded | correct |
 | `blanket-*` | a corroborator whose failures span 3+ hosts on one status is refused | confirmed 3 false deaths |
 | `badtype-*` | a wrong-typed `inconclusive` refuses (exit 2) | threw, exit 1 — which reads as "corroborated dead" |
+| `stale-gap-*` | reports 13h apart are too far apart to corroborate | bound was 6h, which the real schedule could never meet |

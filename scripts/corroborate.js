@@ -34,9 +34,17 @@ const JSON_OUT = process.argv.includes('--json');
 // the sweep at 08:00); a day allows for a missed CI run without silently vouching with a report
 // from last week, which is the failure this whole file exists to prevent one layer down.
 const MAX_AGE_HOURS = Number(process.env.CORROBORATE_MAX_AGE_HOURS || 24);
-// How far apart the two reports may be taken. An hour is the designed cadence; six allows a
-// missed or delayed run without letting yesterday corroborate today.
-const MAX_GAP_HOURS = Number(process.env.CORROBORATE_MAX_GAP_HOURS || 6);
+// How far apart the two reports may be taken. Corroboration is a claim about a moment, so this
+// is what stops yesterday vouching for today.
+//
+// Twelve, not six, and not because six was too strict — because the cadence it assumed was
+// fiction. The liveness workflow's cron said 07:00 and it actually fired between 12:13 and
+// 14:43 on eight consecutive days: GitHub schedules are best-effort and were running five to
+// seven hours late, always after the ~08:30 sweep they were meant to precede. A six-hour bound
+// would have refused essentially every night. The workflow now runs every six hours so a recent
+// report exists whatever the delay, and twelve is the honest bound for "near enough the same
+// moment" given a scheduler that cannot promise a time.
+const MAX_GAP_HOURS = Number(process.env.CORROBORATE_MAX_GAP_HOURS || 12);
 
 function die(msg) {
   console.error(`corroborate: ${msg}`);
