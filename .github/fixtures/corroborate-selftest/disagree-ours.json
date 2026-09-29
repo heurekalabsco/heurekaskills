@@ -1,0 +1,3 @@
+{"checkedAt":"__NOW__","skills":2,"datasets":2,
+ "dead":[{"slug":"weights","url":"https://h3.test/w.ckpt","status":403,"reason":"HTTP 403","via":"cdn.h3.test"}],
+ "inconclusive":[],"unprobed":[],"okUrls":["https://h2.test/fine.csv"]}

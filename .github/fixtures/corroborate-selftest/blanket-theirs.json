@@ -1,0 +1,5 @@
+{"checkedAt":"__MINUS_1H__","skills":3,"datasets":3,
+ "dead":[{"slug":"a","url":"https://h1.test/f","status":403,"reason":"HTTP 403"},
+         {"slug":"b","url":"https://h2.test/f","status":403,"reason":"HTTP 403"},
+         {"slug":"c","url":"https://h3.test/f","status":403,"reason":"HTTP 403"}],
+ "inconclusive":[],"unprobed":[],"okUrls":[]}
