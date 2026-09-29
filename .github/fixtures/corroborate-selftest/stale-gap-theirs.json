@@ -1,0 +1,3 @@
+{"checkedAt":"__MINUS_13H__","skills":2,"datasets":2,
+ "dead":[{"slug":"gone","url":"https://h1.test/gone.csv","status":404,"reason":"HTTP 404"}],
+ "inconclusive":[],"unprobed":[],"okUrls":["https://h2.test/fine.csv"]}
