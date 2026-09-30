@@ -31,6 +31,25 @@ const SKILLS_DIR = process.env.SKILLS_DIR
   : path.join(ROOT, 'skills');
 
 const JSON_OUT = process.argv.includes('--json');
+// `--json-out <path>` writes the machine-readable report to a file while stdout keeps the
+// human output. Two invocations would mean probing every declared dataset twice — slow here and
+// discourteous to the hosts — and the report is needed for corroboration (scripts/corroborate.js)
+// on exactly the runs whose log a person also reads.
+const JSON_OUT_PATH = (() => {
+  const i = process.argv.indexOf('--json-out');
+  if (i === -1) return null;
+  const value = process.argv[i + 1];
+  // Refuse rather than start, exactly as positiveInt() does below. A missing value used to
+  // leave this null and probe 220 datasets producing no report at all, exiting 0 — a caller
+  // that believed it had a report had nothing, which is the silent no-op this file's own
+  // guards exist to forbid. And an omitted path makes the NEXT flag the filename, so
+  // `--json-out --json` opened a file literally called `--json`.
+  if (!value || value.startsWith('-')) {
+    console.error(`--json-out needs a path, and "${value ?? ''}" is not one. Refusing to start: probing everything and then writing nothing is worse than not starting.`);
+    process.exit(2);
+  }
+  return value;
+})();
 const MAX_REDIRECTS = 5;
 // A skill verified long enough ago has quietly become a claim about the past. This does not
 // fail the build — staleness is a queue, not a break — but it must be visible, or "verified"
@@ -337,6 +356,10 @@ const jobs = skills.flatMap((s) => s.urls.map((url) => ({ slug: s.slug, url })))
 const probed = await pool(jobs, CONCURRENCY, async (j) => ({ ...j, ...(await probe(j.url)) }));
 
 const dead = probed.filter((r) => r.state === 'dead');
+// Every URL that answered. Without this a corroborator cannot distinguish "the other vantage
+// fetched this fine" from "the other vantage never looked at it" — and those are opposite
+// evidence. The first downgrades a dead result; the second corroborates nothing.
+const okUrls = probed.filter((r) => r.state === 'ok').map((r) => r.url);
 const inconclusive = probed.filter((r) => r.state === 'inconclusive');
 
 // A declared dataset we could not even turn into a URL used to fall into no bucket at all:
@@ -361,14 +384,14 @@ const meanCoverage = covered.length
   : null;
 const failed = dead.length + unprobed.length;
 
-if (JSON_OUT) {
-  console.log(JSON.stringify({
+const report = {
     checkedAt: new Date().toISOString(),
     skills: skills.length,
     datasets: jobs.length,
     dead,
     unprobed,
     inconclusive,
+    okUrls,
     verification: {
       staleAfterDays: STALE_AFTER_DAYS,
       stale: staleVerify.map((s) => ({ slug: s.slug, verifiedOn: s.verifiedOn, ageDays: s.ageDays })),
@@ -380,7 +403,27 @@ if (JSON_OUT) {
     withoutGetFiles: withoutGetFiles.map((s) => s.slug),
     inlineByDesign: inline.map((s) => s.slug),
     ok: failed === 0,
-  }, null, 2));
+};
+
+let writeFailed = false;
+if (JSON_OUT_PATH) {
+  // Written before stdout so a consumer waiting on the file is not racing the console.
+  try {
+    fs.writeFileSync(JSON_OUT_PATH, JSON.stringify(report, null, 2));
+  } catch (e) {
+    // Exit 2, never 1. In the workflow, exit 1 from this step is indistinguishable from "a
+    // dataset is dead": the gate fails the run and notify files "a skill now points readers
+    // at data they cannot fetch", sending a human to hunt a dataset that is perfectly fine.
+    // An unwritable path is a problem with the caller, not with the registry. The human
+    // output below still runs, so 220 probes are not thrown away either.
+    console.error(`could not write --json-out to ${JSON_OUT_PATH}: ${e.message}`);
+    console.error('this is a write failure, NOT a dataset finding — the probe results follow');
+    writeFailed = true;
+  }
+}
+
+if (JSON_OUT) {
+  console.log(JSON.stringify(report, null, 2));
 } else {
   const declaring = skills.filter((s) => s.urls.length).length;
   console.log(`Probed ${jobs.length} dataset(s) declared by ${declaring} of ${skills.length} skill(s).`);
@@ -407,4 +450,10 @@ if (JSON_OUT) {
 
 // process.exitCode, not process.exit() — the latter can truncate piped stdout, and the
 // nightshift consumes --json through a pipe.
-process.exitCode = failed ? 1 : 0;
+//
+// 2 outranks 1 deliberately. A write failure is a problem with how this was invoked; 1 is
+// reserved for "a dataset is dead", which the workflow turns into an issue telling a human a
+// skill points readers at data they cannot fetch. Letting the dataset verdict overwrite the
+// write failure would send someone hunting a dead dataset that does not exist — and an
+// earlier version of this very fix did exactly that, because the assignment below ran last.
+process.exitCode = writeFailed ? 2 : (failed ? 1 : 0);

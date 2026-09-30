@@ -4,12 +4,24 @@ name: Dataset liveness
 # Those decay on their own schedule — URLs 404, accessions are withdrawn, hosts add a login
 # — independently of whether the tool the skill documents changed at all.
 #
-# Runs at 07:00 UTC, an hour ahead of the nightshift, so the routine starts from a fresh
-# result. The routine also runs this script itself; this schedule exists so a dead dataset
-# is still recorded on a night the routine never starts.
+# Runs every six hours so a RECENT result always exists for the nightshift to corroborate
+# against. It used to be a single `0 7 * * *`, chosen to sit an hour ahead of the ~08:30 sweep.
+# That hour was fiction: GitHub's scheduled workflows are best-effort and get delayed under
+# load, and measured over eight consecutive days this one fired at 12:13, 12:25, 12:26, 12:35,
+# 13:28 and 14:43 UTC — five to seven hours late, every time, and always AFTER the sweep it was
+# meant to precede. The sweep never saw a same-day report; the freshest available was the
+# previous day's, 18–20h old.
+#
+# Four runs a day means the worst case is a report a few hours old rather than most of a day,
+# whatever the delay happens to be. The cost is 4x the probe volume against upstream hosts,
+# which at ~220 datasets is modest and is the reason the minute is :37 rather than :00 — the
+# top of the hour is where the scheduler queues are deepest.
+#
+# The routine also runs this script itself; this schedule exists so a dead dataset is recorded
+# on a night the routine never starts, and so corroboration has something to corroborate with.
 on:
   schedule:
-    - cron: '0 7 * * *'
+    - cron: '37 */6 * * *'
   workflow_dispatch:
     inputs:
       selftest:
@@ -41,11 +53,35 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      # Runs first and on every trigger, because it needs no network: it is the one check here
+      # that can fail for a reason inside this repo. The corroborator's set logic shipped with
+      # four bugs that an audit found and that any one run of this would have caught — including
+      # one that reported the inverse of the truth, and one where two identically-broken networks
+      # confirmed each other's false deaths.
+      - name: Selftest the corroborator
+        run: ./scripts/corroborate-selftest.sh
+
       - name: Probe every declared dataset
         id: datasets
         if: inputs.selftest != 'dataset' && inputs.selftest != 'publish'
         continue-on-error: true
-        run: node scripts/check-datasets.js
+        # --json-out writes the machine-readable report alongside the human log, in ONE pass.
+        # Probing 220 datasets twice to get both would be slow and discourteous to the hosts.
+        run: node scripts/check-datasets.js --json-out /tmp/ci-liveness.json
+
+      - name: Keep the report for corroboration
+        # Matches line 46's negative form, and that is load-bearing. `inputs` is only populated
+        # for workflow_dispatch, and dispatch defaults are NOT applied to other events — so on a
+        # schedule run `inputs.selftest` is null and `== 'none'` is FALSE. Written that way, this
+        # step skipped on every scheduled run, which is the only trigger publish-report accepts:
+        # the upload and its consumer were mutually exclusive and the feature never ran once.
+        if: always() && inputs.selftest != 'dataset' && inputs.selftest != 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-liveness-report
+          path: /tmp/ci-liveness.json
+          retention-days: 7
+          if-no-files-found: warn
 
       # An alarm nobody has watched fire is not known to work. Each branch points a script at
       # the same fixture, so a dispatch can prove the notify job opens the RIGHT issue —
@@ -88,6 +124,79 @@ jobs:
         run: |
           echo "datasets: ${{ steps.datasets.outcome }}   published: ${{ steps.published.outcome }}"
           exit 1
+
+  # This vantage's result, published where the nightshift can read it an hour later.
+  #
+  # A dataset is dead only when two independent networks agree it is. This runner and the
+  # routine's sandbox fail in OPPOSITE directions — on 2026-09-28 this one read All of Us as
+  # newly gated (a datacenter interstitial; a laptop got 200 JSON) while the sandbox read
+  # HuggingFace's Xet CDN as dead (a hop it has no route to). Neither is entitled to a verdict
+  # alone, and the disagreement is the most useful signal either produces. The rule and its
+  # rationale are maintained with the rest of the nightshift machinery, outside this repo.
+  #
+  # Runs on success too, and that is the point: "we reached everything" is exactly the evidence
+  # that downgrades the other vantage's dead result. Publishing only on failure would corroborate
+  # nothing.
+  publish-report:
+    needs: check
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ci-liveness-report
+          path: /tmp/report
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = '/tmp/report/ci-liveness.json';
+            if (!fs.existsSync(path)) {
+              core.warning('no report artifact — the probe step did not produce one; publishing nothing rather than an empty report that would read as "this vantage reached everything"');
+              return;
+            }
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            // Only what corroboration needs. The full report is the artifact; this is a
+            // durable, readable summary that does not expire in seven days.
+            const slim = {
+              vantage: 'github-actions/ubuntu-latest',
+              checkedAt: r.checkedAt,
+              skills: r.skills,
+              datasets: r.datasets,
+              dead: (r.dead || []).map(({ slug, url, status, reason, via }) => ({ slug, url, status, reason, via })),
+              inconclusive: (r.inconclusive || []).map(({ slug, url, status }) => ({ slug, url, status })),
+            };
+            const body = [
+              '<!-- ci-liveness v1 — replaced on every scheduled run; do not edit by hand -->',
+              'The GitHub Actions vantage, published so the nightshift can corroborate against it.',
+              '**A dataset is dead only when this report and the sweep agree** — neither vantage is entitled to a verdict alone.',
+              '',
+              `Checked **${slim.checkedAt}** — ${slim.datasets} datasets across ${slim.skills} skills · ${slim.dead.length} dead here · ${slim.inconclusive.length} inconclusive here.`,
+              '',
+              '```json',
+              JSON.stringify(slim, null, 2),
+              '```',
+            ].join('\n');
+            const title = 'CI dataset-liveness report (machine-readable, replaced each run)';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'ci-liveness-report',
+            });
+            if (existing.data.length) {
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['ci-liveness-report'],
+              });
+            }
 
   # A red X in the Actions tab is not a notification — logs expire and nobody watches. File
   # it where the backlog already lives. Scheduled runs only: a failing PR check is already
@@ -135,10 +244,22 @@ jobs:
               state: 'open', labels: publishFailed ? 'publish-liveness' : 'dataset-liveness',
             });
             if (existing.data.length) {
+              // At four runs a day an unfixed failure would leave four identical comments daily,
+              // which is how an alarm becomes wallpaper. One a day is enough to show it is still
+              // happening; the run URL in it reaches every run.
+              const today = new Date().toISOString().slice(0, 10);
+              const recent = await github.rest.issues.listComments({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, per_page: 20,
+              });
+              if (recent.data.some((c) => c.body.includes(`Still failing as of ${today}`))) {
+                core.info('already reported today; not commenting again');
+                return;
+              }
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: existing.data[0].number,
-                body: `Still failing as of ${new Date().toISOString().slice(0, 10)} — ${url}`,
+                body: `Still failing as of ${today} — ${url}`,
               });
             } else {
               await github.rest.issues.create({
