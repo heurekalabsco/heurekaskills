@@ -56,6 +56,8 @@ const MAX_REDIRECTS = 5;
 // decays into "was verified once, we think".
 const STALE_AFTER_DAYS = Number(process.env.VERIFIED_STALE_DAYS || 90);
 const RETRIES = 2;
+// How many times a name is resolved before a failure is believed. See rejectIfInternal().
+const DNS_ATTEMPTS = positiveInt(process.env.DATASET_CHECK_DNS_ATTEMPTS, 3, 'DATASET_CHECK_DNS_ATTEMPTS');
 
 // Some hosts block an unknown client outright: alphafold.ebi.ac.uk answers 403 to a bare
 // Node fetch and 200 to the identical request with a UA set. Without this the check reports
@@ -109,14 +111,34 @@ async function rejectIfInternal(u) {
     return `refused: ${u.hostname} is an internal name`;
   }
   if (isPrivateAddress(host)) return `refused: ${u.hostname} is a private or link-local address`;
-  try {
-    for (const { address } of await dns.lookup(host, { all: true })) {
-      if (isPrivateAddress(address)) return `refused: ${u.hostname} resolves to the private address ${address}`;
+  // Resolution is retried before it is believed. A failed lookup used to return a string,
+  // which `probeOnce` turns straight into `state: 'dead'` — and `probe()`'s retry loop only
+  // re-runs `transient`, so a DNS blip became a permanent dead dataset having been asked
+  // exactly once.
+  //
+  // That is not hypothetical. On 2026-10-09 the sweep reported 17 dead while all six control
+  // hosts answered; re-probing that list serially answered normally for 16 of the 17,
+  // including every URL on the host whose identical failures made `check-egress --classify`
+  // refuse to certify the report. The classifier was right to refuse, and the reason it was
+  // right is that we were asking too fast, not that anyone was blocking us.
+  //
+  // Three attempts over ~1.4s, because the distinction that matters is a loaded resolver
+  // versus a name that is genuinely gone, and a name that is gone fails all three. A host
+  // that still will not resolve after three tries keeps its `dead` verdict, so this removes
+  // the false deaths without giving up detection of a real one.
+  let lastDnsError;
+  for (let attempt = 0; attempt < DNS_ATTEMPTS; attempt++) {
+    try {
+      for (const { address } of await dns.lookup(host, { all: true })) {
+        if (isPrivateAddress(address)) return `refused: ${u.hostname} resolves to the private address ${address}`;
+      }
+      return null;
+    } catch (e) {
+      lastDnsError = e;
+      if (attempt < DNS_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, 200 * 2 ** attempt));
     }
-  } catch (e) {
-    return `DNS lookup failed: ${e.code || e.message}`;
   }
-  return null;
+  return `DNS lookup failed after ${DNS_ATTEMPTS} attempts: ${lastDnsError.code || lastDnsError.message}`;
 }
 
 function looksLikeLogin(u, contentType) {
