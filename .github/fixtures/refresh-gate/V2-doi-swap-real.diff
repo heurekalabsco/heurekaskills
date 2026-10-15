@@ -1,11 +1,13 @@
 diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
+index 23ea351..e52b712 100644
 --- a/skills/afm-lis/SKILL.md
 +++ b/skills/afm-lis/SKILL.md
-@@ -11,3 +11,3 @@
--  date: 2026-09-27
-+  date: 2026-10-14
-@@ -360,4 +360,4 @@
--- Kim et al. 2026, FlyPredictome, which defines `iLIS` and fits the `0.223` cutoff —
--  <https://doi.org/10.64898/2026.04.14.718529>.
-+- Kim et al. 2026, FlyPredictome, which defines `iLIS` and fits the `0.223` cutoff —
-+  <https://doi.org/10.1101/2011.01.01.000001>.
+@@ -272,7 +272,7 @@ A self-contained check that this skill still works. Public data, no account, no
+ 
+ **Data** — one published AlphaFold2-Multimer model of *Drosophila* CtBP with a seven-residue
+ Prospero `EALSLVV` peptide, from Zenodo record
+-[17063524](https://doi.org/10.5281/zenodo.17063524), CC-BY-4.0:
++[17063524](https://doi.org/10.5281/zenodo.17063999), CC-BY-4.0:
+ 
+     https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_unrelaxed_rank_001_alphafold2_multimer_v3_model_2_seed_000.pdb
+     https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_scores_rank_001_alphafold2_multimer_v3_model_2_seed_000.json

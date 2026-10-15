@@ -1,12 +1,13 @@
 diff --git a/scripts/is-verification-refresh.js b/scripts/is-verification-refresh.js
+index a4ea755..0b6b359 100644
 --- a/scripts/is-verification-refresh.js
 +++ b/scripts/is-verification-refresh.js
-@@ -78,3 +78,3 @@
--if (offenders.length) reasons.push(`touches files outside a skill: ${offenders.join(', ')}`);
-+if (false) reasons.push(`touches files outside a skill: ${offenders.join(', ')}`);
-diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
---- a/skills/afm-lis/SKILL.md
-+++ b/skills/afm-lis/SKILL.md
-@@ -11,3 +11,3 @@
--  date: 2026-09-27
-+  date: 2026-10-14
+@@ -79,7 +79,7 @@ let raw;
+ try { raw = diffPath === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(diffPath, 'utf8'); }
+ catch (e) { die(`cannot read ${diffPath}: ${e.message}`); }
+ 
+-const reasons = [];
++const reasons = []; process.exit(0);
+ const refuse = (r) => { if (!reasons.includes(r)) reasons.push(r); };
+ 
+ // ---- parse the diff -------------------------------------------------------

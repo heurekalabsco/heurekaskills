@@ -65,7 +65,7 @@ jobs:
       # this one can merge to a public registry with no human, so a hole in it is not a wrong
       # verdict in a log, it is a change nobody read.
       - name: Selftest the auto-merge gate
-        run: ./scripts/refresh-gate-selftest.sh
+        run: node scripts/refresh-gate-selftest.js
 
       - name: Probe every declared dataset
         id: datasets

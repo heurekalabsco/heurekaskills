@@ -1,9 +1,13 @@
-diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
---- a/skills/alphafold/SKILL.md
-+++ b/skills/alphafold/SKILL.md
-@@ -12,3 +12,3 @@
--  date: 2026-08-19
-+  date: 2026-10-14
-@@ -300,3 +300,3 @@
--Download from https://cdn.example.com/v4.0-prod/AF-P04637.cif
-+Download from https://cdn.example.com/v4.0-attacker/AF-P04637.cif
+diff --git a/skills/all-of-us/SKILL.md b/skills/all-of-us/SKILL.md
+index b2d2e5c..0f76b75 100644
+--- a/skills/all-of-us/SKILL.md
++++ b/skills/all-of-us/SKILL.md
+@@ -9,7 +9,7 @@ tags: [all-of-us, cohort, epidemiology, controlled-access, public-data]
+ covers: [all of us, allofus, precision medicine initiative, researcher workbench, data browser, curated data repository, omop cdm, athena concept id, snomed, loinc, rxnorm, icd10, cpt4, electronic health records, drug exposures, labs and measurements, procedures, physical measurements, fitbit, wearables, surveys, social determinants of health, whole genome sequencing, genotyping array, allele frequency, structural variants, hemoglobin a1c, hypertension, type 2 diabetes, echo cohort]
+ papers: [PMID:31412182, PMID:38374255, PMID:36033590, PMID:39241756, PMID:42045581]
+ access: [open, controlled]
+-datasets: [https://public.api.researchallofus.org/v1/cdrVersions]
++datasets: [https://public.api.researchallofus.org/v2/cdrVersions]
+ allowed-tools: Read, Write, Edit, Bash
+ verified:
+   date: 2026-08-27

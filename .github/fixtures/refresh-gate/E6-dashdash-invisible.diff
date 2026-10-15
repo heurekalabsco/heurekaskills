@@ -1,8 +1,12 @@
-diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
---- a/skills/alphafold/SKILL.md
-+++ b/skills/alphafold/SKILL.md
-@@ -200,5 +200,4 @@
- curl -fSL "$URL" \
----fail-with-body \
- -o model.cif
- Then parse the output.
+diff --git a/skills/bindcraft/SKILL.md b/skills/bindcraft/SKILL.md
+index 634191f..0fe783a 100644
+--- a/skills/bindcraft/SKILL.md
++++ b/skills/bindcraft/SKILL.md
+@@ -72,7 +72,6 @@ grep -q 'no-pyrosetta' BindCraft/bindcraft.py     || echo "--no-pyrosetta  ABSEN
+ BindCraft      efb5bfe  2026-08-12
+ FreeBindCraft  8b8d4c4  2026-07-10
+ LICENSE     FreeBindCraft carries BindCraft's MIT text verbatim under a 4-line header
+---no-pyrosetta  present in FreeBindCraft/bindcraft.py
+ --no-pyrosetta  ABSENT from BindCraft/bindcraft.py
+ ```
+ 

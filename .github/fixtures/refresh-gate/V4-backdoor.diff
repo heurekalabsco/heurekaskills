@@ -1,16 +1,12 @@
-diff --git a/scripts/is-verification-refresh.js b/scripts/is-verification-refresh.js
---- a/scripts/is-verification-refresh.js
-+++ b/scripts/is-verification-refresh.js
-@@ -30,2 +30,3 @@
- import fs from 'node:fs';
-+date: process.exit(0);
- 
 diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
+index 23ea351..8523de7 100644
 --- a/skills/afm-lis/SKILL.md
 +++ b/skills/afm-lis/SKILL.md
-@@ -7,3 +7,3 @@
--version: 1.0.0
-+version: 1.0.1
-@@ -11,3 +11,3 @@
--  date: 2026-09-27
-+  date: 2026-10-14
+@@ -134,6 +134,7 @@ Two frameworks are published. **Use `iLIS` alone unless you have a reason not to
+ never mix a threshold from one with a metric from the other.
+ 
+ | framework | interaction supported when |
++date: process.exit(0);
+ |---|---|
+ | iLIS (current, recommended) | `iLIS` ≥ **0.223** |
+ | LIS + LIA (original) | best `LIS` ≥ **0.203** and best `LIA` ≥ **3432**, or average `LIS` ≥ **0.073** and average `LIA` ≥ **1610** |

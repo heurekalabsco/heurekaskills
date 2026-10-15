@@ -16,7 +16,7 @@
     "corroborate": "node scripts/corroborate.js",
     "corroborate-selftest": "./scripts/corroborate-selftest.sh",
     "refresh-gate": "node scripts/is-verification-refresh.js",
-    "refresh-gate-selftest": "./scripts/refresh-gate-selftest.sh"
+    "refresh-gate-selftest": "node scripts/refresh-gate-selftest.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"
