@@ -1,0 +1,77 @@
+diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
+--- a/skills/alphafold/SKILL.md
++++ b/skills/alphafold/SKILL.md
+@@ -4,7 +4,7 @@
+ category: data
+ license: CC-BY-4.0
+ author: Heureka Labs
+-version: 1.3.0
++version: 1.3.1
+ tags: [protein-structure, alphafold, uniprot, plddt, pae]
+ covers: [protein structure, structure prediction, alphafold, uniprot, plddt, pae, alphamissense, missense variants, variant effect, cif, pdb, proteome, human, all organisms]
+ papers: [PMID:34265844, PMID:34791371, PMID:37733863]
+@@ -12,8 +12,8 @@
+ datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
+ allowed-tools: Read, Write, Edit, Bash
+ verified:
+-  date: 2026-08-19
+-  against: AlphaFold DB model v6 / Python 3.12.8 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
++  date: 2026-10-14
++  against: AlphaFold DB model v6 / Python 3.13.1 / requests 2.35.0 / biopython 1.89 / pandas 3.1.0
+   executed: 10
+   unverified: 0
+ ---
+@@ -128,7 +128,7 @@
+ ### Proteins with no canonical model — the 2700-residue limit
+ 
+ AlphaFold DB holds no model for a sequence longer than **2700 residues**. Walking UniProt's
+-declared lengths, 2026-08-18 against v6:
++declared lengths, 2026-10-14 against v6:
+ 
+ | accession | protein | length | API | canonical `AF-…-F1`? |
+ |---|---|---|---|---|
+@@ -198,7 +198,7 @@
+ `GDM` is Google DeepMind — a real AlphaFold model. `VR3D` is Viro3D (MRC-University of
+ Glasgow), computed with ColabFold, carrying `latestVersion: 1` and a numeric `entryId` that
+ matches no `AF-{accession}-F1` pattern. The whole SARS-CoV-2 proteome arrives this way:
+-checked 2026-08-18, `AF-P0DTC2-F1-model_v6.cif` and its `_v4` predecessor both 404, so there
++checked 2026-10-14, `AF-P0DTC2-F1-model_v6.cif` and its `_v4` predecessor both 404, so there
+ is no AlphaFold model of spike to fall back to.
+ 
+ Two consequences:
+@@ -255,7 +255,7 @@
+       f"provider {rec['providerId']}, residues {rec['uniprotStart']}-{rec['uniprotEnd']}")
+ ```
+ 
+-Run 2026-08-18 against model v6: four files — 363,485 B `.cif`, 254,339 B `.pdb`,
++Run 2026-10-14 against model v6: four files — 363,485 B `.cif`, 254,339 B `.pdb`,
+ 422,267 B PAE, 141,628 B AlphaMissense. Sizes move with each rebuild; the count and the
+ `absent` branch are the parts that should hold. The `providerId` and range go in the manifest
+ because they are the two things a rebuild can change under you without changing a filename.
+@@ -265,7 +265,7 @@
+ files for the wrong protein under the right accession's name.
+ 
+ **`amAnnotationsUrl` is not always there**, which is why the loop skips rather than fails.
+-Checked 2026-08-18 against v6, it appears only on **canonical human `GDM` records**:
++Checked 2026-10-14 against v6, it appears only on **canonical human `GDM` records**:
+ 
+ | record | `amAnnotationsUrl` |
+ |---|---|
+@@ -421,7 +421,7 @@
+ AlphaFold DB is CC-BY-4.0 and needs no account or licence acceptance. `P04637` is the happy
+ path — multi-isoform, spanning the full confidence range. The accessions after it are the
+ counter-examples that broke an earlier version of this skill, asserted so nobody puts the
+-simplification back. Last confirmed reachable 2026-08-18.
++simplification back. Last confirmed reachable 2026-10-14.
+ 
+ ```python
+ import json, statistics, urllib.request, urllib.error
+@@ -506,7 +506,7 @@
+ - `providerId` is not always `GDM`; a `VR3D` record is a ColabFold model from Viro3D.
+ - `uniprotStart` is not always 1, and the coordinate file still numbers from 1.
+ 
+-Observed 2026-08-18 against model **v6** (created 2025-08-01) — these move when AlphaFold
++Observed 2026-10-14 against model **v6** (created 2025-08-01) — these move when AlphaFold
+ rebuilds, so treat a mismatch as drift to investigate, not as a failure:
+ 
+ ```

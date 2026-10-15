@@ -1,0 +1,22 @@
+diff --git a/skills/anndata/SKILL.md b/skills/anndata/SKILL.md
+index 6937703..905c503 100644
+--- a/skills/anndata/SKILL.md
++++ b/skills/anndata/SKILL.md
+@@ -40,7 +40,6 @@ Use this skill when:
+ 
+ ## Installation
+ 
+-Requires Python 3.12+ — 0.13 dropped 3.11. Current stable release: 0.13.2 (released 2026-07-13).
+ 
+ ```bash
+ uv pip install "anndata==0.13.2"
+diff --git a/skills/anndata/references/io_operations.md b/skills/anndata/references/io_operations.md
+index 643b9fb..3c3fea2 100644
+--- a/skills/anndata/references/io_operations.md
++++ b/skills/anndata/references/io_operations.md
+@@ -1,4 +1,5 @@
+ # Input/Output Operations
++Requires Python 3.12+ — 0.13 dropped 3.11. Current stable release: 0.13.2 (released 2026-07-13).
+ 
+ AnnData provides comprehensive I/O functionality for reading and writing data in various formats.
+ 
