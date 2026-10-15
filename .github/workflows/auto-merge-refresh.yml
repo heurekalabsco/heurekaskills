@@ -3,9 +3,11 @@ name: Auto-merge a verification refresh
 # Merges, with no human, a nightshift PR that changes NOTHING a reader acts on — only when it
 # was checked and what against. Everything else is left for review.
 #
-# An adversarial review of the first version found eleven ways past it. Six of those were in
+# Two adversarial reviews found fifteen ways past the first two versions of this. Six were in
 # this file rather than in the gate, and each fix below is named for the one it closes. The
-# committed fixtures under .github/fixtures/refresh-gate/ are the other half of the record.
+# generated fixtures under .github/fixtures/refresh-gate/ are the other half of the record, and
+# scripts/refresh-gate-selftest.js asserts the reason the gate gives for each, not just that it
+# refused.
 #
 # THE ONE THAT MATTERED: v1 checked out the PR and ran the gate FROM THAT CHECKOUT. A single
 # added line — `date: process.exit(0);`, a valid JavaScript label — made the gate exit 0
@@ -71,7 +73,14 @@ jobs:
           # base-ref gate meaningful rather than theatre.
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           echo "$CHANGED"
-          if printf '%s\n' "$CHANGED" | grep -qvE '^skills/[^/]+/.+$'; then
+          # `.+` matched a `..` segment, so skills/x/../../.github/workflows/… satisfied the old
+          # pattern. Segments are checked individually instead, and an empty list is a refusal
+          # rather than a vacuous pass.
+          if [ -z "$CHANGED" ]; then
+            echo "::notice::no changed files — nothing to consider"
+            exit 1
+          fi
+          if printf '%s\n' "$CHANGED" | grep -qvE '^skills/[^/.][^/]*/[^/.][^/]*(/[^/.][^/]*)*$'; then
             echo "::notice::touches paths outside skills/ — not a refresh, leaving for review"
             exit 1
           fi
@@ -85,10 +94,22 @@ jobs:
           set -uo pipefail
           # The working tree is the BASE ref, so scripts/is-verification-refresh.js here is the
           # reviewed one on main — not whatever the PR ships. --base-dir is this tree for the
-          # same reason: line positions must be read from the base, not the proposal.
+          # same reason: the proposed file is rebuilt FROM the base and every removed line is
+          # checked against it.
           git diff "$BASE_SHA" "$HEAD_SHA" > /tmp/pr.diff
-          node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir . --json > /tmp/verdict.json || true
-          if node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir .; then
+
+          # The run date is the authored date of the commit that wrote these dates, in UTC — not
+          # today's date on the runner, which drifts from it when a job is re-run days later. A
+          # refreshed observation is dated the day it was observed, and the gate requires every
+          # changed date to land on this one. That is what stops a training-data cutoff being
+          # moved ten years out and called a refresh.
+          RUN_DATE=$(TZ=UTC git show -s --format=%ad --date=format-local:%Y-%m-%d "$HEAD_SHA")
+          echo "::notice::run date from $HEAD_SHA is $RUN_DATE"
+
+          node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir . \
+            --run-date "$RUN_DATE" --json > /tmp/verdict.json || true
+          if node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir . \
+               --run-date "$RUN_DATE"; then
             echo "refresh=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -121,6 +142,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           HEAD_SHA: ${{ steps.pin.outputs.head }}
+          BASE_SHA: ${{ steps.pin.outputs.base }}
         with:
           script: |
             const fs = require('fs');
@@ -143,24 +165,52 @@ jobs:
             if (pr.head.sha !== sha) { core.setFailed(`head moved from ${sha} to ${pr.head.sha} — refusing to merge a commit the gate never saw`); return; }
             if (pr.base.ref !== context.payload.pull_request.base.ref) { core.setFailed('base branch changed — refusing'); return; }
 
-            // No updateBranch. v1 called it and then merged with no `sha:`, which could land a
-            // commit neither the gate nor the checks had seen. If the branch is behind, the
-            // merge fails and a human updates it — failing is the safe outcome here.
+            // The gate rebuilt and judged the proposed files against ONE base commit. If the base
+            // branch has moved since, what would land is not what was judged. Branch protection
+            // is `strict`, so such a merge would fail anyway — this makes it fail with a reason
+            // instead of an API error, and does not depend on that setting staying true.
+            const baseSha = process.env.BASE_SHA;
+            const { data: baseRef } = await github.rest.git.getRef({ owner, repo, ref: `heads/${pr.base.ref}` });
+            if (baseRef.object.sha !== baseSha) {
+              core.setFailed(`${pr.base.ref} moved from ${baseSha.slice(0, 7)} to ${baseRef.object.sha.slice(0, 7)} since the gate ran — refusing to merge a result nothing judged`);
+              return;
+            }
+
+            // Branch protection requires an approving review, so the approval has to come first.
+            // v1's approval announced the merge in the past tense BEFORE calling merge(), so a
+            // merge that then failed left a PR saying it had been merged autonomously. This one
+            // states only what the gate found; the outcome is posted after it is known.
             await github.rest.pulls.createReview({
               owner, repo, pull_number, event: 'APPROVE', commit_id: sha,
               body: [
-                '**Merged without a human: verification refresh.**',
+                '**Verification refresh — approved for autonomous merge.**',
                 '',
-                'Every changed line is in the `verified:` block, a `version:` bump, or dated prose.',
-                'The gate ran from `main`, not from this branch, and judged exactly `' + sha.slice(0, 7) + '`.',
+                'Frontmatter was parsed as YAML and differs only in `verified:` and a `version:` bump;',
+                'the body is byte-identical but for observation dates moved to the run date.',
+                'The gate ran from `' + pr.base.ref + '` at `' + baseSha.slice(0, 7) + '`, not from this',
+                'branch, and judged exactly `' + sha.slice(0, 7) + '`.',
                 '',
                 '```json',
                 JSON.stringify(verdict, null, 2),
                 '```',
                 '',
-                'To undo: `git revert <squash sha>` on `main`. To stop this on a future PR, add `hold`.',
+                'To stop this on a future PR, add the `hold` label.',
               ].join('\n'),
             });
 
-            await github.rest.pulls.merge({ owner, repo, pull_number, sha, merge_method: 'squash' });
-            core.info(`merged #${pull_number} at ${sha} as a verification refresh`);
+            // No updateBranch. v1 called it and then merged with no `sha:`, which could land a
+            // commit neither the gate nor the checks had seen. If the branch is behind, the
+            // merge fails and a human updates it — failing is the safe outcome here.
+            let merged;
+            try {
+              ({ data: merged } = await github.rest.pulls.merge({ owner, repo, pull_number, sha, merge_method: 'squash' }));
+            } catch (e) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pull_number,
+                body: `The gate approved this as a verification refresh, but the merge did not go through: \`${e.message}\`\n\nNothing was merged. It needs a human.` });
+              core.setFailed(`merge refused: ${e.message}`);
+              return;
+            }
+
+            await github.rest.issues.createComment({ owner, repo, issue_number: pull_number,
+              body: `Merged without a human as a verification refresh: \`${merged.sha.slice(0, 7)}\` on \`${pr.base.ref}\`.\n\nTo undo: \`git revert ${merged.sha.slice(0, 7)}\`.` });
+            core.info(`merged #${pull_number} at ${sha} as ${merged.sha}`);
