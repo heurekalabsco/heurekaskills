@@ -50,6 +50,7 @@ rules that would otherwise go unasserted.
 | `N3-prose-date-is-semantics` | a training-data cutoff moved ten years out — a date in prose that is a capability claim | `is not the run date` |
 | `N4-date-launders-version` | a false install requirement laundered by bumping the date beside it — the change that inverted v2's central rule | `changes something other than a date` |
 | `N5-date-in-code` | a date moved to the run date, but inside a fence, where a date can be the argument that selects which data loads | `changes a date inside a code block` |
+| `N7-date-backwards` | an embargo lift date pulled back onto the run date, which would say data is available that is not | `moves a date backwards` |
 | `N6-version-downgrade` | a verified: refresh carrying a version that goes backwards | `is not an increase` |
 | `E4a-rename` | — | `refuses a rename` |
 | `E4b-mode` | — | `refuses a file-mode change` |
@@ -71,9 +72,22 @@ beside the threshold.
 caught one over-correction: a frontmatter `version:` bump read as "a version on a line with no
 date", which would have refused every legitimate refresh.
 
-## One rule with no fixture
+## How often the gate can actually fire
 
-A prose date that lands on the run date but moves *backwards* is refused, and there is no case for
-it: it needs a base file already carrying a date later than the run date, which no skill has. It
-is kept as defence in depth, and named here so its absence from the suite is on the record rather
-than discovered later.
+A gate that refuses everything is useless, so this is measured rather than assumed. Simulating a
+mechanical refresh on every skill in the registry — bump `version`, set `verified.date`, move
+every dated prose line outside a fence to the run date, change nothing else — **99 of 101 skills
+auto-merge.**
+
+The two that do not are `biostudies` and `zenodo`, and both are refused by the
+*moves a date backwards* rule, because both carry a body date in the future:
+
+- `biostudies` documents a query bound, `release_date=[2026-01-01 TO 2026-12-31]`
+- `zenodo` documents an embargo lifting `2026-12-11`
+
+Neither is an observation. Pulling either back onto the run date would change which records a
+documented query returns, or claim data is available that is not. `N7` is that case.
+
+This correction is worth recording: an earlier version of this file asserted that the
+backwards-date rule had no fixture *because no skill carries a date later than the run date*. Two
+do, the rule was already load-bearing on real content, and the claim was never checked.

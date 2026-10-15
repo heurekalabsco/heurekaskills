@@ -109,6 +109,12 @@
       "what": "a date moved to the run date, but inside a fence, where a date can be the argument that selects which data loads"
     },
     {
+      "fixture": "N7-date-backwards.diff",
+      "expect": "reject",
+      "because": "moves a date backwards",
+      "what": "an embargo lift date pulled back onto the run date, which would say data is available that is not"
+    },
+    {
       "fixture": "N6-version-downgrade.diff",
       "expect": "reject",
       "because": "is not an increase",
