@@ -1,0 +1,8 @@
+diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
+--- a/skills/alphafold/SKILL.md
++++ b/skills/alphafold/SKILL.md
+@@ -200,5 +200,4 @@
+ curl -fSL "$URL" \
+---fail-with-body \
+ -o model.cif
+ Then parse the output.

@@ -1,0 +1,6 @@
+diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
+--- a/skills/alphafold/SKILL.md
++++ b/skills/alphafold/SKILL.md
+@@ -300,3 +300,3 @@
+-Inside the cluster, point PROXY at 10.0.0.12 before fetching.
++Inside the cluster, point PROXY at 10.0.9.99 before fetching.

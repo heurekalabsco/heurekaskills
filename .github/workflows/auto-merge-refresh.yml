@@ -1,18 +1,17 @@
 name: Auto-merge a verification refresh
 
-# Merges, without a human, a nightshift PR that changes NOTHING a reader acts on — only when
-# it was checked and what it was checked against. Everything else is left for review.
+# Merges, with no human, a nightshift PR that changes NOTHING a reader acts on — only when it
+# was checked and what against. Everything else is left for review.
 #
-# The gate lives here, in a reviewed file in this repo, rather than in the bot's credentials.
-# The bot gains no new permission: it still reaches GitHub only through the publishing service
-# and still cannot merge. What changed is that this repository now has a rule. That matters,
-# because the rule is then reviewable, revertable and visible in git history — and widening a
-# token is none of those things.
+# An adversarial review of the first version found eleven ways past it. Six of those were in
+# this file rather than in the gate, and each fix below is named for the one it closes. The
+# committed fixtures under .github/fixtures/refresh-gate/ are the other half of the record.
 #
-# `pull_request`, never `pull_request_target`. The latter runs with this repo's write token
-# against the PR's own code, which is the standard way a workflow like this becomes an attack.
-# Every guard below is re-checked against the PR as it will actually merge, not as it was
-# opened: a PR that was a refresh yesterday is not necessarily one today.
+# THE ONE THAT MATTERED: v1 checked out the PR and ran the gate FROM THAT CHECKOUT. A single
+# added line — `date: process.exit(0);`, a valid JavaScript label — made the gate exit 0
+# unconditionally, and exit 0 is what this workflow reads as "approve and merge". The gate
+# never had to approve anything; the PR supplied the gate. So the gate now runs from the BASE
+# ref, and no PR-supplied code executes before the scope check.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
@@ -30,8 +29,8 @@ concurrency:
 jobs:
   consider:
     runs-on: ubuntu-latest
-    # Cheap, total disqualifiers first, so the common case costs nothing. A fork PR is excluded
-    # outright: this job holds a write token and a fork's branch is author-controlled.
+    # Cheap, total disqualifiers first. A fork PR is excluded outright: this job holds a write
+    # token and a fork's branch is author-controlled.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.draft == false
@@ -40,90 +39,128 @@ jobs:
       && contains(github.event.pull_request.labels.*.name, 'change:update')
       && !contains(github.event.pull_request.labels.*.name, 'hold')
     steps:
+      # persist-credentials: false — v1 left the write token in .git/config where PR-supplied
+      # code could read it. No npm either: the gate imports only node:fs, and `npm ci` would
+      # execute lifecycle scripts from the PR's own package.json before anything gated it.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
+      - name: Pin the SHA everything else will be judged against
+        id: pin
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Captured once. v1 gated one commit, waited on checks for another, then merged
+          # whatever the head happened to be at call time.
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
-      # The diff as it will merge, against the base it will merge into.
+      - name: Refuse anything outside skills/ before reading PR content
+        env:
+          HEAD_SHA: ${{ steps.pin.outputs.head }}
+          BASE_SHA: ${{ steps.pin.outputs.base }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$HEAD_SHA" --quiet
+          # Scope is checked on the file LIST alone, before any PR file is read or executed.
+          # A PR touching scripts/ or .github/ stops here, which is what makes running the
+          # base-ref gate meaningful rather than theatre.
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "$CHANGED"
+          if printf '%s\n' "$CHANGED" | grep -qvE '^skills/[^/]+/.+$'; then
+            echo "::notice::touches paths outside skills/ — not a refresh, leaving for review"
+            exit 1
+          fi
+
       - name: Is this a verification refresh?
         id: gate
+        env:
+          HEAD_SHA: ${{ steps.pin.outputs.head }}
+          BASE_SHA: ${{ steps.pin.outputs.base }}
         run: |
-          git fetch origin "${{ github.event.pull_request.base.ref }}" --quiet
-          git diff "origin/${{ github.event.pull_request.base.ref }}...HEAD" > /tmp/pr.diff
-          node scripts/is-verification-refresh.js --diff /tmp/pr.diff --json > /tmp/verdict.json || true
-          node scripts/is-verification-refresh.js --diff /tmp/pr.diff || exit 0
-          echo "refresh=true" >> "$GITHUB_OUTPUT"
+          set -uo pipefail
+          # The working tree is the BASE ref, so scripts/is-verification-refresh.js here is the
+          # reviewed one on main — not whatever the PR ships. --base-dir is this tree for the
+          # same reason: line positions must be read from the base, not the proposal.
+          git diff "$BASE_SHA" "$HEAD_SHA" > /tmp/pr.diff
+          node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir . --json > /tmp/verdict.json || true
+          if node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir .; then
+            echo "refresh=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      # Everything below runs only for a diff that changes nothing a reader acts on.
-      - name: Hold until every check has reported
+      - name: Hold until every check has reported on the pinned SHA
         if: steps.gate.outputs.refresh == 'true'
         uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pin.outputs.head }}
         with:
           script: |
-            // `validate` must pass. `check` must not have FAILED — it is not a required
-            // context and can be red for reasons outside this PR, but a red one is exactly
-            // when a human should look, so this declines rather than merging through it.
+            // Polls the PINNED sha, not the live head. `validate` must pass; `check` must not
+            // have failed — it is not a required context and can be red for reasons outside
+            // this PR, but a red one is exactly when a human should look.
             const { owner, repo } = context.repo;
-            const sha = context.payload.pull_request.head.sha;
+            const ref = process.env.HEAD_SHA;
             for (let i = 0; i < 40; i++) {
-              const { data } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
+              const { data } = await github.rest.checks.listForRef({ owner, repo, ref, per_page: 100 });
               const by = Object.fromEntries(data.check_runs.map((c) => [c.name, c.conclusion ?? 'pending']));
               if (by.validate === 'failure') { core.setFailed('validate failed'); return; }
               if (by.validate === 'success' && by.check && by.check !== 'pending') {
-                if (by.check === 'failure') {
-                  core.setFailed('the dataset check is failing on this head — declining to auto-merge; a human should look');
-                }
+                if (by.check === 'failure') core.setFailed('the dataset check is failing — declining; a human should look');
                 return;
               }
               await new Promise((r) => setTimeout(r, 30000));
             }
             core.setFailed('checks did not report within 20 minutes — declining rather than acting on an unknown state');
 
-      - name: Record the verdict and merge
+      - name: Record the verdict and merge the pinned SHA
         if: steps.gate.outputs.refresh == 'true'
         uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pin.outputs.head }}
         with:
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
-            const number = context.payload.pull_request.number;
-            const verdict = fs.readFileSync('/tmp/verdict.json', 'utf8').trim();
+            const pull_number = context.payload.pull_request.number;
+            const sha = process.env.HEAD_SHA;
 
-            // Branch protection is strict, so bring the branch up to date BEFORE recording the
-            // verdict — dismiss_stale_reviews would otherwise discard it and the merge would
-            // block on a review that existed a moment earlier.
-            try {
-              await github.rest.pulls.updateBranch({ owner, repo, pull_number: number });
-              await new Promise((r) => setTimeout(r, 15000));
-            } catch (e) {
-              core.info(`branch already current, or could not be updated: ${e.message}`);
-            }
+            // The verdict must parse and must actually say yes. v1 quoted /tmp/verdict.json
+            // into the approval without checking it, and a backdoored gate produced an empty
+            // file — an approval citing no evidence at all.
+            let verdict;
+            try { verdict = JSON.parse(fs.readFileSync('/tmp/verdict.json', 'utf8')); }
+            catch (e) { core.setFailed(`verdict is not readable JSON: ${e.message}`); return; }
+            if (verdict.refresh !== true) { core.setFailed('verdict does not say refresh — refusing'); return; }
 
+            // Re-read the labels at merge time. v1 read them once at job start, so a `hold`
+            // added during the check wait did not stop it.
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+            if (pr.labels.some((l) => l.name === 'hold')) { core.setFailed('hold label present — stopping'); return; }
+            if (pr.head.sha !== sha) { core.setFailed(`head moved from ${sha} to ${pr.head.sha} — refusing to merge a commit the gate never saw`); return; }
+            if (pr.base.ref !== context.payload.pull_request.base.ref) { core.setFailed('base branch changed — refusing'); return; }
+
+            // No updateBranch. v1 called it and then merged with no `sha:`, which could land a
+            // commit neither the gate nor the checks had seen. If the branch is behind, the
+            // merge fails and a human updates it — failing is the safe outcome here.
             await github.rest.pulls.createReview({
-              owner, repo, pull_number: number, event: 'APPROVE',
+              owner, repo, pull_number, event: 'APPROVE', commit_id: sha,
               body: [
                 '**Merged without a human: verification refresh.**',
                 '',
-                'Every changed line in this diff is a date, a version, or a `verified:` field — nothing a',
-                'reader acts on has changed. The gate is `scripts/is-verification-refresh.js`, which rejects',
-                'an added sentence, a moved threshold, a deleted caveat, or a second skill in one diff.',
+                'Every changed line is in the `verified:` block, a `version:` bump, or dated prose.',
+                'The gate ran from `main`, not from this branch, and judged exactly `' + sha.slice(0, 7) + '`.',
                 '',
                 '```json',
-                verdict,
+                JSON.stringify(verdict, null, 2),
                 '```',
                 '',
-                'To undo: `git revert <squash sha>` on `main`. To stop this on a future PR, add the `hold`',
-                'label before CI finishes.',
+                'To undo: `git revert <squash sha>` on `main`. To stop this on a future PR, add `hold`.',
               ].join('\n'),
             });
 
-            await github.rest.pulls.merge({
-              owner, repo, pull_number: number, merge_method: 'squash',
-            });
-            core.info(`merged #${number} as a verification refresh`);
+            await github.rest.pulls.merge({ owner, repo, pull_number, sha, merge_method: 'squash' });
+            core.info(`merged #${pull_number} at ${sha} as a verification refresh`);

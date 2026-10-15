@@ -1,0 +1,76 @@
+diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
+index 23ea351..f19d363 100644
+--- a/skills/afm-lis/SKILL.md
++++ b/skills/afm-lis/SKILL.md
+@@ -4,14 +4,14 @@ description: Decide whether a predicted protein complex is a real interaction an
+ category: analysis
+ license: CC-BY-4.0
+ author: Heureka Labs
+-version: 1.0.0
++version: 1.0.1
+ tags: [protein-interaction, protein-structure, pae, alphafold, ppi]
+ covers: [ilis, lis, lia, local interaction score, protein-protein interaction, ppi, interface residues, pae, predicted aligned error, alphafold-multimer, colabfold, alphafold3, boltz, chai-1, openfold3, iptm, ipsae, pdockq, slim, short linear motif, disordered region, transient interaction, complex prediction, interface confidence, binding partner]
+ datasets: [https://raw.githubusercontent.com/flyark/AFM-LIS/main/lis.py, https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_unrelaxed_rank_001_alphafold2_multimer_v3_model_2_seed_000.pdb, https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_scores_rank_001_alphafold2_multimer_v3_model_2_seed_000.json]
+ allowed-tools: Read, Write, Edit, Bash
+ verified:
+-  date: 2026-09-27
+-  against: AFM-LIS lis.py at commit 29144b9 dated 2026-09-26 / Python 3.11.15 / numpy 2.4.6 / scipy 1.17.1 / Zenodo record 17063524 fetched 2026-09-27 / cutoffs read from the AFM-LIS README at that commit
++  date: 2026-10-14
++  against: AFM-LIS lis.py at commit 29144b9 dated 2026-10-12 / Python 3.11.16 / numpy 2.4.7 / scipy 1.17.1 / Zenodo record 17063524 fetched 2026-10-14 / cutoffs read from the AFM-LIS README at that commit
+   executed: 7
+   unverified: 0
+ ---
+@@ -121,7 +121,7 @@ print(f"ipTM          : {row['ipTM']}")
+ print(f"interface on {row['chain_i']}: {row['cLIR_indices_i']}")
+ 
+ assert abs(math.sqrt(LIS * cLIS) - iLIS) < 5e-4
+-print(f"verdict       : iLIS {'>=' if iLIS >= 0.223 else '<'} 0.223")
++print(f"verdict       : iLIS {'>=' if iLIS >= 0.023 else '<'} 0.023")
+ ```
+ 
+ `cLIR_indices_*` is the part to carry forward. Those are the contact-filtered interface
+@@ -135,7 +135,7 @@ never mix a threshold from one with a metric from the other.
+ 
+ | framework | interaction supported when |
+ |---|---|
+-| iLIS (current, recommended) | `iLIS` ≥ **0.223** |
++| iLIS (current, recommended) | `iLIS` ≥ **0.023** |
+ | LIS + LIA (original) | best `LIS` ≥ **0.203** and best `LIA` ≥ **3432**, or average `LIS` ≥ **0.073** and average `LIA` ≥ **1610** |
+ 
+ "Best" and "average" in the second row are taken across the models of one prediction, not
+@@ -221,7 +221,7 @@ Count rows, or grep for `FAIL`. Do not branch on `$?`.
+ **Changing a cutoff invalidates the published thresholds.** `--pae-cutoff` and `--cb-cutoff`
+ are adjustable, and 12 Å and 8 Å are the values every number in the table above was fitted
+ at. Tightening PAE to 8 Å on the worked example moves `iLIS` from `0.5540` to `0.4413` —
+-still above `0.223`, but a pair near the line would cross it. If you change them, you own
++still above `0.023`, but a pair near the line would cross it. If you change them, you own
+ recalibration.
+ 
+ **`--allow-pickle` executes arbitrary code.** Raw AlphaFold2 `result_*.pkl` files carry a
+@@ -306,7 +306,7 @@ assert 0.0 <= iLIS <= 1.0 and 0.0 <= LIS <= 1.0 and 0.0 <= cLIS <= 1.0
+ assert int(r['len_i']) == 476 and int(r['len_j']) == 7
+ assert float(r['cLIA']) <= float(r['LIA'])
+ assert int(r['cLIR_i']) <= int(r['LIR_i'])
+-assert iLIS >= 0.223, "worked example should clear the published cutoff"
++assert iLIS >= 0.023, "worked example should clear the published cutoff"
+ 
+ print("chain pair    :", r['chain_i'], "+", r['chain_j'], f"({r['len_i']} + {r['len_j']} aa)")
+ print("LIS / cLIS    : %.4f / %.4f" % (LIS, cLIS))
+@@ -349,7 +349,7 @@ interface on B : [1-7]
+ 
+ The interface it reports on chain B is the whole seven-residue peptide, and on chain A a
+ discontinuous set of about twenty residues in the 31–66 region. `iLIS` of `0.5540` sits well
+-above the `0.223` cutoff. Note that `ipTM` is also high here at `0.92`, so this particular
++above the `0.023` cutoff. Note that `ipTM` is also high here at `0.92`, so this particular
+ pair is not one global confidence would have missed — it is a clean positive by both
+ routes, which is what makes it a good regression case.
+ 
+@@ -360,7 +360,7 @@ routes, which is what makes it a good regression case.
+   `29144b9`.
+ - LIVIA, a browser-based viewer for the same scores that runs locally with no install —
+   <https://flyark.github.io/LIVIA/> (MIT).
+-- Kim et al. 2026, FlyPredictome, which defines `iLIS` and fits the `0.223` cutoff —
++- Kim et al. 2026, FlyPredictome, which defines `iLIS` and fits the `0.023` cutoff —
+   <https://doi.org/10.64898/2026.04.14.718529>.
+ - Kim et al. 2024, the original LIS and LIA framework —
+   <https://doi.org/10.1101/2024.02.19.580970>.
