@@ -1,0 +1,129 @@
+name: Auto-merge a verification refresh
+
+# Merges, without a human, a nightshift PR that changes NOTHING a reader acts on — only when
+# it was checked and what it was checked against. Everything else is left for review.
+#
+# The gate lives here, in a reviewed file in this repo, rather than in the bot's credentials.
+# The bot gains no new permission: it still reaches GitHub only through the publishing service
+# and still cannot merge. What changed is that this repository now has a rule. That matters,
+# because the rule is then reviewable, revertable and visible in git history — and widening a
+# token is none of those things.
+#
+# `pull_request`, never `pull_request_target`. The latter runs with this repo's write token
+# against the PR's own code, which is the standard way a workflow like this becomes an attack.
+# Every guard below is re-checked against the PR as it will actually merge, not as it was
+# opened: a PR that was a refresh yesterday is not necessarily one today.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    paths:
+      - 'skills/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-merge-refresh-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  consider:
+    runs-on: ubuntu-latest
+    # Cheap, total disqualifiers first, so the common case costs nothing. A fork PR is excluded
+    # outright: this job holds a write token and a fork's branch is author-controlled.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.user.login == 'heureka-labs-skills-bot[bot]'
+      && contains(github.event.pull_request.labels.*.name, 'origin:nightly')
+      && contains(github.event.pull_request.labels.*.name, 'change:update')
+      && !contains(github.event.pull_request.labels.*.name, 'hold')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      # The diff as it will merge, against the base it will merge into.
+      - name: Is this a verification refresh?
+        id: gate
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --quiet
+          git diff "origin/${{ github.event.pull_request.base.ref }}...HEAD" > /tmp/pr.diff
+          node scripts/is-verification-refresh.js --diff /tmp/pr.diff --json > /tmp/verdict.json || true
+          node scripts/is-verification-refresh.js --diff /tmp/pr.diff || exit 0
+          echo "refresh=true" >> "$GITHUB_OUTPUT"
+
+      # Everything below runs only for a diff that changes nothing a reader acts on.
+      - name: Hold until every check has reported
+        if: steps.gate.outputs.refresh == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // `validate` must pass. `check` must not have FAILED — it is not a required
+            // context and can be red for reasons outside this PR, but a red one is exactly
+            // when a human should look, so this declines rather than merging through it.
+            const { owner, repo } = context.repo;
+            const sha = context.payload.pull_request.head.sha;
+            for (let i = 0; i < 40; i++) {
+              const { data } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
+              const by = Object.fromEntries(data.check_runs.map((c) => [c.name, c.conclusion ?? 'pending']));
+              if (by.validate === 'failure') { core.setFailed('validate failed'); return; }
+              if (by.validate === 'success' && by.check && by.check !== 'pending') {
+                if (by.check === 'failure') {
+                  core.setFailed('the dataset check is failing on this head — declining to auto-merge; a human should look');
+                }
+                return;
+              }
+              await new Promise((r) => setTimeout(r, 30000));
+            }
+            core.setFailed('checks did not report within 20 minutes — declining rather than acting on an unknown state');
+
+      - name: Record the verdict and merge
+        if: steps.gate.outputs.refresh == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const number = context.payload.pull_request.number;
+            const verdict = fs.readFileSync('/tmp/verdict.json', 'utf8').trim();
+
+            // Branch protection is strict, so bring the branch up to date BEFORE recording the
+            // verdict — dismiss_stale_reviews would otherwise discard it and the merge would
+            // block on a review that existed a moment earlier.
+            try {
+              await github.rest.pulls.updateBranch({ owner, repo, pull_number: number });
+              await new Promise((r) => setTimeout(r, 15000));
+            } catch (e) {
+              core.info(`branch already current, or could not be updated: ${e.message}`);
+            }
+
+            await github.rest.pulls.createReview({
+              owner, repo, pull_number: number, event: 'APPROVE',
+              body: [
+                '**Merged without a human: verification refresh.**',
+                '',
+                'Every changed line in this diff is a date, a version, or a `verified:` field — nothing a',
+                'reader acts on has changed. The gate is `scripts/is-verification-refresh.js`, which rejects',
+                'an added sentence, a moved threshold, a deleted caveat, or a second skill in one diff.',
+                '',
+                '```json',
+                verdict,
+                '```',
+                '',
+                'To undo: `git revert <squash sha>` on `main`. To stop this on a future PR, add the `hold`',
+                'label before CI finishes.',
+              ].join('\n'),
+            });
+
+            await github.rest.pulls.merge({
+              owner, repo, pull_number: number, merge_method: 'squash',
+            });
+            core.info(`merged #${number} as a verification refresh`);

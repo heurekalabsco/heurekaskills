@@ -1,0 +1,17 @@
+diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
+--- a/skills/alphafold/SKILL.md
++++ b/skills/alphafold/SKILL.md
+@@ -5,7 +5,7 @@
+-version: 1.2.0
++version: 1.2.1
+@@ -12,9 +12,9 @@
+-  date: 2026-08-19
++  date: 2026-10-14
+-  against: AlphaFold DB model v6 / Python 3.12.8 / requests 2.34.2 / biopython 1.88
++  against: AlphaFold DB model v6 / Python 3.13.1 / requests 2.35.0 / biopython 1.89
+@@ -407,3 +407,3 @@
+-Last confirmed reachable 2026-08-19.
++Last confirmed reachable 2026-10-14.
+@@ -493,3 +493,3 @@
+-Observed 2026-08-19 with biopython 1.88 — treat a mismatch as drift:
++Observed 2026-10-14 with biopython 1.89 — treat a mismatch as drift:

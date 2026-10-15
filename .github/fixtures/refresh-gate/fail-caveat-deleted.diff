@@ -1,0 +1,10 @@
+diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
+--- a/skills/alphafold/SKILL.md
++++ b/skills/alphafold/SKILL.md
+@@ -12,3 +12,3 @@
+-  date: 2026-08-19
++  date: 2026-10-14
+@@ -410,4 +410,3 @@
+ Fetch the model by UniProt accession.
+-Low-pLDDT regions are not disorder predictions and must not be read as such.
+ The response is mmCIF by default.
