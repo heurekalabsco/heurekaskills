@@ -1,160 +1,248 @@
 {
-  "runDate": "2026-10-14",
   "cases": [
     {
-      "fixture": "PASS-real-refresh.diff",
+      "fixture": "PASS-frontmatter-refresh.diff",
       "expect": "accept",
-      "what": "a version bump, the verified: block, and seven prose observation dates moved to the run date"
+      "what": "a version bump and the verified: block, with the page itself untouched — the only shape that merges without a human"
     },
     {
-      "fixture": "V1-decimal-cutoff-real.diff",
+      "fixture": "body-threshold-moved.diff",
       "expect": "reject",
-      "because": "changes something other than a date",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the body at line"
+      ],
       "what": "the published iLIS cutoff moved, 0.223 -> 0.023, inside an otherwise real refresh"
     },
     {
-      "fixture": "E1-decimal-threshold.diff",
+      "fixture": "body-date-is-a-claim.diff",
       "expect": "reject",
-      "because": "changes something other than a date",
-      "what": "the same cutoff moved where it is executed, inside a code fence"
+      "because": [
+        "skills/protenix/SKILL.md changes the body at line"
+      ],
+      "what": "a training-data cutoff moved to the run date — a prose date that is a capability claim, which beat v3 even unforged"
     },
     {
-      "fixture": "V2-doi-swap-real.diff",
+      "fixture": "body-date-in-inline-code.diff",
       "expect": "reject",
-      "because": "changes something other than a date",
-      "what": "a citation retargeted at another record by its suffix"
+      "because": [
+        "skills/cellxgene-census/SKILL.md changes the body at line"
+      ],
+      "what": "a census_version in inline backticks — not a fence, so v3 read it as prose and let the dataset selector move"
     },
     {
-      "fixture": "E2-doi-swap.diff",
+      "fixture": "body-doi-retargeted.diff",
       "expect": "reject",
-      "because": "changes something other than a date",
-      "what": "the same citation retargeted by its registrant prefix"
+      "because": [
+        "skills/afm-lis/SKILL.md changes the body at line"
+      ],
+      "what": "a citation pointed at a different record"
     },
     {
-      "fixture": "V3-selfmodify.diff",
+      "fixture": "body-line-added.diff",
       "expect": "reject",
-      "because": "not a file inside one skill",
-      "what": "the gate editing itself — exit 0 is what the workflow reads as \"merge this\""
+      "because": [
+        "skills/afm-lis/SKILL.md changes the body — 1 line(s) added or removed"
+      ],
+      "what": "arbitrary prose added, here pointing a reader at another host"
     },
     {
-      "fixture": "V4-backdoor.diff",
+      "fixture": "body-line-deleted.diff",
       "expect": "reject",
-      "because": "adds or removes 1 body line",
-      "what": "a line that is a valid JS label AND looked like a dated observation to v1"
+      "because": [
+        "skills/bindcraft/SKILL.md changes the body — 1 line(s) added or removed"
+      ],
+      "what": "a deleted --flag line, which a naive \"---\" header skip once swallowed whole"
     },
     {
-      "fixture": "E3-prose-behind-date.diff",
+      "fixture": "body-ip-swap.diff",
       "expect": "reject",
-      "because": "adds or removes 1 body line",
-      "what": "arbitrary prose smuggled in behind a leading date"
-    },
-    {
-      "fixture": "V5-refresh-plus-threshold.diff",
-      "expect": "reject",
-      "because": "changes something other than a date",
-      "what": "a real refresh with one moved threshold hidden among the dates"
-    },
-    {
-      "fixture": "E6-dashdash-invisible.diff",
-      "expect": "reject",
-      "because": "adds or removes 1 body line",
-      "what": "a deleted --flag line, which a naive \"---\" header skip swallowed whole"
-    },
-    {
-      "fixture": "E5-cross-file-move.diff",
-      "expect": "reject",
-      "because": "adds or removes 1 body line",
-      "what": "a caveat moved out of SKILL.md into references/, so a global pool saw a matched pair"
-    },
-    {
-      "fixture": "E8-url-version-tail.diff",
-      "expect": "reject",
-      "because": "changes the frontmatter field \"datasets\"",
-      "what": "an API version path segment retargeted, v1 -> v2"
-    },
-    {
-      "fixture": "E9-ip-swap.diff",
-      "expect": "reject",
-      "because": "changes something other than a date",
+      "because": [
+        "skills/brain-researcher/SKILL.md changes the body at line"
+      ],
       "what": "a loopback address pointed somewhere else"
     },
     {
-      "fixture": "N1-verified-nested-key.diff",
+      "fixture": "fm-block-scalar-smuggles-key.diff",
       "expect": "reject",
-      "because": "puts \"license\" inside verified:",
-      "what": "license: nested under verified:, which real YAML reads correctly and the client's parser reads as top-level — validate.js passes this one too"
+      "because": [
+        "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\""
+      ],
+      "what": "a YAML block scalar under verified.against whose TEXT contains \"license: GPL-3.0-only\" — real YAML and validate.js both read CC-BY-4.0, the client reads GPL-3.0-only. This beat v3, whose rule only rejected values that PARSED as maps"
     },
     {
-      "fixture": "N2-key-above-verified.diff",
+      "fixture": "fm-nested-key-direct.diff",
       "expect": "reject",
-      "because": "adds the frontmatter key \"allowed-tools\"",
-      "what": "a tool grant inserted on the line above verified:, landing on a position v2 excused"
+      "because": [
+        "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\"",
+        "skills/afm-lis/SKILL.md puts \"license\" inside verified:"
+      ],
+      "what": "the same attack spelled as a plain nested key rather than a block scalar"
     },
     {
-      "fixture": "N3-prose-date-is-semantics.diff",
+      "fixture": "fm-new-key-above-verified.diff",
       "expect": "reject",
-      "because": "is not the run date",
-      "what": "a training-data cutoff moved ten years out — a date in prose that is a capability claim"
+      "because": [
+        "skills/pathway-cca-coessentiality/SKILL.md adds the frontmatter key \"allowed-tools\"",
+        "skills/pathway-cca-coessentiality/SKILL.md changes what the client's frontmatter parser reads for \"allowed-tools\""
+      ],
+      "what": "a tool grant inserted on the line above verified:, landing on a position v3 excused as being inside the block"
     },
     {
-      "fixture": "N4-date-launders-version.diff",
+      "fixture": "fm-field-changed.diff",
       "expect": "reject",
-      "because": "changes something other than a date",
-      "what": "a false install requirement laundered by bumping the date beside it — the change that inverted v2's central rule"
+      "because": [
+        "skills/all-of-us/SKILL.md changes the frontmatter field \"datasets\"",
+        "skills/all-of-us/SKILL.md changes what the client's frontmatter parser reads for \"datasets\""
+      ],
+      "what": "an API version path segment retargeted, v1 -> v2"
     },
     {
-      "fixture": "N5-date-in-code.diff",
+      "fixture": "fm-version-downgrade.diff",
       "expect": "reject",
-      "because": "changes a date inside a code block",
-      "what": "a date moved to the run date, but inside a fence, where a date can be the argument that selects which data loads"
+      "because": [
+        "skills/afm-lis/SKILL.md version \"1.0.0\" -> \"0.9.0\" is not an increase"
+      ],
+      "what": "a refresh carrying a version that goes backwards"
     },
     {
-      "fixture": "N7-date-backwards.diff",
+      "fixture": "fm-verified-erased.diff",
       "expect": "reject",
-      "because": "moves a date backwards",
-      "what": "an embargo lift date pulled back onto the run date, which would say data is available that is not"
+      "because": [
+        "skills/alphafold/SKILL.md replaces the verified: record with \"pending\""
+      ],
+      "what": "a populated verification record — date, against, executed, unverified — replaced by one scalar. validate.js accepts \"pending\" too, so nothing else caught this"
     },
     {
-      "fixture": "N6-version-downgrade.diff",
+      "fixture": "fm-verified-core-dropped.diff",
       "expect": "reject",
-      "because": "is not an increase",
-      "what": "a verified: refresh carrying a version that goes backwards"
+      "because": [
+        "skills/afm-lis/SKILL.md drops verified.executed"
+      ],
+      "what": "the \"how much of this actually ran\" count quietly removed"
     },
     {
-      "fixture": "E4a-rename.diff",
+      "fixture": "fm-verified-date-future.diff",
       "expect": "reject",
-      "because": "refuses a rename",
+      "because": [
+        "skills/afm-lis/SKILL.md verified.date 2099-01-01 is in the future"
+      ],
+      "what": "a verification stamped in the future — the one date the gate still reads, checked against its own clock rather than anything in the diff"
+    },
+    {
+      "fixture": "fm-verified-date-backwards.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md moves verified.date backwards, 2026-09-27 -> 2026-01-01"
+      ],
+      "what": "a verification backdated, which would make a stale check look recent relative to an older one"
+    },
+    {
+      "fixture": "scope-references-file.diff",
+      "expect": "reject",
+      "because": [
+        "touches \"skills/anndata/references/io_operations.md\" — a refresh changes one skill's SKILL.md and nothing else"
+      ],
+      "what": "a change to a references/ page, where nothing a refresh records belongs"
+    },
+    {
+      "fixture": "scope-two-skills.diff",
+      "expect": "reject",
+      "because": [
+        "touches 2 files"
+      ],
+      "what": "two skills refreshed in one diff, so one review covers both"
+    },
+    {
+      "fixture": "scope-gate-self-edit.diff",
+      "expect": "reject",
+      "because": [
+        "touches \"scripts/is-verification-refresh.js\" — a refresh changes one skill's SKILL.md and nothing else"
+      ],
+      "what": "the gate editing itself — exit 0 is what the workflow reads as \"merge this\", and v1 ran the gate from the PR's own checkout"
+    },
+    {
+      "fixture": "struct-rename.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a diff header whose paths differ: a/skills/alphafold/SKILL.md vs b/skills/alphafold/SKILL-old.md"
+      ],
+      "what": "a rename, which carries no +/- lines at all",
       "structural": true
     },
     {
-      "fixture": "E4b-mode.diff",
+      "fixture": "struct-mode.diff",
       "expect": "reject",
-      "because": "refuses a file-mode change",
+      "because": [
+        "refuses a file-mode change (skills/alphafold/SKILL.md)"
+      ],
+      "what": "a file made executable, which clients refuse to install",
       "structural": true
     },
     {
-      "fixture": "E4c-binary.diff",
+      "fixture": "struct-new-file.diff",
       "expect": "reject",
-      "because": "refuses a binary change",
+      "because": [
+        "refuses an added or deleted file (skills/alphafold/references/extra.md)",
+        "touches \"skills/alphafold/references/extra.md\""
+      ],
+      "what": "a whole new file, whose every line is an addition and so has no counterpart to compare against",
       "structural": true
     },
     {
-      "fixture": "E7-newfile-verified-fields.diff",
+      "fixture": "struct-deleted-file.diff",
       "expect": "reject",
-      "because": "refuses an added or deleted file",
+      "because": [
+        "refuses an added or deleted file (skills/anndata/references/io_operations.md)",
+        "touches \"skills/anndata/references/io_operations.md\""
+      ],
+      "what": "a deleted page, which removes what a reader was told to consult",
       "structural": true
     },
     {
-      "fixture": "R1-real-combined.diff",
+      "fixture": "struct-binary.diff",
       "expect": "reject",
-      "because": "refuses a file-mode change",
+      "because": [
+        "refuses a binary change (skills/alphafold/references/model.bin)",
+        "touches \"skills/alphafold/references/model.bin\""
+      ],
+      "what": "a swapped binary, whose content a text diff cannot show at all",
       "structural": true
     },
     {
-      "fixture": "R2-real-rename.diff",
+      "fixture": "struct-eof-newline.diff",
       "expect": "reject",
-      "because": "refuses a rename",
+      "because": [
+        "skills/afm-lis/SKILL.md: refuses a diff that changes the end-of-file newline"
+      ],
+      "what": "a diff that changes whether the file ends in a newline",
       "structural": true
+    },
+    {
+      "fixture": "struct-header-unparseable.diff",
+      "expect": "reject",
+      "because": [
+        "cannot parse a diff header"
+      ],
+      "what": "a header the gate cannot read, which must refuse rather than skip the file it names",
+      "structural": true
+    },
+    {
+      "fixture": "malformed-hunk-undercount.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: the hunk at line 136 carries more lines than its header declares"
+      ],
+      "what": "a hunk header declaring fewer lines than it carries, so the gate would judge a document missing the added line",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-does-not-apply.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: the diff does not apply to the base tree"
+      ],
+      "what": "a diff whose removed line is not what the base file says, so the gate cannot know what it would produce",
+      "malformed": true
     }
   ]
 }

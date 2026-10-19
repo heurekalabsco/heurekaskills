@@ -1,0 +1,26 @@
+diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
+index 23ea351..c0c9957 100644
+--- a/skills/afm-lis/SKILL.md
++++ b/skills/afm-lis/SKILL.md
+@@ -4,7 +4,7 @@ description: Decide whether a predicted protein complex is a real interaction an
+ category: analysis
+ license: CC-BY-4.0
+ author: Heureka Labs
+-version: 1.0.0
++version: 1.0.1
+ tags: [protein-interaction, protein-structure, pae, alphafold, ppi]
+ covers: [ilis, lis, lia, local interaction score, protein-protein interaction, ppi, interface residues, pae, predicted aligned error, alphafold-multimer, colabfold, alphafold3, boltz, chai-1, openfold3, iptm, ipsae, pdockq, slim, short linear motif, disordered region, transient interaction, complex prediction, interface confidence, binding partner]
+ datasets: [https://raw.githubusercontent.com/flyark/AFM-LIS/main/lis.py, https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_unrelaxed_rank_001_alphafold2_multimer_v3_model_2_seed_000.pdb, https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_scores_rank_001_alphafold2_multimer_v3_model_2_seed_000.json]
+diff --git a/skills/alphafold/SKILL.md b/skills/alphafold/SKILL.md
+index 27cb53a..26dfbf6 100644
+--- a/skills/alphafold/SKILL.md
++++ b/skills/alphafold/SKILL.md
+@@ -4,7 +4,7 @@ description: Retrieve predicted protein structures from the AlphaFold database b
+ category: data
+ license: CC-BY-4.0
+ author: Heureka Labs
+-version: 1.3.0
++version: 1.3.1
+ tags: [protein-structure, alphafold, uniprot, plddt, pae]
+ covers: [protein structure, structure prediction, alphafold, uniprot, plddt, pae, alphamissense, missense variants, variant effect, cif, pdb, proteome, human, all organisms]
+ papers: [PMID:34265844, PMID:34791371, PMID:37733863]

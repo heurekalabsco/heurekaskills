@@ -1,0 +1,13 @@
+diff --git a/skills/brain-researcher/SKILL.md b/skills/brain-researcher/SKILL.md
+index 5d84275..916807d 100644
+--- a/skills/brain-researcher/SKILL.md
++++ b/skills/brain-researcher/SKILL.md
+@@ -901,7 +901,7 @@ source .venv/bin/activate
+ python -m pip install --quiet -e ".[mcp]"
+ export BR_MCP_AUTH_TOKEN=local-dev-token
+ brain-researcher serve mcp --port 7099 > /tmp/br_mcp.log 2>&1 &
+-for _ in $(seq 30); do curl -sf -o /dev/null http://127.0.0.1:7099/healthz && break; sleep 2; done
++for _ in $(seq 30); do curl -sf -o /dev/null http://10.12.0.4:7099/healthz && break; sleep 2; done
+ curl -sf -o /dev/null http://127.0.0.1:7099/healthz \
+   && grep -E '^\[mcp-http\]|health checks passed' /tmp/br_mcp.log \
+   || { echo "server did not start — its own log says:"; tail -4 /tmp/br_mcp.log; }
