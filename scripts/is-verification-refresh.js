@@ -3,48 +3,50 @@
 // records when it was checked and what against, and changes nothing a reader acts on.
 //
 // This is the gate for autonomous merge on a public registry, so it is written to be defeated
-// rather than to be right. Two earlier versions were, fifteen times between them, and every one
-// of those diffs is committed under .github/fixtures/refresh-gate/.
+// rather than to be right. Three earlier versions were, nineteen times between them, by two
+// adversarial reviews briefed to treat it as a security boundary. Every one of those diffs is
+// generated under .github/fixtures/refresh-gate/.
 //
-// WHY THIS IS THE THIRD VERSION, AND WHAT IS DIFFERENT IN KIND
+// WHY THIS IS THE FOURTH VERSION
 //
-// v1 asked "does this line differ only in a date or a version?". v2 asked the same question but
-// first resolved where the line sat. Both are the same question, and it is not answerable:
+// v1 asked "does this line differ only in a date or a version?". v2 asked the same after
+// resolving where the line sat. v3 narrowed it to "only a date, and only onto the run date".
+// All three are the same question, and it is not answerable from text:
 //
-//   `Accept hits with FDR < 0.05`      — 0.05 is a version to a regex, a threshold to a reader
-//   `training data cutoff 2025-06-30`  — a date to a regex, a capability claim to a reader
-//   `Requires Python 3.12+`            — a version to a regex, an install requirement to a reader
+//   `Accept hits with FDR < 0.05`       — 0.05 is a version to a regex, a threshold to a reader
+//   `training data cutoff 2025-06-30`   — a date to a regex, a capability claim to a reader
+//   `stable` was `2025-11-08`           — a date to a regex, a census_version argument to a reader
+//   `release_date=[... TO 2026-12-31]`  — a date to a regex, a query bound to a reader
 //
-// v2's central rule was "a version may change only on a line whose date also changed", on the
-// reasoning that observations carry dates and thresholds do not. Seventy-seven prose lines in
-// this registry carry both, so the rule inverted into a recipe: bump the date beside the
-// threshold and it passed. Four bypasses were confirmed against v2 on real skills, one of which
-// `validate.js` also passed — a nested `license:` under `verified:`, which the real YAML parser
-// reads correctly and `parseFrontmatterNaive`, which is what the client reads, does not.
+// v3's rule was that a prose date may change if it lands on the run date. The run date came from
+// the head commit's AUTHOR date, which whoever makes the commit sets with `git commit --date=`,
+// so the guard travelled inside the thing it was guarding: with an author date of 2035-06-30, a
+// training cutoff moved to 2035-06-30 was "a refresh". Even unforged it accepted moving that
+// cutoff to today, which is a false claim about what the model was trained on.
 //
-// So v3 does not classify tokens at all. It reconstructs the proposed file from the base file
-// and the diff, refusing unless every context and removed line matches the base exactly, and
-// then compares two whole documents:
+// So v4 stops looking at prose. THE BODY MUST BE BYTE-IDENTICAL. A refresh changes the
+// `verified:` block and the `version:` bump, in SKILL.md, and nothing else anywhere. There is no
+// date rule, no fence detector and no run date — which also removes the only input an attacker
+// controlled.
 //
-//   FRONTMATTER is parsed as YAML, by the same parser the registry build uses. The top-level key
-//   set must be identical; every key must be deep-equal except `verified` and `version`;
-//   `version` may only increase; `verified`'s keys must come from a closed allowlist and none of
-//   its values may be a map or a list.
+// WHAT REPLACED THE SHAPE RULES IN THE FRONTMATTER
 //
-//   BODY must be byte-identical except for ISO dates, and every date that changed must move
-//   forward, must land on the run date, and must not sit in a code block.
+// v3 enumerated bad shapes: no nested map under `verified:`. A YAML block scalar parses to a
+// STRING, so text containing `license: GPL-3.0-only` slipped past that and was read as a
+// TOP-LEVEL key by parseFrontmatterNaive — the client's parser, which has no nesting model and
+// flattens every colon-bearing line. Real YAML and validate.js both still saw the correct
+// licence; the registry would have served the wrong one.
 //
-// There is no pairing pool, no token classifier and no regex deciding what a number means. Every
-// rule is a comparison with a provable answer, and anything unparseable, unreadable or unmatched
-// refuses. Consent is positive: silence, novelty and confusion all mean no.
+// Enumerating shapes loses to the next shape. So v4 asserts the invariant instead: run the
+// CLIENT's parser over both versions and require that what it reads is unchanged, except for the
+// fields a refresh owns. That holds no matter how the YAML is spelled.
 //
-// Usage:
-//   node scripts/is-verification-refresh.js --diff <unified.diff> --base-dir <repo>
-//                                           --run-date <YYYY-MM-DD> [--json]
+// Usage:  node scripts/is-verification-refresh.js --diff <unified.diff> --base-dir <repo> [--json]
 // Exit 0 it is a refresh · 1 it is not (with reasons) · 2 refused to decide.
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
+import { parseFrontmatterNaive } from './lib.js';
 
 const arg = (n) => { const i = process.argv.indexOf(n); return i === -1 ? null : process.argv[i + 1] ?? null; };
 const JSON_OUT = process.argv.includes('--json');
@@ -55,25 +57,24 @@ if (!diffPath) die('--diff <file> is required. A gate that cannot read the diff 
 // The base tree the diff applies to. Required, because the proposed file is reconstructed FROM it
 // and every removed line is checked against it. The workflow passes a checkout of the base ref,
 // never the pull request's own — v1 ran the gate from the PR's checkout and a one-line
-// `date: process.exit(0);` label made it exit 0 unconditionally.
+// `date: process.exit(0);` label, a valid JavaScript label, made it exit 0 unconditionally.
 const baseDir = arg('--base-dir');
 if (!baseDir) die('--base-dir <repo> is required: the proposed file is rebuilt from it and checked against it.');
-// The date the run that wrote this diff believes it is. A refreshed observation is dated the day
-// it was observed, so this is what every changed date must equal — the rule that stops a
-// training-data cutoff being moved ten years into the future and called a refresh.
-const runDate = arg('--run-date');
-if (!runDate) die('--run-date <YYYY-MM-DD> is required: a date change is only a refresh if it lands on the day of the run.');
-if (!/^\d{4}-\d{2}-\d{2}$/.test(runDate)) die(`--run-date must be YYYY-MM-DD, got ${JSON.stringify(runDate)}`);
 
-// A run can start before midnight UTC and commit after it, so the day before the run date is
-// accepted too. Two values, not a window that widens with argument.
-const prev = new Date(`${runDate}T00:00:00Z`);
-prev.setUTCDate(prev.getUTCDate() - 1);
-const ACCEPTABLE_DATES = new Set([runDate, prev.toISOString().slice(0, 10)]);
+// The fields a refresh owns. `verified` and its own subfields, plus the version bump.
+//
+// The subfields are listed because parseFrontmatterNaive flattens them: `  date: 2026-09-27`
+// inside the `verified:` mapping is a TOP-LEVEL `date` key to the client. That flattening is the
+// client's behaviour, not a bug this gate can fix, so the gate accounts for it.
+const VERIFIED_KEYS = ['date', 'against', 'executed', 'unverified', 'unverified_reason', 'records'];
+const REFRESH_OWNS = new Set(['verified', 'version', ...VERIFIED_KEYS]);
+// The record a verified skill must keep. `unverified_reason` and `records` may legitimately come
+// and go — a skill that reaches zero unverified blocks no longer needs a reason.
+const VERIFIED_CORE = ['date', 'against', 'executed', 'unverified'];
 
-// Closed allowlist for the one mapping a refresh may rewrite. Taken from what the registry
-// actually uses; a new field here is a schema change and belongs in a reviewed pull request.
-const VERIFIED_KEYS = new Set(['date', 'against', 'executed', 'unverified', 'unverified_reason', 'records']);
+// The gate's own clock, which is not in the diff and so is not the author's to set. Used only to
+// refuse a verified: date in the future.
+const TODAY = new Date().toISOString().slice(0, 10);
 
 let raw;
 try { raw = diffPath === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(diffPath, 'utf8'); }
@@ -83,18 +84,27 @@ const reasons = [];
 const refuse = (r) => { if (!reasons.includes(r)) reasons.push(r); };
 
 // ---- parse the diff -------------------------------------------------------
-// Only two things are taken from the diff: the structural changes it announces in its headers,
-// and the hunks needed to rebuild each file. Nothing is inferred from the shape of a +/- line.
-const files = new Map();   // path -> { hunks: [{ oldStart, ops: [[kind, text]] }] }
+// Only two things come from the diff: the structural changes its headers announce, and the hunks
+// needed to rebuild the file. Nothing is inferred from the shape of a +/- line.
+const files = new Map();   // path -> { hunks: [{ oldStart, oldCount, newCount, ops }] }
 let cur = null;
 let hunk = null;
 
-for (const line of raw.split('\n')) {
+// A trailing newline on the diff file yields one empty element from the split, which is not a
+// diff line. v3 absorbed it as an empty context line and silently overran a hunk by one; counting
+// it as overflow instead made every well-formed diff refuse. It is simply not part of the diff.
+const rawLines = raw.split('\n');
+if (rawLines.length && rawLines[rawLines.length - 1] === '') rawLines.pop();
+
+for (const line of rawLines) {
   if (line.startsWith('diff --git ')) {
     const m = line.match(/^diff --git a\/(.+) b\/(.+)$/);
     // An unparseable header is the one case where dropping a file silently would be worst: the
     // gate would judge the files it understood and consent to the one it did not.
     if (!m) { refuse(`cannot parse a diff header, so cannot know which file it changes — ${JSON.stringify(line.slice(0, 72))}`); cur = null; hunk = null; continue; }
+    // A header naming one path on the a-side and another on the b-side is either a rename or a
+    // forgery; either way the gate would judge the destination while the diff describes a move.
+    if (m[1] !== m[2]) { refuse(`refuses a diff header whose paths differ: a/${m[1]} vs b/${m[2]}`); cur = null; hunk = null; continue; }
     cur = m[2];
     if (!files.has(cur)) files.set(cur, { hunks: [] });
     hunk = null;
@@ -107,14 +117,14 @@ for (const line of raw.split('\n')) {
       oldStart: Number(h[1]),
       oldCount: h[2] === undefined ? 1 : Number(h[2]),
       newCount: h[4] === undefined ? 1 : Number(h[4]),
-      oldSeen: 0, newSeen: 0, ops: [],
+      oldSeen: 0, newSeen: 0, overflow: false, ops: [],
     };
     files.get(cur).hunks.push(hunk);
     continue;
   }
   if (!hunk) {
-    // Header territory. Each of these announces a change that carries no +/- content at all, so
-    // a gate that reads only +/- lines sees an empty diff and calls it harmless.
+    // Header territory. Each of these announces a change carrying no +/- content at all, so a
+    // gate that reads only +/- lines sees an empty diff and calls it harmless.
     if (/^(rename from|rename to) /.test(line)) refuse(`refuses a rename (${cur ?? 'unknown file'}) — a moved file changes what the site serves and shows no content diff`);
     else if (/^(old mode|new mode) /.test(line)) refuse(`refuses a file-mode change (${cur ?? 'unknown file'})`);
     else if (/^(new file mode|deleted file mode) /.test(line)) refuse(`refuses an added or deleted file (${cur ?? 'unknown file'})`);
@@ -122,11 +132,18 @@ for (const line of raw.split('\n')) {
     else if (/^GIT binary patch/.test(line)) refuse(`refuses a binary patch (${cur ?? 'unknown file'})`);
     continue;
   }
-  if (line.startsWith('\\')) continue;                       // "\ No newline at end of file"
-  // A hunk is exactly as long as its header says. Reading past that is how the trailing newline
-  // of a diff file became a ninth context line in an eight-line hunk, and it is also how a
-  // forged header could hide ops behind a short count.
-  if (hunk.oldSeen >= hunk.oldCount && hunk.newSeen >= hunk.newCount) { hunk = null; continue; }
+  // "\ No newline at end of file" means the diff changes whether the file ends in a newline. A
+  // refresh does not touch the end of the file, and reconstructing the distinction correctly is
+  // more care than it is worth for a case that should never arise.
+  if (line.startsWith('\\')) { refuse(`${cur}: refuses a diff that changes the end-of-file newline`); continue; }
+  // A hunk is exactly as long as its header says. v3 ended the hunk on overflow and CONTINUED,
+  // which dropped the line — so the counts still matched and the mismatch check never fired, and
+  // an under-declared header let the gate judge a document missing the added line entirely.
+  if (hunk.oldSeen >= hunk.oldCount && hunk.newSeen >= hunk.newCount) {
+    if (/^[-+ ]/.test(line) || line === '') hunk.overflow = true;
+    hunk = null;
+    continue;
+  }
   const kind = line.startsWith('-') ? 'del'
              : line.startsWith('+') ? 'add'
              : line.startsWith(' ') || line === '' ? 'ctx'    // git writes an empty context as " "
@@ -141,28 +158,31 @@ for (const line of raw.split('\n')) {
 // diff must refuse rather than be judged on the part that happened to make sense.
 for (const [f, { hunks }] of files) {
   for (const k of hunks) {
-    if (k.oldSeen !== k.oldCount || k.newSeen !== k.newCount) {
+    if (k.overflow) refuse(`${f}: the hunk at line ${k.oldStart} carries more lines than its header declares (${k.oldCount} old, ${k.newCount} new)`);
+    else if (k.oldSeen !== k.oldCount || k.newSeen !== k.newCount) {
       refuse(`${f}: the hunk at line ${k.oldStart} declares ${k.oldCount} old and ${k.newCount} new lines but carries ${k.oldSeen} and ${k.newSeen}`);
     }
   }
 }
 
 // ---- scope ----------------------------------------------------------------
+// A verification refresh touches exactly one file: one skill's SKILL.md. Everything a refresh is
+// allowed to say lives in that file's frontmatter, so anything else — a references/ page, a
+// .json, a second skill — is out of scope by construction rather than by rule.
 const paths = [...files.keys()];
+if (paths.length === 0) refuse('contains no file changes at all');
 for (const f of paths) {
-  const segs = f.split('/');
-  if (segs.length < 3 || segs[0] !== 'skills' || segs.some((s) => s === '' || s === '.' || s === '..')) {
-    refuse(`touches a path that is not a file inside one skill: ${JSON.stringify(f)}`);
+  if (!/^skills\/[^/.][^/]*\/SKILL\.md$/.test(f)) {
+    refuse(`touches ${JSON.stringify(f)} — a refresh changes one skill's SKILL.md and nothing else`);
   }
 }
-const slugs = new Set(paths.map((f) => (f.match(/^skills\/([^/]+)\//) || [])[1]).filter(Boolean));
-if (slugs.size > 1) refuse(`touches ${slugs.size} skills (${[...slugs].join(', ')}) — a refresh is one skill`);
-if (paths.length === 0) refuse('contains no file changes at all');
+if (paths.length > 1) refuse(`touches ${paths.length} files (${paths.join(', ')}) — a refresh is one SKILL.md`);
+const slug = (paths[0]?.match(/^skills\/([^/]+)\//) || [])[1] ?? null;
 
-// ---- rebuild each proposed file from the base ------------------------------
-// The diff is only believed if it applies: every context and removed line must match the base
-// tree exactly. That single check retires a whole class of bypass in which a malformed diff
-// walks the line counter off by one and lands a changed line on a position that excuses it.
+// ---- rebuild the proposed file from the base -------------------------------
+// The diff is believed only if it applies: every context and removed line must match the base
+// tree exactly. That retires the whole class of bypass in which a malformed diff walks the line
+// counter off by one and lands a changed line on a position that excuses it.
 function rebuild(baseLines, hunks, file) {
   const out = [];
   let cursor = 0;
@@ -185,17 +205,15 @@ function rebuild(baseLines, hunks, file) {
   return out;
 }
 
-// ---- compare two documents ------------------------------------------------
-const FRONTMATTER = /^---\s*$/;
+// ---- compare the two documents --------------------------------------------
+const FENCE = /^---\s*$/;
 function split(text) {
   const lines = text.split('\n');
-  if (!FRONTMATTER.test(lines[0] ?? '')) return { fm: null, body: lines, bodyFrom: 1 };
+  if (!FENCE.test(lines[0] ?? '')) return null;                 // a SKILL.md must open with ---
   for (let i = 1; i < lines.length; i++) {
-    if (FRONTMATTER.test(lines[i])) {
-      return { fm: lines.slice(1, i).join('\n'), body: lines.slice(i + 1), bodyFrom: i + 2 };
-    }
+    if (FENCE.test(lines[i])) return { fm: lines.slice(1, i).join('\n'), body: lines.slice(i + 1).join('\n') };
   }
-  return null;                              // opened frontmatter and never closed it
+  return null;                                                  // opened frontmatter, never closed
 }
 
 function eq(a, b) {
@@ -221,129 +239,115 @@ function versionIncreased(from, to) {
   return false;
 }
 
-// Conservative on purpose: a fenced block, and any line indented like a code block, counts as
-// code. A date in prose is an observation; the same date in code can be an argument that selects
-// which data loads — `open_soma(census_version="2026-08-01")` is real, and in this registry.
-// Over-counting refuses a legitimate refresh, which a human then reviews. Under-counting ships.
-function codeLines(lines) {
-  const isCode = new Array(lines.length).fill(false);
-  let fence = null;
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    const m = l.match(/^\s*(`{3,}|~{3,})/);
-    if (m) {
-      if (fence && l.trim().startsWith(fence)) { isCode[i] = true; fence = null; continue; }
-      if (!fence) { fence = m[1]; isCode[i] = true; continue; }
-    }
-    isCode[i] = fence !== null || /^(\t| {4,})\S/.test(l);
-  }
-  return isCode;
-}
-
-const DATE_G = /\b\d{4}-\d{2}-\d{2}\b/g;
-const MASK = '\u0000D';
+const asDate = (v) => (v instanceof Date ? v.toISOString().slice(0, 10)
+  : typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null);
 
 let changedFiles = 0;
 for (const [file, { hunks }] of files) {
   if (!hunks.length) continue;
 
-  const abs = path.join(baseDir, file);
   let baseText;
-  try { baseText = fs.readFileSync(abs, 'utf8'); }
+  try { baseText = fs.readFileSync(path.join(baseDir, file), 'utf8'); }
   catch { refuse(`cannot read ${file} in the base tree — refusing rather than judging a file it cannot see`); continue; }
 
-  const baseLines = baseText.split('\n');
-  const built = rebuild(baseLines, hunks, file);
+  const built = rebuild(baseText.split('\n'), hunks, file);
   if (typeof built === 'string') { refuse(built); continue; }
   const headText = built.join('\n');
-  if (headText === baseText) continue;      // this file is unchanged after all
+  if (headText === baseText) continue;                          // unchanged after all
   changedFiles++;
 
   const b = split(baseText), h = split(headText);
-  if (!b || !h) { refuse(`${file} has frontmatter that opens and never closes — refusing to parse it`); continue; }
-  if ((b.fm === null) !== (h.fm === null)) { refuse(`${file} gains or loses its frontmatter block`); continue; }
+  if (!b) { refuse(`${file} has no parseable frontmatter in the base tree`); continue; }
+  if (!h) { refuse(`${file} would end up with no parseable frontmatter`); continue; }
 
-  // ---- frontmatter: structure, by the parser the registry build uses ----
-  if (b.fm !== null && b.fm !== h.fm) {
-    let bf, hf;
-    try { bf = yaml.load(b.fm); hf = yaml.load(h.fm); }
-    catch (e) { refuse(`${file} frontmatter is not parseable YAML (${e.message.split('\n')[0].slice(0, 72)})`); continue; }
-    if (bf === null || typeof bf !== 'object' || hf === null || typeof hf !== 'object') {
-      refuse(`${file} frontmatter is not a mapping`); continue;
-    }
-    const bk = Object.keys(bf), hk = Object.keys(hf);
-    // A refresh may introduce `verified` and nothing else. Any other new, removed or renamed
-    // top-level key is a schema change: this is what stops `allowed-tools:` being inserted on
-    // the line above `verified:`, which v2 read as inside the block and waved through.
-    const added = hk.filter((k) => !bk.includes(k));
-    const gone = bk.filter((k) => !hk.includes(k));
-    if (gone.length) refuse(`${file} removes the frontmatter key(s) ${gone.join(', ')}`);
-    for (const k of added) if (k !== 'verified') refuse(`${file} adds the frontmatter key ${JSON.stringify(k)} — only verified: may appear`);
-
-    for (const k of hk) {
-      if (k === 'verified' || k === 'version' || added.includes(k)) continue;
-      if (!eq(bf[k], hf[k])) refuse(`${file} changes the frontmatter field ${JSON.stringify(k)} — a refresh records what it checked, it does not restate the skill`);
-    }
-    if (Object.hasOwn(hf, 'version') && !eq(bf.version, hf.version)
-        && !versionIncreased(bf.version, hf.version)) {
-      refuse(`${file} version ${JSON.stringify(bf.version)} -> ${JSON.stringify(hf.version)} is not an increase`);
-    }
-
-    // `verified:` is the payload, and the only mapping a refresh rewrites freely — but only its
-    // own fields, and only as scalars. A nested key here is read as a TOP-LEVEL field by
-    // parseFrontmatterNaive, which is what the client displays, so `license:` nested under
-    // `verified:` changed the licence the registry served while real YAML and validate.js both
-    // saw the correct one.
-    const v = hf.verified;
-    if (v !== undefined && v !== null && typeof v === 'object' && !(v instanceof Date)) {
-      if (Array.isArray(v)) refuse(`${file} makes verified: a list`);
-      else for (const [k, val] of Object.entries(v)) {
-        if (!VERIFIED_KEYS.has(k)) refuse(`${file} puts ${JSON.stringify(k)} inside verified:, which is not one of its fields (${[...VERIFIED_KEYS].join(', ')})`);
-        else if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
-          refuse(`${file} nests a mapping or list under verified.${k} — a nested key is read as a top-level field by the client's parser`);
-        }
-      }
-    }
-  }
-
-  // ---- body: byte-identical but for dates ----
-  if (b.body.length !== h.body.length) {
-    refuse(`${file} adds or removes ${Math.abs(h.body.length - b.body.length)} body line(s) — a refresh restates what it checked, it does not rewrite the skill`);
+  // ---- the body does not change. at all. ----
+  if (b.body !== h.body) {
+    const bl = b.body.split('\n'), hl = h.body.split('\n');
+    const i = bl.findIndex((l, n) => l !== hl[n]);
+    refuse(bl.length !== hl.length
+      ? `${file} changes the body — ${Math.abs(hl.length - bl.length)} line(s) added or removed. A refresh records what it checked; it does not edit the page.`
+      : `${file} changes the body at line ${i + 1} of the prose — ${JSON.stringify((bl[i] ?? '').trim().slice(0, 56))}. A refresh records what it checked; it does not edit the page.`);
     continue;
   }
-  const isCode = codeLines(b.body);
-  for (let i = 0; i < b.body.length; i++) {
-    if (b.body[i] === h.body[i]) continue;
-    const ln = b.bodyFrom + i;
-    if (b.body[i].replace(DATE_G, MASK) !== h.body[i].replace(DATE_G, MASK)) {
-      refuse(`${file}:${ln} changes something other than a date — ${JSON.stringify(b.body[i].trim().slice(0, 56))}`);
-      continue;
+
+  // ---- frontmatter, by the parser the registry build uses ----
+  let bf, hf;
+  try { bf = yaml.load(b.fm); hf = yaml.load(h.fm); }
+  catch (e) { refuse(`${file} frontmatter is not parseable YAML (${e.message.split('\n')[0].slice(0, 72)})`); continue; }
+  if (bf === null || typeof bf !== 'object' || Array.isArray(bf)
+      || hf === null || typeof hf !== 'object' || Array.isArray(hf)) {
+    refuse(`${file} frontmatter is not a mapping`); continue;
+  }
+
+  const bk = Object.keys(bf), hk = Object.keys(hf);
+  const gone = bk.filter((k) => !hk.includes(k));
+  const added = hk.filter((k) => !bk.includes(k));
+  if (gone.length) refuse(`${file} removes the frontmatter key(s) ${gone.join(', ')}`);
+  // A refresh may introduce `verified` and nothing else. This is what stops a key being inserted
+  // next to it — v3 read an insertion above `verified:` as being inside the block.
+  for (const k of added) if (k !== 'verified') refuse(`${file} adds the frontmatter key ${JSON.stringify(k)} — only verified: may appear`);
+  for (const k of hk) {
+    if (k === 'verified' || k === 'version' || added.includes(k)) continue;
+    if (!eq(bf[k], hf[k])) refuse(`${file} changes the frontmatter field ${JSON.stringify(k)} — a refresh records what it checked, it does not restate the skill`);
+  }
+  if (Object.hasOwn(hf, 'version') && !eq(bf.version, hf.version) && !versionIncreased(bf.version, hf.version)) {
+    refuse(`${file} version ${JSON.stringify(bf.version)} -> ${JSON.stringify(hf.version)} is not an increase`);
+  }
+
+  // ---- what the CLIENT reads must not change, outside the fields a refresh owns ----
+  // This is the rule that does not care how the YAML is spelled. parseFrontmatterNaive has no
+  // nesting model: it takes every line with a colon and makes the text before it a top-level key,
+  // last one winning. So a block scalar under `verified: against:` whose text contains
+  // `license: GPL-3.0-only` silently replaces the licence the client displays, while real YAML
+  // and validate.js both still read `CC-BY-4.0`. Enumerating that shape loses to the next shape;
+  // comparing what the client actually reads does not.
+  const bn = parseFrontmatterNaive(baseText).frontmatter;
+  const hn = parseFrontmatterNaive(headText).frontmatter;
+  for (const k of new Set([...Object.keys(bn), ...Object.keys(hn)])) {
+    if (REFRESH_OWNS.has(k)) continue;
+    if (bn[k] !== hn[k]) {
+      refuse(`${file} changes what the client's frontmatter parser reads for ${JSON.stringify(k)}: `
+        + `${JSON.stringify(bn[k] ?? null)} -> ${JSON.stringify(hn[k] ?? null)}`
+        + (Object.hasOwn(bf, k) ? '' : ' — a nested or multi-line value is read as a top-level field by that parser'));
     }
-    if (isCode[i]) {
-      refuse(`${file}:${ln} changes a date inside a code block, where a date can be an argument that selects which data loads`);
-      continue;
-    }
-    const was = b.body[i].match(DATE_G) ?? [];
-    const now = h.body[i].match(DATE_G) ?? [];
-    for (let j = 0; j < now.length; j++) {
-      if (was[j] === now[j]) continue;
-      if (!ACCEPTABLE_DATES.has(now[j])) {
-        refuse(`${file}:${ln} sets a date to ${now[j]}, which is not the run date (${runDate}) — a refresh is dated the day it ran`);
-      } else if (now[j] <= was[j]) {
-        refuse(`${file}:${ln} moves a date backwards, ${was[j]} -> ${now[j]}`);
+  }
+
+  // ---- verified: is the payload, and it may not be erased ----
+  const bv = bf.verified, hv = hf.verified;
+  const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
+  if (isMap(bv)) {
+    // v3 only checked `verified` while it stayed a mapping, so `verified: pending` replaced a
+    // populated record — date, against, executed, unverified — with one scalar, and validate.js
+    // accepts `pending` too. A skill that was verified would have quietly stopped being so.
+    if (!isMap(hv)) {
+      refuse(`${file} replaces the verified: record with ${JSON.stringify(hv)} — a refresh adds to that record, it does not erase it`);
+    } else {
+      for (const k of VERIFIED_CORE) {
+        if (Object.hasOwn(bv, k) && !Object.hasOwn(hv, k)) refuse(`${file} drops verified.${k}`);
       }
     }
+  }
+  if (isMap(hv)) {
+    for (const k of Object.keys(hv)) {
+      if (!VERIFIED_KEYS.includes(k)) refuse(`${file} puts ${JSON.stringify(k)} inside verified:, which is not one of its fields (${VERIFIED_KEYS.join(', ')})`);
+    }
+    // The one date the gate still reads, and the only one that is definitionally an observation
+    // stamp. Checked against this process's clock, which does not travel in the diff.
+    const nd = asDate(hv.date), od = isMap(bv) ? asDate(bv.date) : null;
+    if (hv.date !== undefined && nd === null) refuse(`${file} verified.date is not a YYYY-MM-DD date: ${JSON.stringify(String(hv.date).slice(0, 32))}`);
+    else if (nd && nd > TODAY) refuse(`${file} verified.date ${nd} is in the future`);
+    else if (nd && od && nd < od) refuse(`${file} moves verified.date backwards, ${od} -> ${nd}`);
   }
 }
 
 // A diff that changed nothing is not a harmless diff, it is a diff this gate did not read.
 if (changedFiles === 0) refuse('no file content actually changed — nothing here was inspected, so consent cannot be given');
 
-const verdict = { refresh: reasons.length === 0, skill: [...slugs][0] ?? null, files: paths, changedFiles, runDate, reasons };
+const verdict = { refresh: reasons.length === 0, skill: slug, files: paths, changedFiles, reasons };
 if (JSON_OUT) console.log(JSON.stringify(verdict, null, 2));
 else {
   console.log(verdict.refresh
-    ? `✓ verification refresh — ${verdict.skill}: only verified:, a version bump and dated prose changed`
+    ? `✓ verification refresh — ${verdict.skill}: the verified: block and a version bump, with the page itself untouched`
     : `✗ not a verification refresh${verdict.skill ? ` (${verdict.skill})` : ''}`);
   for (const r of reasons) console.log(`  · ${r}`);
 }
