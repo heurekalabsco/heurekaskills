@@ -1,93 +1,96 @@
 # refresh-gate fixtures
 
-Inputs for `scripts/is-verification-refresh.js`, the gate that decides whether a nightshift PR may
-merge with **no human review**.
+Inputs for `scripts/is-verification-refresh.js`, the gate that decides whether a nightshift PR
+may merge into this public registry with **no human review**.
 
-**Do not edit these files by hand.** Each one is described as an edit to a real skill in
-`scripts/make-refresh-fixtures.js` and generated with `git diff`:
+**Do not edit these files by hand.** Each case is described in `scripts/make-refresh-fixtures.js`
+and regenerated with:
 
     node scripts/make-refresh-fixtures.js
 
-`manifest.json` records, for every case, the reason the gate must give. The selftest asserts that
-text, so a case refused for an unrelated reason fails rather than passes.
+`manifest.json` records the **full set of reasons** the gate must give for each case, and the
+selftest asserts that set exactly.
 
-## Why they are generated rather than written
+## Why they are generated, and why the full reason set
 
-They were hand-written at first. When the gate was rebuilt, all eighteen still "passed" — and
-twelve of them were being refused because their hunk headers did not match their bodies, so a
-header-integrity check fired before the rule under test ever ran. Twelve green cases proving
-nothing, and no way to tell from the output.
+Three things earlier versions of this suite got wrong, each of which let a green suite sit on top
+of a broken gate.
 
-Generating them from real edits means they always apply to the base tree, and asserting the reason
-means the suite notices when a case stops testing its rule. Under mutation testing — neutralising
-each of the gate's 30 refusals one at a time — **all 30 are load-bearing**. The previous suite let
-12 of 15 be deleted while staying green.
+**They were hand-written.** The gate rebuilds the proposed file from the base and refuses a diff
+that does not apply, so for twelve of eighteen cases a header-integrity check fired before the
+rule under test ever ran. All eighteen reported `ok`.
 
-## What each case is
+**It asserted one reason substring.** That let a case be refused for a bundled, unrelated reason.
+`R1-real-combined` named two files that do not exist in this tree and carried a `SKILL.md` hunk
+expecting a shell line at line 1 of a markdown file; it passed because
+`reasons.some(includes('refuses a file-mode change'))` matched a *different* file's header. It had
+been vacuous for some time and nothing said so.
 
-Every `E*`, `V*` and `R*` case is an exploit that defeated an earlier version of the gate, found
-by an adversarial review briefed to treat it as a security boundary and confirmed by execution.
-Fifteen of them beat v1 and v2 between them. The `N*` cases are the four that beat v2 plus three
-rules that would otherwise go unasserted.
+**And two cases were green restatements of defeated rules.** The nested-key rule and the
+prose-date rule each had a passing fixture while a one-level-deeper spelling of the same attack
+walked through. That is why the body rule is now absolute rather than conditional.
+
+Under mutation testing — neutralising each of the gate's **33 refusals** one at a time — all 33
+fail the suite.
+
+## The cases
 
 | fixture | what it smuggles | must be refused because |
 |---|---|---|
-| `PASS-real-refresh` | a version bump, the verified: block, and seven prose observation dates moved to the run date | **must be accepted** |
-| `V1-decimal-cutoff-real` | the published iLIS cutoff moved, 0.223 -> 0.023, inside an otherwise real refresh | `changes something other than a date` |
-| `E1-decimal-threshold` | the same cutoff moved where it is executed, inside a code fence | `changes something other than a date` |
-| `V2-doi-swap-real` | a citation retargeted at another record by its suffix | `changes something other than a date` |
-| `E2-doi-swap` | the same citation retargeted by its registrant prefix | `changes something other than a date` |
-| `V3-selfmodify` | the gate editing itself — exit 0 is what the workflow reads as "merge this" | `not a file inside one skill` |
-| `V4-backdoor` | a line that is a valid JS label AND looked like a dated observation to v1 | `adds or removes 1 body line` |
-| `E3-prose-behind-date` | arbitrary prose smuggled in behind a leading date | `adds or removes 1 body line` |
-| `V5-refresh-plus-threshold` | a real refresh with one moved threshold hidden among the dates | `changes something other than a date` |
-| `E6-dashdash-invisible` | a deleted --flag line, which a naive "---" header skip swallowed whole | `adds or removes 1 body line` |
-| `E5-cross-file-move` | a caveat moved out of SKILL.md into references/, so a global pool saw a matched pair | `adds or removes 1 body line` |
-| `E8-url-version-tail` | an API version path segment retargeted, v1 -> v2 | `changes the frontmatter field "datasets"` |
-| `E9-ip-swap` | a loopback address pointed somewhere else | `changes something other than a date` |
-| `N1-verified-nested-key` | license: nested under verified:, which real YAML reads correctly and the client's parser reads as top-level — validate.js passes this one too | `puts "license" inside verified:` |
-| `N2-key-above-verified` | a tool grant inserted on the line above verified:, landing on a position v2 excused | `adds the frontmatter key "allowed-tools"` |
-| `N3-prose-date-is-semantics` | a training-data cutoff moved ten years out — a date in prose that is a capability claim | `is not the run date` |
-| `N4-date-launders-version` | a false install requirement laundered by bumping the date beside it — the change that inverted v2's central rule | `changes something other than a date` |
-| `N5-date-in-code` | a date moved to the run date, but inside a fence, where a date can be the argument that selects which data loads | `changes a date inside a code block` |
-| `N7-date-backwards` | an embargo lift date pulled back onto the run date, which would say data is available that is not | `moves a date backwards` |
-| `N6-version-downgrade` | a verified: refresh carrying a version that goes backwards | `is not an increase` |
-| `E4a-rename` | — | `refuses a rename` |
-| `E4b-mode` | — | `refuses a file-mode change` |
-| `E4c-binary` | — | `refuses a binary change` |
-| `E7-newfile-verified-fields` | — | `refuses an added or deleted file` |
-| `R1-real-combined` | — | `refuses a file-mode change` |
-| `R2-real-rename` | — | `refuses a rename` |
+| `PASS-frontmatter-refresh` | a version bump and the verified: block, with the page itself untouched — the only shape that merges without a human | **must be accepted** |
+| `body-threshold-moved` | the published iLIS cutoff moved, 0.223 -> 0.023, inside an otherwise real refresh | `skills/afm-lis/SKILL.md changes the body at line` |
+| `body-date-is-a-claim` | a training-data cutoff moved to the run date — a prose date that is a capability claim, which beat v3 even unforged | `skills/protenix/SKILL.md changes the body at line` |
+| `body-date-in-inline-code` | a census_version in inline backticks — not a fence, so v3 read it as prose and let the dataset selector move | `skills/cellxgene-census/SKILL.md changes the body at line` |
+| `body-doi-retargeted` | a citation pointed at a different record | `skills/afm-lis/SKILL.md changes the body at line` |
+| `body-line-added` | arbitrary prose added, here pointing a reader at another host | `skills/afm-lis/SKILL.md changes the body — 1 line(s) added or removed` |
+| `body-line-deleted` | a deleted --flag line, which a naive "---" header skip once swallowed whole | `skills/bindcraft/SKILL.md changes the body — 1 line(s) added or removed` |
+| `body-ip-swap` | a loopback address pointed somewhere else | `skills/brain-researcher/SKILL.md changes the body at line` |
+| `fm-block-scalar-smuggles-key` | a YAML block scalar under verified.against whose TEXT contains "license: GPL-3.0-only" — real YAML and validate.js both read CC-BY-4.0, the client reads GPL-3.0-only. This beat v3, whose rule only rejected values that PARSED as maps | `skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for "license"` |
+| `fm-nested-key-direct` | the same attack spelled as a plain nested key rather than a block scalar | `skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for "license"`<br>`skills/afm-lis/SKILL.md puts "license" inside verified:` |
+| `fm-new-key-above-verified` | a tool grant inserted on the line above verified:, landing on a position v3 excused as being inside the block | `skills/pathway-cca-coessentiality/SKILL.md adds the frontmatter key "allowed-tools"`<br>`skills/pathway-cca-coessentiality/SKILL.md changes what the client's frontmatter parser reads for "allowed-tools"` |
+| `fm-field-changed` | an API version path segment retargeted, v1 -> v2 | `skills/all-of-us/SKILL.md changes the frontmatter field "datasets"`<br>`skills/all-of-us/SKILL.md changes what the client's frontmatter parser reads for "datasets"` |
+| `fm-version-downgrade` | a refresh carrying a version that goes backwards | `skills/afm-lis/SKILL.md version "1.0.0" -> "0.9.0" is not an increase` |
+| `fm-verified-erased` | a populated verification record — date, against, executed, unverified — replaced by one scalar. validate.js accepts "pending" too, so nothing else caught this | `skills/alphafold/SKILL.md replaces the verified: record with "pending"` |
+| `fm-verified-core-dropped` | the "how much of this actually ran" count quietly removed | `skills/afm-lis/SKILL.md drops verified.executed` |
+| `fm-verified-date-future` | a verification stamped in the future — the one date the gate still reads, checked against its own clock rather than anything in the diff | `skills/afm-lis/SKILL.md verified.date 2099-01-01 is in the future` |
+| `fm-verified-date-backwards` | a verification backdated, which would make a stale check look recent relative to an older one | `skills/afm-lis/SKILL.md moves verified.date backwards, 2026-09-27 -> 2026-01-01` |
+| `scope-references-file` | a change to a references/ page, where nothing a refresh records belongs | `touches "skills/anndata/references/io_operations.md" — a refresh changes one skill's SKILL.md and nothing else` |
+| `scope-two-skills` | two skills refreshed in one diff, so one review covers both | `touches 2 files` |
+| `scope-gate-self-edit` | the gate editing itself — exit 0 is what the workflow reads as "merge this", and v1 ran the gate from the PR's own checkout | `touches "scripts/is-verification-refresh.js" — a refresh changes one skill's SKILL.md and nothing else` |
+| `struct-rename` | a rename, which carries no +/- lines at all | `refuses a diff header whose paths differ: a/skills/alphafold/SKILL.md vs b/skills/alphafold/SKILL-old.md` |
+| `struct-mode` | a file made executable, which clients refuse to install | `refuses a file-mode change (skills/alphafold/SKILL.md)` |
+| `struct-new-file` | a whole new file, whose every line is an addition and so has no counterpart to compare against | `refuses an added or deleted file (skills/alphafold/references/extra.md)`<br>`touches "skills/alphafold/references/extra.md"` |
+| `struct-deleted-file` | a deleted page, which removes what a reader was told to consult | `refuses an added or deleted file (skills/anndata/references/io_operations.md)`<br>`touches "skills/anndata/references/io_operations.md"` |
+| `struct-binary` | a swapped binary, whose content a text diff cannot show at all | `refuses a binary change (skills/alphafold/references/model.bin)`<br>`touches "skills/alphafold/references/model.bin"` |
+| `struct-eof-newline` | a diff that changes whether the file ends in a newline | `skills/afm-lis/SKILL.md: refuses a diff that changes the end-of-file newline` |
+| `struct-header-unparseable` | a header the gate cannot read, which must refuse rather than skip the file it names | `cannot parse a diff header` |
+| `malformed-hunk-undercount` | a hunk header declaring fewer lines than it carries, so the gate would judge a document missing the added line | `skills/afm-lis/SKILL.md: the hunk at line 136 carries more lines than its header declares` |
+| `malformed-does-not-apply` | a diff whose removed line is not what the base file says, so the gate cannot know what it would produce | `skills/afm-lis/SKILL.md: the diff does not apply to the base tree` |
 
-## Two things these taught
+## What counts as a refresh
 
-**Position is not enough.** v2 classified every changed line as frontmatter, `verified:`, fenced
-code or prose, and asked whether a prose change was date-only. `Accept hits with FDR < 0.05` is
-prose, and `0.05` is a version to any regex. v2's answer was "a version may change only on a line
-whose date also changed" — 77 prose lines in this registry carry both, so `N4` just bumps the date
-beside the threshold.
+One skill's `SKILL.md`, whose **body is byte-identical**, whose frontmatter differs only in
+`verified:` and an increasing `version:`, which **parses to the same values the client's own
+parser read before** outside the fields a refresh owns, and whose `verified:` record keeps every
+field it had with a date no later than today. Nothing else. There is no date rule for the page,
+no fence detector, and no run date.
+
+## What three versions of this taught
+
+**You cannot ask what a token means.** v1 and v2 asked it of versions, v3 of dates. `0.05` is a
+version to a regex and a threshold to a reader; `2025-06-30` is a date to a regex and a training
+cutoff to a reader; `` `2025-11-08` `` is a `census_version` a reader passes to `open_soma`.
+Position does not separate them, and neither does "it only moved forward".
+
+**A guard must not travel inside the thing it guards.** v3's entire defence for prose dates was
+"the new date must equal the run date", and the run date came from the head commit's *author*
+date, which whoever writes the commit sets with `git commit --date=`.
+
+**Enumerating bad shapes loses to the next shape.** v3 rejected a nested *mapping* under
+`verified:`. A YAML block scalar parses to a *string*, and the client's parser — which has no
+nesting model and flattens every colon-bearing line — read its text as top-level keys. The rule
+is now the invariant itself: what the client reads must not change.
 
 **Rejection is not enough either.** A gate that refuses everything satisfies every negative here.
-`PASS-real-refresh` is the case that fails when the gate stops being useful, and it has already
-caught one over-correction: a frontmatter `version:` bump read as "a version on a line with no
-date", which would have refused every legitimate refresh.
-
-## How often the gate can actually fire
-
-A gate that refuses everything is useless, so this is measured rather than assumed. Simulating a
-mechanical refresh on every skill in the registry — bump `version`, set `verified.date`, move
-every dated prose line outside a fence to the run date, change nothing else — **99 of 101 skills
-auto-merge.**
-
-The two that do not are `biostudies` and `zenodo`, and both are refused by the
-*moves a date backwards* rule, because both carry a body date in the future:
-
-- `biostudies` documents a query bound, `release_date=[2026-01-01 TO 2026-12-31]`
-- `zenodo` documents an embargo lifting `2026-12-11`
-
-Neither is an observation. Pulling either back onto the run date would change which records a
-documented query returns, or claim data is available that is not. `N7` is that case.
-
-This correction is worth recording: an earlier version of this file asserted that the
-backwards-date rule had no fixture *because no skill carries a date later than the run date*. Two
-do, the rule was already load-bearing on real content, and the claim was never checked.
+`PASS-frontmatter-refresh` is the case that fails when the gate stops being useful, and it has
+already caught one over-correction.
