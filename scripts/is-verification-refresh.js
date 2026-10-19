@@ -89,6 +89,7 @@ const refuse = (r) => { if (!reasons.includes(r)) reasons.push(r); };
 const files = new Map();   // path -> { hunks: [{ oldStart, oldCount, newCount, ops }] }
 let cur = null;
 let hunk = null;
+let headerFailed = false;
 
 // A trailing newline on the diff file yields one empty element from the split, which is not a
 // diff line. v3 absorbed it as an empty context line and silently overran a hunk by one; counting
@@ -101,10 +102,11 @@ for (const line of rawLines) {
     const m = line.match(/^diff --git a\/(.+) b\/(.+)$/);
     // An unparseable header is the one case where dropping a file silently would be worst: the
     // gate would judge the files it understood and consent to the one it did not.
-    if (!m) { refuse(`cannot parse a diff header, so cannot know which file it changes — ${JSON.stringify(line.slice(0, 72))}`); cur = null; hunk = null; continue; }
+    if (!m) { refuse(`cannot parse a diff header, so cannot know which file it changes — ${JSON.stringify(line.slice(0, 72))}`); cur = null; hunk = null; headerFailed = true; continue; }
     // A header naming one path on the a-side and another on the b-side is either a rename or a
     // forgery; either way the gate would judge the destination while the diff describes a move.
-    if (m[1] !== m[2]) { refuse(`refuses a diff header whose paths differ: a/${m[1]} vs b/${m[2]}`); cur = null; hunk = null; continue; }
+    if (m[1] !== m[2]) { refuse(`refuses a diff header whose paths differ: a/${m[1]} vs b/${m[2]}`); cur = null; hunk = null; headerFailed = true; continue; }
+    headerFailed = false;
     cur = m[2];
     if (!files.has(cur)) files.set(cur, { hunks: [] });
     hunk = null;
@@ -112,7 +114,9 @@ for (const line of rawLines) {
   }
   const h = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
   if (h) {
-    if (!cur) { refuse('a hunk appeared before any file header — refusing to guess which file it belongs to'); continue; }
+    // Suppressed when a header has already been refused: the orphan hunk is a consequence of
+    // that, and a refusal should name its own cause rather than cascade.
+    if (!cur) { if (!headerFailed) refuse('a hunk appeared before any file header — refusing to guess which file it belongs to'); continue; }
     hunk = {
       oldStart: Number(h[1]),
       oldCount: h[2] === undefined ? 1 : Number(h[2]),
@@ -123,6 +127,7 @@ for (const line of rawLines) {
     continue;
   }
   if (!hunk) {
+    if (headerFailed) continue;
     // Header territory. Each of these announces a change carrying no +/- content at all, so a
     // gate that reads only +/- lines sees an empty diff and calls it harmless.
     if (/^(rename from|rename to) /.test(line)) refuse(`refuses a rename (${cur ?? 'unknown file'}) — a moved file changes what the site serves and shows no content diff`);
@@ -170,10 +175,15 @@ for (const [f, { hunks }] of files) {
 // allowed to say lives in that file's frontmatter, so anything else — a references/ page, a
 // .json, a second skill — is out of scope by construction rather than by rule.
 const paths = [...files.keys()];
-if (paths.length === 0) refuse('contains no file changes at all');
+if (paths.length === 0 && !reasons.length) refuse('contains no file changes at all');
+// A path refused here is NOT then read and judged as content: that produced a second refusal
+// ("has no parseable frontmatter") which is a consequence of the first, and a cascade makes it
+// impossible to tell from the output which rule actually fired.
+const outOfScope = new Set();
 for (const f of paths) {
   if (!/^skills\/[^/.][^/]*\/SKILL\.md$/.test(f)) {
     refuse(`touches ${JSON.stringify(f)} — a refresh changes one skill's SKILL.md and nothing else`);
+    outOfScope.add(f);
   }
 }
 if (paths.length > 1) refuse(`touches ${paths.length} files (${paths.join(', ')}) — a refresh is one SKILL.md`);
@@ -244,7 +254,7 @@ const asDate = (v) => (v instanceof Date ? v.toISOString().slice(0, 10)
 
 let changedFiles = 0;
 for (const [file, { hunks }] of files) {
-  if (!hunks.length) continue;
+  if (!hunks.length || outOfScope.has(file)) continue;
 
   let baseText;
   try { baseText = fs.readFileSync(path.join(baseDir, file), 'utf8'); }
@@ -340,8 +350,10 @@ for (const [file, { hunks }] of files) {
   }
 }
 
-// A diff that changed nothing is not a harmless diff, it is a diff this gate did not read.
-if (changedFiles === 0) refuse('no file content actually changed — nothing here was inspected, so consent cannot be given');
+// A diff that changed nothing is not a harmless diff, it is a diff this gate did not read. This
+// is a BACKSTOP for the case where nothing else objected — appended to an existing refusal it
+// said nothing, and buried which rule had actually fired.
+if (changedFiles === 0 && !reasons.length) refuse('no file content actually changed — nothing here was inspected, so consent cannot be given');
 
 const verdict = { refresh: reasons.length === 0, skill: slug, files: paths, changedFiles, reasons };
 if (JSON_OUT) console.log(JSON.stringify(verdict, null, 2));
