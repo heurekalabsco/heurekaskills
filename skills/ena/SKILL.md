@@ -4,12 +4,12 @@ description: Find and download public sequencing runs from the European Nucleoti
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [ena, fastq, sra, sequencing-reads, public-data]
 covers: [ena, european nucleotide archive, insdc, sra, ddbj, fastq, sequencing reads, raw reads, run accession, srr, err, drr, bioproject, prjna, prjeb, wgs, rna-seq, chip-seq, atac-seq, amplicon, 16s, metagenome, nanopore, pacbio, illumina, novaseq, ebola, human, mouse, download]
 papers: [PMID:41335099, PMID:39558171, PMID:37956313, PMID:25214632, PMID:26091036]
 access: [open]
-datasets: [https://www.ebi.ac.uk/ena/portal/api/results?format=tsv, https://www.ebi.ac.uk/ena/portal/api/returnFields?result=read_run&format=tsv, https://www.ebi.ac.uk/ena/portal/api/filereportcount?accession=PRJNA257197&result=read_run, https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRR1972616&result=read_run&fields=fastq_ftp&format=tsv, https://www.ebi.ac.uk/ena/portal/api/filereport?accession=DRR057058&result=read_run&fields=fastq_bytes&format=tsv, https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR197/006/SRR1972616/SRR1972616_1.fastq.gz, https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR197/006/SRR1972616/SRR1972616_2.fastq.gz, https://ftp.sra.ebi.ac.uk/vol1/fastq/DRR057/DRR057058/DRR057058.fastq.gz]
+datasets: ['https://www.ebi.ac.uk/ena/portal/api/results?format=tsv', 'https://www.ebi.ac.uk/ena/portal/api/returnFields?result=read_run&format=tsv', 'https://www.ebi.ac.uk/ena/portal/api/filereportcount?accession=PRJNA257197&result=read_run', 'https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRR1972616&result=read_run&fields=fastq_ftp&format=tsv', 'https://www.ebi.ac.uk/ena/portal/api/filereport?accession=DRR057058&result=read_run&fields=fastq_bytes&format=tsv', https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR197/006/SRR1972616/SRR1972616_1.fastq.gz, https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR197/006/SRR1972616/SRR1972616_2.fastq.gz, https://ftp.sra.ebi.ac.uk/vol1/fastq/DRR057/DRR057058/DRR057058.fastq.gz]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27

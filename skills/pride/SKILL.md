@@ -4,12 +4,12 @@ description: Search the PRIDE Archive at EMBL-EBI for public mass-spectrometry p
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.1.1
 tags: [proteomics, mass-spectrometry, pride, public-data, multi-omics]
 covers: [proteomics, proteome, mass spectrometry, phosphoproteomics, lipidomics, immunopeptidomics, LC-MS/MS, shotgun proteomics, data-independent acquisition, TMT, SILAC, label-free, mzML, mzIdentML, mzTab, Orbitrap, timsTOF, MaxQuant, DIA-NN, PXD, ProteomeXchange, liver, heart, blood plasma, kidney, brain, human, mouse, hepatocellular carcinoma, aging]
 papers: [PMID:39494541, PMID:34723319, PMID:36370099, PMID:20716697, PMID:40915658]
 access: [open]
-datasets: [https://www.ebi.ac.uk/pride/ws/archive/v3/search/projects?keyword=liver&pageSize=1, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD050610, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD074038, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD000001/files/all, https://www.ebi.ac.uk/pride/ws/archive/v3/files/checksum/PXD000001, https://ftp.pride.ebi.ac.uk/pride/data/archive/2026/05/PXD074038/GSTM3_SDRF.sdrf.tsv]
+datasets: ['https://www.ebi.ac.uk/pride/ws/archive/v3/search/projects?keyword=liver&pageSize=1', https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD050610, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD074038, https://www.ebi.ac.uk/pride/ws/archive/v3/projects/PXD000001/files/all, https://www.ebi.ac.uk/pride/ws/archive/v3/files/checksum/PXD000001, https://ftp.pride.ebi.ac.uk/pride/data/archive/2026/05/PXD074038/GSTM3_SDRF.sdrf.tsv]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-18

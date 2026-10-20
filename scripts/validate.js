@@ -123,6 +123,21 @@ for (const slug of slugs) {
     }
   }
 
+  // 1b. Frontmatter every YAML reader can parse, not only ours. js-yaml is YAML 1.2, which
+  //     allows `?` inside an unquoted flow-sequence item; YAML 1.1 parsers — PyYAML, libyaml
+  //     (Ruby, serde_yaml) — do not, and refuse the WHOLE frontmatter. On 2026-10-20 that was
+  //     16 of 101 skills, every one a query-string URL in `datasets: [...]`, so any Python
+  //     consumer of the registry could read none of their fields. Quoting the item reads the
+  //     same to every parser.
+  for (const line of (raw.match(/^---\s*\n([\s\S]*?)\n---/)?.[1] ?? '').split('\n')) {
+    const flow = /^([A-Za-z_-]+):\s*\[(.*)\]\s*$/.exec(line);
+    if (!flow) continue;
+    const bare = flow[2].split(',').map((x) => x.trim()).find((x) => x.includes('?') && !/^["']/.test(x));
+    if (bare) {
+      err(slug, `${flow[1]}: quote ${JSON.stringify(bare.slice(0, 60))} — an unquoted "?" inside [...] is valid YAML 1.2 but PyYAML and libyaml refuse the whole frontmatter. Write it as '${bare.slice(0, 40)}…'`);
+    }
+  }
+
   // 2. Identity.
   if (fm.name !== slug) err(slug, `frontmatter name "${fm.name}" must equal directory name "${slug}"`);
   if (!String(fm.description || '').trim()) err(slug, 'description is required');

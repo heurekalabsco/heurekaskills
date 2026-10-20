@@ -4,10 +4,10 @@ description: Build a shortlist of candidate journals for a finished manuscript, 
 category: utility
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [publishing, manuscript, openalex, bibliometrics]
 covers: [journal selection, where to submit, target journal, venue, publishing, scope match, journal scope, cover letter, open access, article processing charge, apc, impact, citedness, openalex, bibliometrics, manuscript submission]
-datasets: [https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=41350470&retmode=xml, https://api.openalex.org/works/doi:10.1038/s42255-025-01410-x]
+datasets: ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=41350470&retmode=xml', https://api.openalex.org/works/doi:10.1038/s42255-025-01410-x]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-24

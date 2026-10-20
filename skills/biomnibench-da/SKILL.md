@@ -4,12 +4,12 @@ description: Access BiomniBench-DA, 50 publicly released biomedical data-analysi
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [benchmark, agents, evaluation, multi-omics]
 covers: [biomnibench, benchmark, agent evaluation, process-level evaluation, rubric, llm agents, paper-derived, provenance, biomedical, single-cell, scrna-seq, chip-seq, proteomics, clinical trial, colorectal cancer, immunotherapy, nafld, liver, melanoma, tcga, geo, gene expression, differential expression, data analysis, huggingface, gated dataset, harbor, held-out]
 papers: [doi:10.64898/2026.05.12.724604]
 access: [open, registered]
-datasets: [https://huggingface.co/api/datasets/phylobio/BiomniBench-DA/tree/main?recursive=true, https://huggingface.co/datasets/phylobio/BiomniBench-DA/resolve/main/README.md]
+datasets: ['https://huggingface.co/api/datasets/phylobio/BiomniBench-DA/tree/main?recursive=true', https://huggingface.co/datasets/phylobio/BiomniBench-DA/resolve/main/README.md]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27
