@@ -7,7 +7,7 @@ author: Heureka Labs
 version: 1.0.0
 tags: [geneicl, bulk-rna-seq, in-context-learning, tabular-foundation-model, survival]
 papers: [doi:10.48550/arXiv.2610.08694]
-datasets: [https://gtexportal.org/api/v2/reference/gene?geneId=GFAP&gencodeVersion=v39, https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000131095.14&datasetId=gtex_v10]
+datasets: ['https://gtexportal.org/api/v2/reference/gene?geneId=GFAP&gencodeVersion=v39', 'https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000131095.14&datasetId=gtex_v10']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-10-15
