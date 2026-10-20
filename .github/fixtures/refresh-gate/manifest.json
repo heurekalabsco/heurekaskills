@@ -81,6 +81,33 @@
       "what": "the same attack spelled as a plain nested key rather than a block scalar"
     },
     {
+      "fixture": "fm-comment-smuggled.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter — \"# MAINTAINER NOTICE",
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter — \"# The iLIS cutoffs",
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter — \"# raw.githubusercontent.com"
+      ],
+      "what": "a colon-free YAML comment block in the frontmatter, telling the reader the documented cutoffs are superseded and to fetch another build. Both parsers discard comments and the naive one only makes a key when the line has a colon, so this was invisible to every check in v4 — and to validate.js and check-versions.js"
+    },
+    {
+      "fixture": "fm-comment-inside-verified.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter"
+      ],
+      "what": "the same smuggle moved INSIDE the verified: block, where the line comparison is deliberately permissive"
+    },
+    {
+      "fixture": "fm-comment-on-verified-line.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter"
+      ],
+      "what": "a comment appended to the verified: line itself, which the span calculation treats as part of the block"
+    },
+    {
       "fixture": "fm-version-smuggled-via-block-scalar.diff",
       "expect": "reject",
       "because": [
@@ -100,6 +127,7 @@
       "fixture": "fm-new-key-above-verified.diff",
       "expect": "reject",
       "because": [
+        "skills/pathway-cca-coessentiality/SKILL.md changes the frontmatter outside the verified: block",
         "skills/pathway-cca-coessentiality/SKILL.md adds the frontmatter key \"allowed-tools\"",
         "skills/pathway-cca-coessentiality/SKILL.md changes what the client's frontmatter parser reads for \"allowed-tools\""
       ],
@@ -109,6 +137,7 @@
       "fixture": "fm-field-changed.diff",
       "expect": "reject",
       "because": [
+        "skills/all-of-us/SKILL.md changes the frontmatter outside the verified: block",
         "skills/all-of-us/SKILL.md changes the frontmatter field \"datasets\"",
         "skills/all-of-us/SKILL.md changes what the client's frontmatter parser reads for \"datasets\""
       ],
@@ -155,6 +184,43 @@
       "what": "a verification backdated, which would make a stale check look recent relative to an older one"
     },
     {
+      "fixture": "fm-unparseable-yaml.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md frontmatter is not parseable YAML"
+      ],
+      "what": "indentation broken inside the verified: block, which the line comparison permits and YAML does not"
+    },
+    {
+      "fixture": "fm-key-removed.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/afm-lis/SKILL.md removes the frontmatter key(s) author",
+        "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"author\""
+      ],
+      "what": "a top-level field deleted outright"
+    },
+    {
+      "fixture": "fm-already-disagreeing-key.diff",
+      "expect": "reject",
+      "because": [
+        "skills/boltz2-nim/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/boltz2-nim/SKILL.md changes the frontmatter field \"compatibility\"",
+        "skills/boltz2-nim/SKILL.md changes what the client's frontmatter parser reads for \"compatibility\"",
+        "skills/boltz2-nim/SKILL.md changes \"compatibility\", whose YAML and client values already differ"
+      ],
+      "what": "the one key in the registry whose YAML and client readings already differ — \"requests>=2.28\" loses its quotes in YAML and keeps them in the client. The gate refuses to reason about which one wins, so nothing about it may move"
+    },
+    {
+      "fixture": "fm-verified-date-not-a-date.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md verified.date is not a YYYY-MM-DD date"
+      ],
+      "what": "a verification stamped with prose instead of a date"
+    },
+    {
       "fixture": "scope-references-file.diff",
       "expect": "reject",
       "because": [
@@ -176,7 +242,26 @@
       "because": [
         "touches \"scripts/is-verification-refresh.js\" — a refresh changes one skill's SKILL.md and nothing else"
       ],
-      "what": "the gate editing itself — exit 0 is what the workflow reads as \"merge this\", and v1 ran the gate from the PR's own checkout"
+      "what": "the gate editing itself — exit 0 is what the workflow reads as \"merge this\", and v1 ran the gate from the PR's own checkout",
+      "structural": true
+    },
+    {
+      "fixture": "struct-rename-samepath.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a rename (skills/afm-lis/SKILL.md)"
+      ],
+      "what": "a forged same-path rename header, which reaches the rename rule itself rather than the path-mismatch rule",
+      "structural": true
+    },
+    {
+      "fixture": "struct-fence-whitespace.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes a --- frontmatter fence line"
+      ],
+      "what": "trailing whitespace on the opening --- fence, which belongs to neither the frontmatter nor the body and so was seen by neither comparison",
+      "structural": true
     },
     {
       "fixture": "struct-rename.diff",
@@ -243,6 +328,80 @@
       ],
       "what": "a header the gate cannot read, which must refuse rather than skip the file it names",
       "structural": true
+    },
+    {
+      "fixture": "fm-not-a-mapping.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/afm-lis/SKILL.md frontmatter is not a mapping"
+      ],
+      "what": "the whole frontmatter replaced by a bare scalar, so it parses to a string and every key-wise check below would read from a non-object",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-orphan-hunk.diff",
+      "expect": "reject",
+      "because": [
+        "a hunk appeared before any file header"
+      ],
+      "what": "a hunk with no file header, which must refuse rather than be attributed to a guess",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-empty.diff",
+      "expect": "reject",
+      "because": [
+        "contains no file changes at all"
+      ],
+      "what": "an empty diff, which is not a harmless diff but one the gate never read",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-hunk-overcount.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: the hunk at line 5 declares 5 old and 5 new lines but carries 1 and 1"
+      ],
+      "what": "a header declaring more lines than it carries, the mirror of the undercount case",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-no-net-change.diff",
+      "expect": "reject",
+      "because": [
+        "no file content actually changed"
+      ],
+      "what": "a diff that removes and re-adds the same line, so it changes nothing and was therefore never inspected",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-before-frontmatter.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md would end up with no parseable frontmatter"
+      ],
+      "what": "a line inserted above the opening fence, so the document no longer starts with ---",
+      "malformed": true
+    },
+    {
+      "fixture": "scope-missing-skill.diff",
+      "expect": "reject",
+      "because": [
+        "cannot read skills/does-not-exist/SKILL.md in the base tree"
+      ],
+      "what": "a well-formed path for a skill that is not in the base tree, which must refuse rather than judge a file it cannot see",
+      "malformed": true
+    },
+    {
+      "fixture": "struct-binary-patch.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a binary patch (skills/alphafold/references/model.bin)",
+        "touches \"skills/alphafold/references/model.bin\""
+      ],
+      "what": "an inline GIT binary patch, whose content no text comparison can inspect",
+      "malformed": true
     },
     {
       "fixture": "malformed-hunk-undercount.diff",

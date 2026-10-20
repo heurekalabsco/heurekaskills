@@ -304,12 +304,27 @@ for (const [file, { hunks }] of files) {
     return [...lines.slice(0, start), ...lines.slice(end)];
   };
   const VERSION_LINE = /^version:.*$/;
-  const outside = (fm) => fmSpan(fm).map((l) => (VERSION_LINE.test(l) ? 'version:\u0000' : l)).join('\n');
-  if (outside(b.fm) !== outside(h.fm)) {
-    const bo = outside(b.fm).split('\n'), ho = outside(h.fm).split('\n');
-    const i = ho.findIndex((l, n) => l !== bo[n]);
+  // The version line is masked so a bump compares equal — but the mask is for COMPARING only.
+  // Reporting from the masked array printed "version:\u0000" as the offending line, which named
+  // the one line that is allowed to change.
+  const mask = (l) => (VERSION_LINE.test(l) ? 'version:\u0000' : l);
+  const bo = fmSpan(b.fm), ho = fmSpan(h.fm);
+  if (bo.map(mask).join('\n') !== ho.map(mask).join('\n')) {
+    // Named by multiset difference, not by line index. Deleting a line shifts every line after
+    // it, so an index-wise comparison blamed whichever line happened to land at the first
+    // differing position — for a deleted `author:` it named the `version:` bump, the one line
+    // that is allowed to move.
+    const pool = new Map();
+    for (const l of bo.map(mask)) pool.set(l, (pool.get(l) ?? 0) + 1);
+    const addedIdx = ho.findIndex((l) => {
+      const k = mask(l), n = pool.get(k) ?? 0;
+      if (n === 0) return true;
+      pool.set(k, n - 1); return false;
+    });
+    const culprit = addedIdx !== -1 ? `added or changed: ${ho[addedIdx]}`
+      : `removed: ${[...pool].filter(([, n]) => n > 0).map(([l]) => l).join(', ')}`;
     refuse(`${file} changes the frontmatter outside the verified: block — `
-      + `${JSON.stringify((ho[i] ?? bo[i] ?? '').trim().slice(0, 56))}. Only verified: and version: may move.`);
+      + `${JSON.stringify(culprit.trim().slice(0, 72))}. Only verified: and version: may move.`);
     // Deliberately NOT a `continue`. This textual rule catches every text-visible change to a
     // top-level field, so short-circuiting here would shadow the YAML rules below and leave them
     // untested — the same "refused, but for another rule's reason" failure the suite exists to

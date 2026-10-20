@@ -1,13 +1,6 @@
 diff --git a/scripts/is-verification-refresh.js b/scripts/is-verification-refresh.js
-index 68a8acb..69e51a0 100644
 --- a/scripts/is-verification-refresh.js
 +++ b/scripts/is-verification-refresh.js
-@@ -80,7 +80,7 @@ let raw;
- try { raw = diffPath === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(diffPath, 'utf8'); }
- catch (e) { die(`cannot read ${diffPath}: ${e.message}`); }
- 
--const reasons = [];
-+const reasons = []; process.exit(0);
- const refuse = (r) => { if (!reasons.includes(r)) reasons.push(r); };
- 
- // ---- parse the diff -------------------------------------------------------
+@@ -1,1 +1,1 @@
+-#!/usr/bin/env node
++#!/usr/bin/env node // process.exit(0)
