@@ -221,7 +221,11 @@ function split(text) {
   const lines = text.split('\n');
   if (!FENCE.test(lines[0] ?? '')) return null;                 // a SKILL.md must open with ---
   for (let i = 1; i < lines.length; i++) {
-    if (FENCE.test(lines[i])) return { fm: lines.slice(1, i).join('\n'), body: lines.slice(i + 1).join('\n') };
+    // The fence lines come back too. They are in neither the frontmatter nor the body, so
+    // without them trailing whitespace on a `---` is a change no comparison here would see.
+    if (FENCE.test(lines[i])) {
+      return { open: lines[0], close: lines[i], fm: lines.slice(1, i).join('\n'), body: lines.slice(i + 1).join('\n') };
+    }
   }
   return null;                                                  // opened frontmatter, never closed
 }
@@ -278,6 +282,51 @@ for (const [file, { hunks }] of files) {
       ? `${file} changes the body — ${Math.abs(hl.length - bl.length)} line(s) added or removed. A refresh records what it checked; it does not edit the page.`
       : `${file} changes the body at line ${i + 1} of the prose — ${JSON.stringify((bl[i] ?? '').trim().slice(0, 56))}. A refresh records what it checked; it does not edit the page.`);
     continue;
+  }
+
+  // ---- the frontmatter TEXT, outside the verified: block, does not change either ----
+  // Both parsers this gate compares discard comments, and parseFrontmatterNaive only makes a key
+  // when the line contains a colon. So a frontmatter line starting with `#` and containing no
+  // colon was invisible to every check here: absent from the body, no YAML key, no client key.
+  // Arbitrary prose shipped — "the cutoffs below are superseded, use this other build instead" —
+  // in the published bytes, through a gate whose stated contract is that only `verified:` and
+  // `version:` move. `validate.js` and `check-versions.js` passed it too.
+  //
+  // Comparing parsed values cannot see a comment, so compare the lines. Everything outside the
+  // `verified:` span must be byte-identical but for the one `version:` line, which covers
+  // comments, trailing whitespace, reordering, and whatever the next invisible spelling is.
+  const fmSpan = (fm) => {
+    const lines = fm.split('\n');
+    const start = lines.findIndex((l) => /^verified:/.test(l));
+    if (start === -1) return lines;
+    let end = start + 1;
+    while (end < lines.length && /^(\s+\S|\s*$)/.test(lines[end])) end++;
+    return [...lines.slice(0, start), ...lines.slice(end)];
+  };
+  const VERSION_LINE = /^version:.*$/;
+  const outside = (fm) => fmSpan(fm).map((l) => (VERSION_LINE.test(l) ? 'version:\u0000' : l)).join('\n');
+  if (outside(b.fm) !== outside(h.fm)) {
+    const bo = outside(b.fm).split('\n'), ho = outside(h.fm).split('\n');
+    const i = ho.findIndex((l, n) => l !== bo[n]);
+    refuse(`${file} changes the frontmatter outside the verified: block — `
+      + `${JSON.stringify((ho[i] ?? bo[i] ?? '').trim().slice(0, 56))}. Only verified: and version: may move.`);
+    continue;
+  }
+  // The `---` fences belong to neither the frontmatter nor the body, so neither comparison sees
+  // them; trailing whitespace on one would have been a free edit to the published bytes.
+  if (b.open !== h.open || b.close !== h.close) {
+    refuse(`${file} changes a --- frontmatter fence line`); continue;
+  }
+  // Inside the verified: span the comparison above is deliberately permissive, so a comment put
+  // THERE — appended to the `verified:` line, or on its own indented line among the fields — was
+  // still invisible. No skill's frontmatter contains a `#` today (checked across all 101), so a
+  // new one is never part of a refresh, wherever it sits.
+  const baseFmLines = new Set(b.fm.split('\n'));
+  for (const l of h.fm.split('\n')) {
+    if (l.includes('#') && !baseFmLines.has(l)) {
+      refuse(`${file} introduces a comment into the frontmatter — ${JSON.stringify(l.trim().slice(0, 56))}. `
+        + `Both parsers discard comments, so nothing else here would see it.`);
+    }
   }
 
   // ---- frontmatter, by the parser the registry build uses ----
