@@ -1,0 +1,6 @@
+diff --git a/scripts/is-verification-refresh.js b/scripts/is-verification-refresh.js
+--- a/scripts/is-verification-refresh.js
++++ b/scripts/is-verification-refresh.js
+@@ -1,1 +1,1 @@
+-#!/usr/bin/env node
++#!/usr/bin/env node // process.exit(0)

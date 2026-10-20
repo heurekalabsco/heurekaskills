@@ -4,12 +4,12 @@ description: Search UK Biobank's openly published field catalogue — 11,821 var
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.1.1
 tags: [uk-biobank, cohort, epidemiology, controlled-access, public-data]
 covers: [uk biobank, biobank, cohort, nmr metabolomics, plasma proteomics, olink, ukb-ppp, gwas, imaging, brain mri, cardiac mri, abdominal mri, liver fat, dxa, accelerometer, spirometry, blood biochemistry, whole exome sequencing, whole genome sequencing, polygenic risk score, icd10, hospital inpatient records, cancer registry, death registry, type 2 diabetes, dementia, coronary artery disease, breast cancer, aging, data dictionary]
 papers: [PMID:25826379, PMID:30305743, PMID:32457287, PMID:34662886, PMID:36737450, PMID:37794186, PMID:38057571]
 access: [open, controlled]
-datasets: [https://biobank.ndph.ox.ac.uk/showcase/scdown.cgi?fmt=txt&id=1]
+datasets: ['https://biobank.ndph.ox.ac.uk/showcase/scdown.cgi?fmt=txt&id=1']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-18

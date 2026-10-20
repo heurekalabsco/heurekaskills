@@ -1,0 +1,343 @@
+name: Auto-merge a verification refresh
+
+# Merges, with no human, a nightshift PR that changes NOTHING a reader acts on — only when it
+# was checked and what against. Everything else is left for review.
+#
+# Five adversarial reviews found the ways past the first five versions of this — some in this
+# file rather than in the gate — and each fix below is named for the one it closes. The
+# generated fixtures under .github/fixtures/refresh-gate/ are the other half of the record, and
+# scripts/refresh-gate-selftest.js asserts the full reason set the gate gives for each — not just
+# that it refused.
+#
+# WHY workflow_run AND NOT pull_request
+#
+# For a same-repo `pull_request` event, GitHub reads the workflow definition FROM THE PR'S OWN
+# REF. v3 pinned the checkout and the gate script to the base ref and said in this comment that
+# "no PR-supplied code executes before the scope check" — but the `if:` guard, the scope check and
+# the gate invocation all lived in this file, which the PR could rewrite, while the job held
+# `contents: write`. The orchestration was the PR's to define.
+#
+# `workflow_run` is read from the default branch. Nothing a PR contains can change what follows.
+#
+# THE OTHER ONE THAT MATTERED: v1 checked out the PR and ran the gate FROM THAT CHECKOUT. A single
+# added line — `date: process.exit(0);`, a valid JavaScript label — made the gate exit 0
+# unconditionally, and exit 0 is what this workflow reads as "approve and merge". The gate never
+# had to approve anything; the PR supplied the gate.
+on:
+  workflow_run:
+    workflows: ["Validate skills"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  # Keyed on the head SHA, and NOT cancel-in-progress: cancelling a run partway through the
+  # merge step would leave the PR in a state nothing had finished deciding, and the run that
+  # replaced it would start from the gate again anyway. Two runs on one SHA is harmless — the
+  # second finds the PR already merged and stops.
+  group: auto-merge-refresh-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  consider:
+    runs-on: ubuntu-latest
+    # Cheap, total disqualifiers first, from the workflow_run payload alone. A fork is excluded
+    # outright: this job holds a write token and a fork's branch is author-controlled.
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    steps:
+      # Everything about the PR is read from the API, not from the event. workflow_run's payload
+      # carries no labels and no draft flag, and reading them at decision time is what closed v1's
+      # hole where a `hold` added during the run did not stop it.
+      - name: Resolve the pull request and decide whether it is even a candidate
+        id: pr
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = process.env.HEAD_SHA;
+
+            // workflow_run.pull_requests is populated for same-repo PRs, but fall back to a
+            // search by head SHA rather than trusting it to be there.
+            //
+            // Either way this binds to a COMMIT, and one commit can sit in more than one open
+            // PR. `validate` is base-sensitive — check-versions.js compares against the PR's
+            // base — so the same head can pass on one PR and fail on another, and picking the
+            // first match could certify the PR that was validated while merging a different
+            // one. More than one candidate is therefore a refusal, not a choice.
+            const fromEvent = (context.payload.workflow_run.pull_requests ?? []).map((p) => p.number);
+            let candidates = fromEvent;
+            if (!candidates.length) {
+              const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+              candidates = data.filter((p) => p.state === 'open').map((p) => p.number);
+            }
+            if (!candidates.length) { core.info('no open PR for this SHA — nothing to consider'); return; }
+            if (candidates.length > 1) {
+              core.info(`not a candidate: ${sha.slice(0, 7)} belongs to ${candidates.length} open PRs (${candidates.join(', ')}) — refusing rather than guessing which one was validated`);
+              return;
+            }
+            const number = candidates[0];
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            const labels = pr.labels.map((l) => l.name);
+            const why = [];
+            if (pr.state !== 'open') why.push(`PR is ${pr.state}`);
+            if (pr.head.sha !== sha) why.push(`head moved from ${sha.slice(0, 7)} to ${pr.head.sha.slice(0, 7)}`);
+            if (pr.head.repo.full_name !== `${owner}/${repo}`) why.push('head is a fork');
+            if (pr.user.login !== 'heureka-labs-skills-bot[bot]') why.push(`author is ${pr.user.login}, not the nightshift bot`);
+            if (!labels.includes('origin:nightly')) why.push('not labelled origin:nightly');
+            if (!labels.includes('change:update')) why.push('not labelled change:update');
+            if (labels.includes('hold')) why.push('hold label present');
+            // A write user could retarget a bot PR at a branch whose gate always says yes, then
+            // re-run Validate; that branch's code would run here holding the write token.
+            if (pr.base.ref !== context.payload.repository.default_branch) why.push(`base is ${pr.base.ref}, not ${context.payload.repository.default_branch}`);
+
+            // The PR author is the bot, but on a `synchronize` anyone with push access can have
+            // added commits to its branch and the author stays the bot. Every commit must be the
+            // bot's, or this is somebody else's content riding the bot's PR.
+            //
+            // PAGINATED. A single per_page:100 call checked only the first hundred commits, so a
+            // longer branch could satisfy this with unverified history — the check would have
+            // reported "all clear" on a list it had not finished reading.
+            //
+            // AND SIGNED, which is the part that makes it mean anything. `author.login` is
+            // resolved by GitHub from the commit's author EMAIL, which is self-asserted git
+            // metadata: the adversary this check names — anyone with push access — just sets
+            // user.email to the App's address and every commit reads as the bot's. A signature
+            // cannot be spoofed that way, because GitHub verifies it against keys registered to
+            // the account the email belongs to. The nightshift's commits are created through the
+            // GitHub API and come back verified=true/reason=valid; a commit pushed from a laptop
+            // with a borrowed email does not.
+            //
+            // BUT a signature is checked against the COMMITTER, not the author (round 5). A
+            // collaborator with a registered key could keep their own committer identity, set the
+            // author email to the App's, sign, and pass both checks. Every commit the API creates
+            // for the bot is committed by `web-flow`, so that is required too.
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: number, per_page: 100 });
+            const alien = commits.filter((c) => c.author?.login !== 'heureka-labs-skills-bot[bot]');
+            if (alien.length) why.push(`${alien.length} of ${commits.length} commit(s) not authored by the bot (${[...new Set(alien.map((c) => c.author?.login ?? 'unknown'))].join(', ')})`);
+            const unsigned = commits.filter((c) => c.commit?.verification?.verified !== true);
+            const relayed = commits.filter((c) => c.committer?.login !== 'web-flow');
+            if (relayed.length) why.push(`${relayed.length} of ${commits.length} commit(s) not committed through the GitHub API (${[...new Set(relayed.map((c) => c.committer?.login ?? 'unknown'))].join(', ')})`);
+            if (unsigned.length) why.push(`${unsigned.length} of ${commits.length} commit(s) not signed by GitHub (${[...new Set(unsigned.map((c) => c.commit?.verification?.reason ?? 'unknown'))].join(', ')})`);
+
+            if (why.length) { core.info(`not a candidate: ${why.join('; ')}`); return; }
+            core.setOutput('number', String(number));
+            core.setOutput('head', pr.head.sha);
+            core.setOutput('base', pr.base.sha);
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('draft', String(pr.draft));
+            core.setOutput('candidate', 'true');
+
+      # The gate runs from the BASE ref, so scripts/is-verification-refresh.js is the reviewed one
+      # on main, not whatever the PR ships. persist-credentials: false — v1 left the write token in
+      # .git/config where PR-supplied code could read it.
+      - uses: actions/checkout@v4
+        if: steps.pr.outputs.candidate == 'true'
+        with:
+          ref: ${{ steps.pr.outputs.base }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        if: steps.pr.outputs.candidate == 'true'
+        with:
+          node-version: '22'
+
+      # --ignore-scripts, and from the BASE ref's lockfile. The gate needs js-yaml, so something
+      # must be installed; a plain `npm ci` would run lifecycle scripts, and v1's equivalent ran
+      # them from the PR's own package.json before anything had gated it.
+      - name: Install the gate's dependencies, without running anything
+        if: steps.pr.outputs.candidate == 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Refuse anything outside one skill's SKILL.md before reading PR content
+        if: steps.pr.outputs.candidate == 'true'
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          BASE_SHA: ${{ steps.pr.outputs.base }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA" --quiet
+          # Scope is checked on the file LIST alone, before any PR file is read. A PR touching
+          # scripts/ or .github/ stops here, which is what makes running the base-ref gate
+          # meaningful rather than theatre. `.+` once matched a `..` segment, so segments are
+          # checked individually and an empty list refuses rather than passing vacuously.
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "$CHANGED"
+          if [ -z "$CHANGED" ]; then
+            echo "::notice::no changed files — nothing to consider"; exit 1
+          fi
+          if printf '%s\n' "$CHANGED" | grep -qvE '^skills/[^/.][^/]*/SKILL\.md$'; then
+            echo "::notice::touches more than one skill's SKILL.md — not a refresh, leaving for review"; exit 1
+          fi
+
+      - name: Is this a verification refresh?
+        id: gate
+        if: steps.pr.outputs.candidate == 'true'
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          BASE_SHA: ${{ steps.pr.outputs.base }}
+        run: |
+          set -uo pipefail
+          git diff "$BASE_SHA" "$HEAD_SHA" > /tmp/pr.diff
+          # No --run-date. v3 took it from the head commit's AUTHOR date, which whoever makes the
+          # commit sets with `git commit --date=`, so the only guard on the whole prose-date class
+          # travelled inside the thing it guarded. v4 does not read the prose at all.
+          node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir . --json > /tmp/verdict.json || true
+          cat /tmp/verdict.json
+          if node scripts/is-verification-refresh.js --diff /tmp/pr.diff --base-dir .; then
+            echo "refresh=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Hold until the dataset check has reported on the pinned SHA
+        if: steps.gate.outputs.refresh == 'true'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+        with:
+          script: |
+            // `validate` already succeeded — that is what triggered this run. `check` is the
+            // dataset-liveness job: not a required context, and it can be red for reasons outside
+            // this PR, but a red one is exactly when a human should look.
+            const { owner, repo } = context.repo;
+            const ref = process.env.HEAD_SHA;
+            for (let i = 0; i < 40; i++) {
+              // filter:'latest' — a re-run leaves several `check` entries, and an older one must
+              // not stand in for the newest.
+              const { data } = await github.rest.checks.listForRef({ owner, repo, ref, check_name: 'check', filter: 'latest', per_page: 100 });
+              const run = data.check_runs[0];
+              if (run && run.status === 'completed') {
+                // Only `success` proceeds. cancelled, timed_out, action_required, stale, neutral
+                // and skipped are all states nobody judged, and an unknown state is a decline.
+                if (run.conclusion !== 'success') core.setFailed(`the dataset check concluded ${run.conclusion} — declining; a human should look`);
+                return;
+              }
+              await new Promise((r) => setTimeout(r, 30000));
+            }
+            core.setFailed('the dataset check did not report within 20 minutes — declining rather than acting on an unknown state');
+
+      - name: Record the verdict and merge the pinned SHA
+        if: steps.gate.outputs.refresh == 'true'
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          BASE_SHA: ${{ steps.pr.outputs.base }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const pull_number = Number(process.env.PR_NUMBER);
+            const sha = process.env.HEAD_SHA;
+            const baseSha = process.env.BASE_SHA;
+
+            // The verdict must parse and must actually say yes. v1 quoted the verdict into the
+            // approval without checking it, and a backdoored gate produced an empty file — an
+            // approval citing no evidence at all.
+            let verdict;
+            try { verdict = JSON.parse(fs.readFileSync('/tmp/verdict.json', 'utf8')); }
+            catch (e) { core.setFailed(`verdict is not readable JSON: ${e.message}`); return; }
+            if (verdict.refresh !== true) { core.setFailed('verdict does not say refresh — refusing'); return; }
+
+            // Re-read everything at merge time. v1 read the labels once at job start, so a `hold`
+            // added during the check wait did not stop it.
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+            if (pr.state !== 'open') { core.setFailed(`PR is ${pr.state}`); return; }
+            if (pr.labels.some((l) => l.name === 'hold')) { core.setFailed('hold label present — stopping'); return; }
+            if (pr.head.sha !== sha) { core.setFailed(`head moved from ${sha.slice(0, 7)} to ${pr.head.sha.slice(0, 7)} — refusing to merge a commit the gate never saw`); return; }
+
+            // The gate rebuilt and judged the proposed file against ONE base commit. If the base
+            // branch has moved since, what would land is not what was judged. Protection is
+            // `strict`, so such a merge would fail anyway — this makes it fail with a reason, and
+            // does not depend on that setting staying true.
+            const { data: baseRef } = await github.rest.git.getRef({ owner, repo, ref: `heads/${pr.base.ref}` });
+            if (baseRef.object.sha !== baseSha) {
+              core.setFailed(`${pr.base.ref} moved from ${baseSha.slice(0, 7)} to ${baseRef.object.sha.slice(0, 7)} since the gate ran — refusing to merge a result nothing judged`);
+              return;
+            }
+
+            // The nightshift opens every PR as a draft, and GitHub will not merge a draft. Until
+            // now that meant a human clicked "Ready for review" on every refresh — the human this
+            // whole path exists to remove. The draft flag is the bot's "someone should look"
+            // convention, and a certified refresh is the case where that was decided otherwise.
+            if (pr.draft) {
+              await github.graphql(
+                'mutation ($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { clientMutationId } }',
+                { id: pr.node_id });
+              core.info('marked ready for review');
+            }
+
+            // NO APPROVAL STEP, AND AS OF 2026-10-20 NONE IS NEEDED — BUT THIS PATH HAS STILL
+            // NEVER RUN. Read this before believing the question is settled; two earlier versions
+            // of this comment claimed it was, in opposite directions.
+            //
+            // The organisation forbids Actions from creating or approving pull requests, so
+            // createReview({event:'APPROVE'}) on GITHUB_TOKEN threw 422 and aborted this step
+            // before merge() was ever reached. Enabling it is not available per-repo either — the
+            // repo-level setting returns 409 while the org policy stands, and that policy covers
+            // every repo in the org. So the approval was removed rather than fixed, and on
+            // 2026-10-20 the review requirement was dropped from `main` instead:
+            // required_pull_request_reviews is now ABSENT from that branch's protection. That was
+            // a deliberate trade — the repo is docs-only and every change is one revert away —
+            // and the gate in scripts/is-verification-refresh.js is the control that replaced the
+            // reviewer. If that gate is wrong, nothing downstream of here will catch it.
+            //
+            // What still has to hold for a merge: `validate`, the only required context and the
+            // thing that triggered this run; the branch being up to date, since protection is
+            // `strict`; and every review thread resolved — required_conversation_resolution is
+            // deliberately KEPT. It counts REVIEW THREADS only, comments on a line of the diff; a
+            // top-level PR comment blocks nothing. And it only works if pulled before `validate`
+            // and the dataset check finish, which can be minutes. The brake to rely on is the
+            // `hold` label, re-read just before merge(); a comment on the diff is the one a
+            // reader without repo permissions can still pull.
+            //
+            // Still unobserved: no refresh PR has ever reached merge() on any version of this
+            // workflow, so the first live run is also the first test of the merge call itself.
+            //
+            // The record goes on the PR afterwards, in one comment, saying what actually happened.
+            // v1 announced the merge in the PAST TENSE before calling merge(), so a merge that
+            // then failed left a PR claiming it had been merged autonomously.
+            const record = [
+              'The page itself is byte-identical. Only the `verified:` block and a `version:` bump',
+              'changed, the frontmatter parses to the same values the client read before, and the',
+              'verification record kept every field it had.',
+              '',
+              'What this does **not** check is the *content* of that record. `against`, `executed`,',
+              '`unverified` and `records` are the nightshift\'s own account of what it ran, and the',
+              'gate constrains their names and shapes, not their truth. That is the residual trust',
+              'surface of an autonomous refresh, and it is deliberate — but it is worth knowing',
+              'that "executed: 7" is a claim, not a measurement.',
+              '',
+              'The gate ran from `' + pr.base.ref + '` at `' + baseSha.slice(0, 7) + '`, not from this',
+              'branch, and judged exactly `' + sha.slice(0, 7) + '`.',
+              '',
+              '```json',
+              JSON.stringify(verdict, null, 2),
+              '```',
+            ].join('\n');
+
+            // No updateBranch. v1 called it and then merged with no `sha:`, which could land a
+            // commit neither the gate nor the checks had seen. If the branch is behind, the merge
+            // fails and a human updates it — failing is the safe outcome here.
+            let merged;
+            try {
+              ({ data: merged } = await github.rest.pulls.merge({ owner, repo, pull_number, sha, merge_method: 'squash' }));
+            } catch (e) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pull_number,
+                body: `**The gate certified this as a verification refresh, but the merge did not go through.**\n\n\`${e.message}\`\n\nNothing was merged. It needs a human.\n\n${record}` });
+              core.setFailed(`merge refused: ${e.message}`);
+              return;
+            }
+
+            await github.rest.issues.createComment({ owner, repo, issue_number: pull_number,
+              body: `**Merged with no human review: verification refresh.**\n\n`
+                + `Squashed as \`${merged.sha.slice(0, 7)}\` on \`${pr.base.ref}\`.\n\n${record}\n\n`
+                + `To undo: \`git revert ${merged.sha.slice(0, 7)}\`. To stop this on a future PR, add the \`hold\` label.` });
+            core.info(`merged #${pull_number} at ${sha} as ${merged.sha}`);

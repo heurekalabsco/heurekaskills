@@ -4,13 +4,13 @@ description: Search and download SMaHT somatic mosaicism data — somatic varian
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [smaht, somatic-mosaicism, public-data, controlled-access, dbgap]
 covers: [somatic mosaicism, somatic mutation, mosaicism, post-mortem tissue, colo829, hapmap, whole genome sequencing, wgs, rna-seq, kinnex, duplex sequencing, nanoseq, codec, hidef-seq, fiber-seq, single-cell wgs, pta, tencats, retrotransposon, mobile element insertion, snv, indel, cram, vcf, brain, liver, lung, colon, skin, human]
 papers: [PMID:40604182, PMID:41279200, doi:10.1101/2025.10.13.681545, doi:10.1101/2025.10.07.680917]
 access: [open, registered, controlled]
 platform: snovault
-datasets: [https://data.smaht.org/search/?type=File&limit=1&format=json, https://data.smaht.org/profiles/?format=json, https://data.smaht.org/pages/6c1d10cd-0627-40f5-897c-c96c89023b29/?format=json, https://smaht-open-data-public.s3.amazonaws.com/smaht-production/files/3f56d78a-8a95-40d4-a589-c171086026a4/SMAVCIX7BJ31.vcf, https://smaht-open-data-public.s3.amazonaws.com/smaht-production/wfoutput/a5954483-b11b-44bc-843d-32e8ea1394e8/SMAFIUOX9B9G.bam, https://smaht-open-data-public.s3.amazonaws.com/smaht-production/wfoutput/deaf7bda-ccb4-43bd-8d65-df029166442f/SMAFIXYRG3LP.cram]
+datasets: ['https://data.smaht.org/search/?type=File&limit=1&format=json', 'https://data.smaht.org/profiles/?format=json', 'https://data.smaht.org/pages/6c1d10cd-0627-40f5-897c-c96c89023b29/?format=json', https://smaht-open-data-public.s3.amazonaws.com/smaht-production/files/3f56d78a-8a95-40d4-a589-c171086026a4/SMAVCIX7BJ31.vcf, https://smaht-open-data-public.s3.amazonaws.com/smaht-production/wfoutput/a5954483-b11b-44bc-843d-32e8ea1394e8/SMAFIUOX9B9G.bam, https://smaht-open-data-public.s3.amazonaws.com/smaht-production/wfoutput/deaf7bda-ccb4-43bd-8d65-df029166442f/SMAFIXYRG3LP.cram]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27
