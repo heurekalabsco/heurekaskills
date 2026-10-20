@@ -322,6 +322,35 @@ for (const [file, { hunks }] of files) {
     }
   }
 
+  // Exempting a key by NAME was not enough, and this is how v4 was beaten. `version` is
+  // refresh-owned AND a real top-level field in all 101 skills, so skipping it let the two
+  // parsers disagree about it: a block scalar under `verified: against:` carrying its own
+  // `version: 0.0.1` line made the client read 0.0.1 while the YAML — and check-versions.js,
+  // which reads the literal top-level line — both read 1.0.1. The registry would have served a
+  // version the repo never set.
+  //
+  // So for every top-level key YAML defines as a scalar, the client's reading has to track it.
+  // The test is relational rather than absolute because two skills already disagree benignly:
+  // `compatibility: "requests>=2.28"` loses its quotes in YAML and keeps them in the client. The
+  // rule is that whatever relationship held in the base must still hold in the head.
+  const scalar = (v) => v === null || v instanceof Date || ['string', 'number', 'boolean'].includes(typeof v);
+  const asText = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+  for (const k of Object.keys(hf)) {
+    if (!scalar(hf[k]) || !Object.hasOwn(bf, k) || !scalar(bf[k])) continue;
+    const yb = asText(bf[k]), yh = asText(hf[k]);
+    if (bn[k] === yb) {
+      // The parsers agreed in the base, so they must agree in the head.
+      if (hn[k] !== yh) {
+        refuse(`${file} makes the client read ${JSON.stringify(k)} as ${JSON.stringify(hn[k] ?? null)} `
+          + `while the YAML says ${JSON.stringify(yh)} — a nested or multi-line value is overriding a real field`);
+      }
+    } else if (bn[k] !== hn[k] || yb !== yh) {
+      // They already disagreed, so nothing about this key may move at all.
+      refuse(`${file} changes ${JSON.stringify(k)}, whose YAML and client values already differ `
+        + `(${JSON.stringify(yb)} vs ${JSON.stringify(bn[k] ?? null)}) — refusing rather than reasoning about which one wins`);
+    }
+  }
+
   // ---- verified: is the payload, and it may not be erased ----
   const bv = bf.verified, hv = hf.verified;
   const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
@@ -347,6 +376,14 @@ for (const [file, { hunks }] of files) {
     if (hv.date !== undefined && nd === null) refuse(`${file} verified.date is not a YYYY-MM-DD date: ${JSON.stringify(String(hv.date).slice(0, 32))}`);
     else if (nd && nd > TODAY) refuse(`${file} verified.date ${nd} is in the future`);
     else if (nd && od && nd < od) refuse(`${file} moves verified.date backwards, ${od} -> ${nd}`);
+    // And the TEXT must be the date YAML read, not merely something YAML could digest.
+    // `date: 2026-10-00` is a day that does not exist; YAML silently rolls it to 2026-09-30, so
+    // the forward-progress and future checks above saw a sane date while the client displayed
+    // the impossible literal. Comparing the two parsers settles it, as everywhere else here.
+    if (nd && hn.date !== undefined && hn.date !== nd) {
+      refuse(`${file} verified.date reads as ${JSON.stringify(hn.date)} but YAML resolves it to ${nd}`
+        + ` — a date that does not survive being parsed is not a date`);
+    }
   }
 }
 
