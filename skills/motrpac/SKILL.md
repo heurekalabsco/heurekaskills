@@ -246,10 +246,10 @@ repository is large enough to trip it. The contents endpoint returned all 206 en
 0.8 s and pages at 1,000 entries, so one request covers this directory.
 
 **Size the cells, not the feature counts, when you plan.** The grid says whether an assay
-ran somewhere; it says nothing about how much of it there is. The design is **five animals
-per sex per group** in most tissues — six in some metabolomics cells — so a tissue with
-14,445 measured transcripts still rests on n = 5 per arm, and a sex-specific contrast is
-five against five. *Joining a matrix to the animals* derives that table from `PHENO`; read
+ran somewhere; it says nothing about how much of it there is. Heart transcriptomics has
+**five animals per sex per group**, heart proteomics six, and some metabolomics cells six —
+so a tissue with 14,445 measured transcripts still rests on n = 5 per arm, and a sex-specific
+contrast is five against five. Count the cells per object rather than assuming one number. *Joining a matrix to the animals* derives that table from `PHENO`; read
 it before computing power from a feature count.
 
 ## Get the files
@@ -367,17 +367,18 @@ import pyreadr
 TAG  = "v2.1.0"
 REPO = "https://github.com/MoTrPAC/MotrpacRatTraining6moData"
 BASE = f"https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/{TAG}/data"
-OUT  = "Data/motrpac/release"
+OUT  = f"Data/motrpac/release/{TAG}"      # per tag, so a new TAG never reuses old files
+IDX  = f"motrpac_index_{TAG}"
 os.makedirs(OUT, exist_ok=True)
 
 # The index, without the API and without the 400 MB archive: a blobless, checkout-less
 # clone transfers commits and trees only, and `ls-tree --name-only` reads names from those.
 # NOT `ls-tree -l`: in a blobless clone that fetches every blob to report its size.
-if not os.path.isdir("motrpac_index/.git"):
+if not os.path.isdir(f"{IDX}/.git"):
     subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", "--depth", "1",
-                    "--branch", TAG, REPO, "motrpac_index"],
+                    "--branch", TAG, REPO, IDX],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-listing = subprocess.run(["git", "-C", "motrpac_index", "ls-tree", "--name-only", "HEAD:data"],
+listing = subprocess.run(["git", "-C", IDX, "ls-tree", "--name-only", "HEAD:data"],
                          check=True, capture_output=True, text=True).stdout
 
 def remote_size(name):
@@ -611,7 +612,8 @@ import pandas as pd, pyreadr
 
 EUTILS  = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 PROJECT = "PRJNA908279"
-PKG     = "https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data"
+TAG     = "v2.1.0"
+PKG     = f"https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/{TAG}/data"
 os.makedirs("Data/motrpac", exist_ok=True)
 
 def eutils(endpoint, **params):
@@ -657,7 +659,7 @@ for strategy, r in by.iterrows():
 print(f"  {'TOTAL':<14} {len(sra):>5} runs  {sra.bases.sum()/1e9:>9,.0f} Gbases  {sra.bytes.sum()/1e12:>6.2f} TB")
 
 # 3. join the vial labels back to the cohort
-p = "Data/motrpac/PHENO.rda"
+p = f"Data/motrpac/PHENO-{TAG}.rda"      # named by tag: a cached copy from another tag is not reused
 if not os.path.exists(p):
     urllib.request.urlretrieve(f"{PKG}/PHENO.rda", p)
 pheno = list(pyreadr.read_r(p).values())[0]
@@ -1128,10 +1130,12 @@ library(MotrpacRatTraining6moData)
 data(PHENO); dim(PHENO)
 ```
 
-**This is the one block in this skill not executed to completion.** The codeload URL was
-confirmed to answer HTTP 200 on both dates and had transferred 215 MB after 420 seconds
-without finishing, so the download works and is simply slow; `install.packages()` on the
-result was not reached. Everything else here was run verbatim. The citable alternative is the
+**This block has never been executed to completion.** On 2026-08-17 and 2026-08-18 the
+codeload URL answered HTTP 200 and had transferred 215 MB after 420 seconds without finishing,
+so the download works and is simply slow; `install.packages()` on the result was not
+reached. On 2026-10-16 the verifying environment could not reach codeload at all. Two other
+blocks were not re-run on that date either; `verified:` in the frontmatter names all three
+and why. The citable alternative is the
 Zenodo snapshot of the same tag, DOI `10.5281/zenodo.16851449`, a 399 MB zip.
 
 Either way, prefer the per-object route above unless you specifically want the analysis
