@@ -4,10 +4,10 @@ description: Predict antibody, nanobody and TCR variable domains with ImmuneBuil
 category: models
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [antibody, nanobody, tcr, protein-structure, immunebuilder]
 papers: [PMID:37248282, PMID:26424857]
-datasets: [https://files.rcsb.org/download/1N8Z.pdb, https://files.rcsb.org/download/1MEL.pdb, https://files.rcsb.org/download/1AO7.pdb, https://zenodo.org/records/7258553/files/antibody_model_1?download=1]
+datasets: [https://files.rcsb.org/download/1N8Z.pdb, https://files.rcsb.org/download/1MEL.pdb, https://files.rcsb.org/download/1AO7.pdb, 'https://zenodo.org/records/7258553/files/antibody_model_1?download=1']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-10-10

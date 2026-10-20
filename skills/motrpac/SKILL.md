@@ -1,10 +1,10 @@
 ---
 name: motrpac
-description: Retrieve MoTrPAC multi-omics from the openly licensed R data package and public bucket instead of the account-gated Data Hub API — transcriptomics, proteomics, phosphoproteomics, acetylome, metabolomics, ATAC-seq and RRBS across twenty rat tissues including heart, skeletal muscle, liver and adipose, in endurance-trained animals. Young-adult 6-month cohort, not an aged one.
+description: Retrieve MoTrPAC rat endurance-training multi-omics — nine assays across twenty tissues — from the openly licensed data package and public bucket, not the account-gated Data Hub. Young-adult 6-month cohort, no aged omics.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.2.0
 tags: [multi-omics, exercise, rat, transcriptomics, public-data]
 covers: [exercise, endurance training, treadmill, multi-omics, transcriptomics, proteomics, phosphoproteomics, acetylome, ubiquitylome, metabolomics, epigenomics, atac-seq, rrbs, dna methylation, immunoassay, heart, skeletal muscle, gastrocnemius, vastus lateralis, liver, white adipose, brown adipose, kidney, lung, hippocampus, rat, f344, pass1b, vo2max, aging]
 papers: [PMID:38693412, PMID:32589957, PMID:38701776, PMID:38693320, PMID:38984994, doi:10.5281/zenodo.7877121]
@@ -13,11 +13,12 @@ platform: motrpac
 datasets: [https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PHENO.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/PROT_HEART_DA.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_HEART_DA.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/METAB_NORM_DATA_FLAT.rda, https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/v2.1.0/data/TRAINING_REGULATED_FEATURES.rda, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/PROT/pass1b-06_t58-heart_prot-pr_training-dea-fdr.txt, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/METAB/redundant/pass1b-06_t58-heart_metab_training-dea-fdr.txt, https://storage.googleapis.com/motrpac-rat-training-6mo-extdata/training-da/IMMUNO/pass1b-06_immunoassay_training-dea-fdr.txt]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-18
-  against: MotrpacRatTraining6moData git tag v2.1.0 (its DESCRIPTION still reads 2.0.0) / motrpac-rat-training-6mo-extdata bucket / GEO GSE242358 and its three subseries / Python 3.12.8 / pyreadr 0.5.3 / pandas 2.3.2 / numpy 2.3.3 / R 4.4.1. Techniques re-run across 16 assay-by-tissue combinations spanning all nine assays, both sexes, single-sex tissues, an incomplete design cell, an empty selection and four combinations that do not exist
-  executed: 8
-  unverified: 1
-  unverified_reason: the whole-package R install block could not be run to completion — the roughly 400 MB archive is the obstacle, not the URL. GitHub's tarball endpoint answered HTTP 504 twice on 2026-08-17 and 200 on 2026-08-18, so the failure the block routes around is intermittent; the codeload archive it uses instead answered 200 on both days but had transferred only 215 MB after 420 s, and install.packages() on the result was never reached. Every other block, including all downloads and both conversion routes, was executed verbatim.
+  date: 2026-10-16
+  against: MotrpacRatTraining6moData git tag v2.1.0 (its DESCRIPTION still reads 2.0.0) / motrpac-rat-training-6mo-extdata bucket / BioProject PRJNA908279 via NCBI E-utilities / the ENA read mirror on ftp.sra.ebi.ac.uk / GEO GSE242358 and its three subseries / Python 3.11.17 / pyreadr 0.5.7 / pandas 3.0.6 / numpy 2.4.6 / R 4.3.3. Techniques re-run across 16 assay-by-tissue combinations spanning all nine assays, both sexes, single-sex tissues, an incomplete design cell, an empty selection and four combinations that do not exist; this round also fetched and converted the whole release object by object and enumerated the raw-read inventory in full
+  executed: 9
+  unverified: 3
+  unverified_reason: >-
+    Three blocks were not run on this date, each for want of a network route rather than because anything about them is in doubt. The Data Hub probe needs services.motrpac-data.org and search.motrpac-data.org, which the verifying environment could not reach at all, so the HTTP 401 recorded against them stands from 2026-08-18 and was not re-confirmed. The coverage-grid block needs the GitHub contents API, which the same environment could not reach for this repository — the 206 objects it prints were re-confirmed independently, by git ls-tree --name-only against tag v2.1.0, which is the listing the whole-release block uses. The R package install needs the 400 MB archive from codeload.github.com, refused the same way. Re-run all three from a host with ordinary outbound access to those three endpoints.
 ---
 # MoTrPAC — rat endurance exercise training multi-omics
 
@@ -244,6 +245,13 @@ endpoint answered twice and then returned HTTP 504 repeatedly on 2026-08-17 — 
 repository is large enough to trip it. The contents endpoint returned all 206 entries in
 0.8 s and pages at 1,000 entries, so one request covers this directory.
 
+**Size the cells, not the feature counts, when you plan.** The grid says whether an assay
+ran somewhere; it says nothing about how much of it there is. Heart transcriptomics has
+**five animals per sex per group**, heart proteomics six, and some metabolomics cells six —
+so a tissue with 14,445 measured transcripts still rests on n = 5 per arm, and a sex-specific
+contrast is five against five. Count the cells per object rather than assuming one number. *Joining a matrix to the animals* derives that table from `PHENO`; read
+it before computing power from a feature count.
+
 ## Get the files
 
 The artifacts are R `.rda` objects, but you do not need R and you do not need to install
@@ -305,7 +313,7 @@ with open(os.path.join(OUT, "manifest.json"), "w") as fh:
 print(f"\n{len(manifest)} tables written; {sum(m['csv_bytes'] for m in manifest):,} bytes of CSV")
 ```
 
-Run 2026-08-18 at `v2.1.0`:
+Run 2026-10-16 at `v2.1.0`:
 
 ```
   TRNSCRPT_HEART_DA            115,560 x 22  -> Data/motrpac/TRNSCRPT_HEART_DA.csv.gz
@@ -332,6 +340,122 @@ warning, or raises `LibrdataError`. The first is the dangerous one:
 `list(tables.values())[0]` becomes an `IndexError` far from the cause, and a bare loop
 over `.items()` silently writes nothing and reports success. The last two entries in
 `WANT` are there to make sure both branches are exercised rather than assumed.
+
+### Taking the whole release
+
+`WANT` above is a nine-object demonstration, picked to exercise both pyreadr failure
+modes. **Read as a fetch strategy it lands a fraction of the release**, and the objects it
+leaves behind are precisely the ones people then report as missing — acetylome,
+ubiquitylome, phosphoproteomics and the immunoassay are all in `data/`, all fetchable
+anonymously, and none of them is in that list. If you want the release, take the release
+and filter locally.
+
+The only hard part is the index: 206 individual files need a directory listing, and the two
+obvious ways to get one both cost something. The contents API needs a reachable
+`api.github.com` and rate-limits unauthenticated callers. The 400 MB archive is the
+download this skill exists to avoid. A **blobless clone** is neither — `--filter=blob:none
+--no-checkout` transfers commits and trees only, about 100 KB, and `git ls-tree --name-only`
+lists every object from that alone. Ask it for sizes with `ls-tree -l` and git has to fetch
+each blob to measure it — the whole 380 MB release, one object at a time, before the real
+download starts. Sizes come instead from a `HEAD` per file, which is also something to check
+each download against:
+
+```python
+import hashlib, json, os, subprocess, urllib.request
+import pyreadr
+
+TAG  = "v2.1.0"
+REPO = "https://github.com/MoTrPAC/MotrpacRatTraining6moData"
+BASE = f"https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/{TAG}/data"
+OUT  = f"Data/motrpac/release/{TAG}"      # per tag, so a new TAG never reuses old files
+IDX  = f"motrpac_index_{TAG}"
+os.makedirs(OUT, exist_ok=True)
+
+# The index, without the API and without the 400 MB archive: a blobless, checkout-less
+# clone transfers commits and trees only, and `ls-tree --name-only` reads names from those.
+# NOT `ls-tree -l`: in a blobless clone that fetches every blob to report its size.
+if not os.path.isdir(f"{IDX}/.git"):
+    subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", "--depth", "1",
+                    "--branch", TAG, REPO, IDX],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+listing = subprocess.run(["git", "-C", IDX, "ls-tree", "--name-only", "HEAD:data"],
+                         check=True, capture_output=True, text=True).stdout
+
+def remote_size(name):
+    req = urllib.request.Request(f"{BASE}/{name}.rda", method="HEAD")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return int(resp.headers["Content-Length"])
+
+index = sorted((name[:-4], remote_size(name[:-4]))
+               for name in listing.splitlines() if name.endswith(".rda"))
+print(f"{len(index)} objects at {TAG}, {sum(s for _, s in index) / 2**20:,.1f} MiB of .rda")
+
+manifest, needs_r, done = [], [], 0
+for name, size in index:
+    rda = os.path.join(OUT, name + ".rda")
+    if not os.path.exists(rda) or os.path.getsize(rda) != size:
+        urllib.request.urlretrieve(f"{BASE}/{name}.rda", rda)
+    got = os.path.getsize(rda)
+    assert got == size, f"{name}: got {got} bytes, the server says {size}"
+    sha = hashlib.sha256(open(rda, "rb").read()).hexdigest()
+
+    try:
+        tables = pyreadr.read_r(rda)
+    except pyreadr.custom_errors.LibrdataError:
+        needs_r.append(name)                 # raises for one object
+        continue
+    if not tables:
+        needs_r.append(name)                 # returns {} for the nested lists
+        continue
+    for key, df in tables.items():
+        csv = os.path.join(OUT, key + ".csv.gz")
+        df.to_csv(csv, index=False, compression="gzip")
+        manifest.append({"object": key, "url": f"{BASE}/{name}.rda", "tag": TAG,
+                         "rda_bytes": size, "rda_sha256": sha,
+                         "rows": len(df), "cols": df.shape[1],
+                         "csv": csv, "csv_bytes": os.path.getsize(csv)})
+    done += 1
+    if done % 50 == 0:
+        print(f"  {done:>3} objects converted")
+
+with open(os.path.join(OUT, "manifest.json"), "w") as fh:
+    json.dump({"source": "MotrpacRatTraining6moData", "tag": TAG,
+               "licence": "code MIT, data CC BY 4.0",
+               "cohort": "PASS1B-06 — 6-month-old F344 rats",
+               "objects_at_tag": len(index), "files": manifest,
+               "needs_r_export": needs_r}, fh, indent=2)
+
+print(f"\n{len(manifest)} tables written, "
+      f"{sum(m['csv_bytes'] for m in manifest) / 2**20:,.1f} MiB of CSV")
+print(f"{len(needs_r)} objects need an R export: {', '.join(needs_r)}")
+```
+
+Run 2026-10-16 at tag `v2.1.0`:
+
+```
+206 objects at v2.1.0, 380.2 MiB of .rda
+   50 objects converted
+  100 objects converted
+  150 objects converted
+
+198 tables written, 517.8 MiB of CSV
+8 objects need an R export: GENE_UNIVERSES, GRAPH_COMPONENTS, GRAPH_PW_ENRICH, IMMUNO_NORM_DATA_NESTED, METAB_NORM_DATA_NESTED, PATHWAY_PARENTS, REPFDR_INPUTS, REPFDR_RES
+```
+
+Three things that matter more than they look:
+
+- **The size from the `HEAD` is a checksum you get for free.** `urlretrieve` writes a
+  partial file on a dropped connection and raises nothing you will notice later; the
+  `assert` turns that into a failure at the object that failed rather than a confusing
+  pyreadr error, and re-running the block refetches only what is the wrong size.
+- **The grammar covers most of the release but not all of it.** Of the 206 objects, 164
+  match `{ASSAY}_{TISSUE}_{KIND}` and 42 are cross-cutting — `PHENO`, `OUTLIERS`, the
+  colour and ordering vectors, the `*_META` sample tables, `FEATURE_TO_GENE`,
+  `RAT_TO_HUMAN_GENE`, `TRAINING_REGULATED_*`. Deriving names from the grammar instead of
+  listing the directory silently loses those 42.
+- **`needs_r_export` is the honest part of the manifest.** It names the objects pyreadr
+  cannot turn into a frame, rather than letting them vanish from a run that reports
+  success. *Objects pyreadr cannot read* below says what to do with them.
 
 ## A route with no R and no pyreadr at all
 
@@ -425,7 +549,7 @@ for assay, tissue in want:
         norm = lambda x: str(x).replace("-", "").upper()
         df = df[df["tissue_abbreviation"].map(norm) == norm(tissue)]
         if df.empty:                            # 200 + zero rows is the failure mode here
-            print(f"  {assay:9} {tissue:7} HTTP 200 but 0 rows. IMMUNO ran on 14 of the 20 "
+            print(f"  {assay:9} {tissue:7} HTTP 200 but 0 rows. IMMUNO ran on 17 of the 20 "
                   f"tissues; confirm against the coverage grid before concluding it did not "
                   f"run here")
             continue
@@ -440,7 +564,7 @@ for assay, tissue in want:
           f"key {'+'.join(key):18} unique {df.drop_duplicates(key).shape[0]:>8,} -> {os.path.basename(dest)}")
 ```
 
-Run 2026-08-18:
+Run 2026-10-16:
 
 ```
   PROT      HEART      9,184 rows x 12  key feature_ID         unique    9,184 -> PROT_HEART_training-dea-fdr.tsv.gz
@@ -451,9 +575,9 @@ Run 2026-08-18:
   TRNSCRPT  OVARY     17,035 rows x 18  key feature_ID         unique   17,035 -> TRNSCRPT_OVARY_training-dea-fdr.tsv.gz
   TRNSCRPT  VENACV    16,338 rows x 18  key feature_ID         unique   16,338 -> TRNSCRPT_VENACV_training-dea-fdr.tsv.gz
   METAB     HEART      1,430 rows x 22  key feature_ID+dataset unique    1,430 -> METAB_HEART_training-dea-fdr.tsv.gz
-  METAB     VENACV       213 rows x 26  key feature_ID+dataset unique      213 -> METAB_VENACV_training-dea-fdr.tsv.gz
+  METAB     VENACV       213 rows x 22  key feature_ID+dataset unique      213 -> METAB_VENACV_training-dea-fdr.tsv.gz
   IMMUNO    HEART         39 rows x 18  key feature_ID+panel   unique       39 -> IMMUNO_HEART_training-dea-fdr.tsv.gz
-  IMMUNO    VENACV  HTTP 200 but 0 rows. IMMUNO ran on 14 of the 20 tissues; confirm against the coverage grid before concluding it did not run here
+  IMMUNO    VENACV  HTTP 200 but 0 rows. IMMUNO ran on 17 of the 20 tissues; confirm against the coverage grid before concluding it did not run here
   PROT      ADRNL   HTTP 404  pass1b-06_t60-adrenal_prot-pr_training-dea-fdr.txt
 ```
 
@@ -465,6 +589,185 @@ This route is plain text and needs nothing but a HTTP client — but it is **unv
 There is no tag, no checksum and no release note on the bucket. Use the package route
 when reproducibility matters and this one when you want a quick answer or a file too
 large to have been shipped inside the package.
+
+## Raw reads live in SRA, and most reanalysis does not need them
+
+Start with what the package already ships. `TRNSCRPT_<TISSUE>_RAW_COUNTS` exists for
+**19 of the 20 tissues** — unnormalised gene-level counts, which is where a differential
+expression reanalysis usually starts. If that is what you are after, the whole-release
+fetch above has already put it on disk and there is nothing to download from SRA.
+
+What the reads add is everything the processed matrices foreclose — a different aligner, a
+current annotation (the package's transcript features are Ensembl 95 on Rnor_6.0, see
+*Limits*), transcript-level quantification, allele-specific work. That costs **3.67 TB**.
+
+**Enumerate before planning.** BioProject `PRJNA908279` (study `SRP448906`) is the open
+deposit, and GEO `GSE242358` with its three subseries describes the same material. The
+assay you want may be a quarter of the project:
+
+```python
+import os, re, time, urllib.parse, urllib.request
+import xml.etree.ElementTree as ET
+import pandas as pd, pyreadr
+
+EUTILS  = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+PROJECT = "PRJNA908279"
+TAG     = "v2.1.0"
+PKG     = f"https://raw.githubusercontent.com/MoTrPAC/MotrpacRatTraining6moData/{TAG}/data"
+os.makedirs("Data/motrpac", exist_ok=True)
+
+def eutils(endpoint, **params):
+    url = f"{EUTILS}/{endpoint}?" + urllib.parse.urlencode(params)
+    return ET.fromstring(urllib.request.urlopen(url, timeout=180).read())
+
+# 1. BioProject -> SRA experiments, with the result set held server-side
+s = eutils("esearch.fcgi", db="sra", term=PROJECT, usehistory="y", retmax=0)
+count, webenv, qkey = int(s.findtext("Count")), s.findtext("WebEnv"), s.findtext("QueryKey")
+print(f"{PROJECT}: {count} SRA experiments")
+
+# 2. esummary in batches. ExpXml and Runs are UNROOTED XML fragments inside strings:
+#    ET.fromstring raises "junk after document element" on them, and the quiet failure
+#    is falling back to rec.get("title", ""), which returns "" for every record and
+#    still reports success. Wrap each fragment in one element before parsing.
+rows = []
+for start in range(0, count, 250):
+    summ = eutils("esummary.fcgi", db="sra", query_key=qkey, WebEnv=webenv,
+                  retstart=start, retmax=250)
+    for doc in summ.iter("DocSum"):
+        item = {i.get("Name"): i.text for i in doc.iter("Item")}
+        exp  = ET.fromstring(f"<r>{item['ExpXml']}</r>")
+        lib  = exp.findtext(".//LIBRARY_NAME") or ""
+        vial = re.search(r"vial_(\d+)", lib)
+        size = exp.find(".//Statistics")
+        for run in ET.fromstring(f"<r>{item['Runs']}</r>").iter("Run"):
+            rows.append({"run": run.get("acc"),
+                         "strategy": exp.findtext(".//LIBRARY_STRATEGY"),
+                         "library": lib,
+                         "viallabel": vial.group(1) if vial else None,
+                         "bases": int(run.get("total_bases") or 0),
+                         "bytes": int(size.get("total_size") or 0),
+                         "is_public": run.get("is_public")})
+    time.sleep(0.4)                      # NCBI asks for no more than 3 requests a second
+
+sra = pd.DataFrame(rows)
+sra.to_csv("Data/motrpac/SRA_INVENTORY_PRJNA908279.csv", index=False)
+print("runs enumerated           :", len(sra), "| all public:", sorted(set(sra.is_public)))
+by = sra.groupby("strategy").agg(runs=("run", "size"), gbases=("bases", "sum"),
+                                 tbytes=("bytes", "sum"))
+for strategy, r in by.iterrows():
+    print(f"  {strategy:<14} {int(r.runs):>5} runs  {r.gbases/1e9:>9,.0f} Gbases  {r.tbytes/1e12:>6.2f} TB")
+print(f"  {'TOTAL':<14} {len(sra):>5} runs  {sra.bases.sum()/1e9:>9,.0f} Gbases  {sra.bytes.sum()/1e12:>6.2f} TB")
+
+# 3. join the vial labels back to the cohort
+p = f"Data/motrpac/PHENO-{TAG}.rda"      # named by tag: a cached copy from another tag is not reused
+if not os.path.exists(p):
+    urllib.request.urlretrieve(f"{PKG}/PHENO.rda", p)
+pheno = list(pyreadr.read_r(p).values())[0]
+hit = sra.viallabel.isin(set(pheno.viallabel.astype(str)))
+print("vial labels joining PHENO :", int(hit.sum()), "of", len(sra),
+      "| unjoined:", int((~hit).sum()),
+      "| of those carrying _reference_ in the library name:",
+      int(sra.loc[~hit, "library"].str.contains("_reference_").sum()),
+      "| joining ones that do:",
+      int(sra.loc[hit, "library"].str.contains("_reference_").sum()))
+```
+
+Run 2026-10-16:
+
+```
+PRJNA908279: 1747 SRA experiments
+runs enumerated           : 1747 | all public: ['true']
+  ATAC-seq         416 runs      1,526 Gbases    0.49 TB
+  Bisulfite-Seq    416 runs      2,740 Gbases    0.95 TB
+  RNA-Seq          915 runs      6,858 Gbases    2.23 TB
+  TOTAL           1747 runs     11,124 Gbases    3.67 TB
+vial labels joining PHENO : 1679 of 1747 | unjoined: 68 | of those carrying _reference_ in the library name: 68 | joining ones that do: 0
+```
+
+Two traps there, and both fail quietly rather than loudly:
+
+- **`ExpXml` and `Runs` are unrooted XML fragments inside strings**, so `ET.fromstring`
+  raises `junk after document element` on them. The tempting repair is to give up on the
+  XML and read `rec.get("title", "")` instead, which returns an empty string for all 1,747
+  records and still prints a success line. Wrapping each fragment in a single element is
+  the whole fix.
+- **The vial label is inside `LIBRARY_NAME`**, as `vial_<11 digits>`, and in no dedicated
+  field. 1,679 of the 1,747 runs join `PHENO.viallabel`; all 68 that do not carry
+  `_reference_` in the library name, and no joining run does — they are reference material
+  rather than cohort animals. An inner join therefore drops exactly those 68 silently,
+  which is the right result but only if you know it happened rather than meeting a count
+  you cannot explain later.
+
+**Retrieval needs no SRA client.** Every run in this project is mirrored by ENA and served
+over plain HTTPS, so `curl` is enough. ENA's portal API is the documented index —
+`https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA908279&result=read_run&fields=run_accession,fastq_ftp`
+— and the path is also derivable from the run accession, which is what gets you the files
+on a day when the API is unwell. It answered that query once on 2026-10-16 and then
+returned HTTP 500 repeatedly, while the files themselves stayed available throughout:
+
+```python
+import csv, os, urllib.error, urllib.request
+from collections import Counter
+
+INV = "Data/motrpac/SRA_INVENTORY_PRJNA908279.csv"      # written by the block above
+FTP = "https://ftp.sra.ebi.ac.uk/vol1/fastq"
+
+def ena_path(acc):
+    """ENA's directory rule is keyed on the LENGTH of the accession, nothing semantic."""
+    n = len(acc)
+    if n == 9:  return f"{acc[:6]}/{acc}"
+    if n == 10: return f"{acc[:6]}/00{acc[-1]}/{acc}"
+    if n == 11: return f"{acc[:6]}/0{acc[-2:]}/{acc}"
+    if n == 12: return f"{acc[:6]}/{acc[-3:]}/{acc}"
+    raise ValueError(f"unexpected accession length: {acc}")
+
+runs = list(csv.DictReader(open(INV)))
+print(f"{len(runs)} runs in the inventory:",
+      dict(Counter(r["strategy"] for r in runs)))
+
+# one run per assay, checked rather than assumed — a HEAD costs nothing, and a 404 from a
+# mistaken directory rule is indistinguishable from a run that was withdrawn
+first = {}
+for r in runs:
+    first.setdefault(r["strategy"], r)
+
+total = 0
+for strategy, r in sorted(first.items()):
+    acc = r["run"]
+    url = f"{FTP}/{ena_path(acc)}/{acc}_1.fastq.gz"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"),
+                                    timeout=120) as resp:
+            size = int(resp.headers["Content-Length"])
+            total += size
+            print(f"  {strategy:<14} {acc}  HTTP {resp.status}  {size:>14,} bytes  _1.fastq.gz")
+    except urllib.error.HTTPError as e:
+        print(f"  {strategy:<14} {acc}  HTTP {e.code}  not on the mirror at {ena_path(acc)}")
+
+print(f"\nmate 1 of three runs is {total/2**30:,.1f} GiB; the project is "
+      f"{sum(int(r['bytes']) for r in runs)/1e12:,.2f} TB in total")
+```
+
+Run 2026-10-16:
+
+```
+1747 runs in the inventory: {'Bisulfite-Seq': 416, 'RNA-Seq': 915, 'ATAC-seq': 416}
+  ATAC-seq       SRR25605233  HTTP 200   1,012,782,053 bytes  _1.fastq.gz
+  Bisulfite-Seq  SRR25320981  HTTP 200   1,556,736,561 bytes  _1.fastq.gz
+  RNA-Seq        SRR25251573  HTTP 200   1,553,009,226 bytes  _1.fastq.gz
+
+mate 1 of three runs is 3.8 GiB; the project is 3.67 TB in total
+```
+
+The directory rule is ENA's own and it is keyed on the **length** of the accession, not on
+anything semantic: nine characters means no second level, ten means `00` plus the last
+digit, eleven means `0` plus the last two, twelve means the last three. Get it wrong and
+the 404 looks exactly like a withdrawn run, which is why the block checks one accession per
+assay instead of assuming the rule held.
+
+Note what this section does **not** do: it does not pull 3.67 TB for you, and paired runs
+here are roughly 1.0–1.6 GB per mate, so one tissue-by-timepoint cell is tens of gigabytes.
+Decide from the inventory which runs you need and fetch those.
 
 ## Two tables, two different questions
 
@@ -585,7 +888,7 @@ except urllib.error.HTTPError as e:
           "so the naming convention above is the only index")
 ```
 
-Run 2026-08-18:
+Run 2026-10-16:
 
 ```
   ATAC_HEART_DA              250,595,765 bytes
@@ -620,7 +923,9 @@ Two findings in that output worth carrying:
 ## Objects pyreadr cannot read
 
 Most of the 206 objects are data frames or character vectors and convert cleanly. These do
-not, checked one by one on 2026-08-18 with pyreadr 0.5.3:
+not. Checked one by one on 2026-08-18 with pyreadr 0.5.3, and re-confirmed as a complete
+set on 2026-10-16 under pyreadr 0.5.7 — the whole-release fetch above reports exactly these
+eight and no others:
 
 | object | how it fails |
 |---|---|
@@ -668,7 +973,7 @@ cat(sprintf("%d platforms, %d tables written to %s\n", length(obj), n, out))
 cat("platforms:", paste(names(obj), collapse = ", "), "\n")
 ```
 
-Run 2026-08-18 under R 4.4.1:
+Run 2026-10-16 under R 4.3.3:
 
 ```
 13 platforms, 113 tables written to Data/motrpac/nested
@@ -751,7 +1056,7 @@ heart.to_csv(dest, index=False, compression="gzip")
 print("\nwrote", dest, f"{os.path.getsize(dest):,} bytes")
 ```
 
-Run 2026-08-18:
+Run 2026-10-16:
 
 ```
   TRNSCRPT_HEART_NORM_DATA   14,445 x 54  | id cols ['feature', 'feature_ID', 'tissue', 'assay']
@@ -825,10 +1130,12 @@ library(MotrpacRatTraining6moData)
 data(PHENO); dim(PHENO)
 ```
 
-**This is the one block in this skill not executed to completion.** The codeload URL was
-confirmed to answer HTTP 200 on both dates and had transferred 215 MB after 420 seconds
-without finishing, so the download works and is simply slow; `install.packages()` on the
-result was not reached. Everything else here was run verbatim. The citable alternative is the
+**This block has never been executed to completion.** On 2026-08-17 and 2026-08-18 the
+codeload URL answered HTTP 200 and had transferred 215 MB after 420 seconds without finishing,
+so the download works and is simply slow; `install.packages()` on the result was not
+reached. On 2026-10-16 the verifying environment could not reach codeload at all. Two other
+blocks were not re-run on that date either; `verified:` in the frontmatter names all three
+and why. The citable alternative is the
 Zenodo snapshot of the same tag, DOI `10.5281/zenodo.16851449`, a 399 MB zip.
 
 Either way, prefer the per-object route above unless you specifically want the analysis
@@ -886,7 +1193,7 @@ CC BY 4.0), plus four plain-text tables from the public bucket:
 
 About 20 MB in total, no licence acceptance and no account. Heart proteomics is the
 well-behaved case; heart and vena cava metabolomics and the pooled immunoassay are the
-ones that break a heart-proteomics-shaped pipeline. Last confirmed reachable 2026-08-18.
+ones that break a heart-proteomics-shaped pipeline. Last confirmed reachable 2026-10-16.
 Needs `pip install pyreadr pandas`.
 
 ```python
@@ -998,7 +1305,7 @@ assert sel.feature_ID.nunique() == int((ptsv.adj_p_value < 0.05).sum()) == 693
 print("\nage groups in the open omics release:", sorted(pheno["key.agegroup"].unique()))
 ```
 
-What it printed on 2026-08-18:
+What it printed on 2026-10-16:
 
 ```
 PHENO rows / age groups / protocols : 6156 ['6 months'] ['phase 1b']
@@ -1049,7 +1356,7 @@ not that upstream moved:
 - pyreadr returns a truthy dict for every object here. The assertion inside `rda()` is
   what stops an empty dict from becoming a confusing `IndexError` later.
 
-Observed 2026-08-18 against tag **v2.1.0** — these move when the consortium re-releases,
+Observed 2026-10-16 against tag **v2.1.0** — these move when the consortium re-releases,
 so a mismatch is drift to investigate rather than a failure:
 
 - `PHENO` 6,156 rows · age groups `['6 months']` · protocols `['phase 1b']`
@@ -1077,6 +1384,8 @@ so a mismatch is drift to investigate rather than a failure:
   https://github.com/MoTrPAC/MotrpacRatTraining6moWATData
 - Zenodo snapshots of the data package — https://doi.org/10.5281/zenodo.7877121
 - GEO SuperSeries — https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE242358
+- BioProject PRJNA908279, the raw-read deposit — https://www.ncbi.nlm.nih.gov/bioproject/PRJNA908279
+- ENA mirror of the same runs, anonymous HTTPS — https://www.ebi.ac.uk/ena/browser/view/PRJNA908279
 - MoTrPAC Study Group (2024) *Nature* 629, 174-183 —
   https://doi.org/10.1038/s41586-023-06877-w
 - Sanford et al. (2020) *Cell* 181, 1464-1474 —

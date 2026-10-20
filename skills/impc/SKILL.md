@@ -4,12 +4,12 @@ description: Query IMPC / KOMP2 mouse knockout phenotypes over the EBI Solr API 
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [impc, mouse, knockout, phenotyping, public-data]
 covers: [impc, komp, komp2, mouse, mus musculus, knockout mouse, null allele, loss of function, gene function, essential genes, embryonic lethality, preweaning lethality, viability, fertility, infertility, mammalian phenotype ontology, deafness, hearing, obesity, body fat, bone mineral density, glucose tolerance, retina, behaviour, grip strength, clinical chemistry, haematology, dysmorphology, ortholog, sexual dimorphism]
 papers: [PMID:27626380, PMID:36305825, PMID:41231752, PMID:35944064, PMID:33378393, PMID:31591642]
 access: [open]
-datasets: [https://www.ebi.ac.uk/mi/impc/solr/genotype-phenotype/select?q=marker_symbol:Arid1b&rows=200&wt=json, https://www.ebi.ac.uk/mi/impc/solr/statistical-result/select?q=marker_symbol:A4galt&fq=status:Successful&rows=0&wt=json, https://www.ebi.ac.uk/mi/impc/solr/gene/select?q=human_gene_symbol:ARID1B&rows=5&wt=json, https://www.ebi.ac.uk/mi/impc/solr/experiment/select?q=parameter_stable_id:IMPC_VIA_067_001&rows=0&wt=json, https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/latest/README.md, https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/latest/results/viability.csv.gz]
+datasets: ['https://www.ebi.ac.uk/mi/impc/solr/genotype-phenotype/select?q=marker_symbol:Arid1b&rows=200&wt=json', 'https://www.ebi.ac.uk/mi/impc/solr/statistical-result/select?q=marker_symbol:A4galt&fq=status:Successful&rows=0&wt=json', 'https://www.ebi.ac.uk/mi/impc/solr/gene/select?q=human_gene_symbol:ARID1B&rows=5&wt=json', 'https://www.ebi.ac.uk/mi/impc/solr/experiment/select?q=parameter_stable_id:IMPC_VIA_067_001&rows=0&wt=json', https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/latest/README.md, https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/latest/results/viability.csv.gz]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27

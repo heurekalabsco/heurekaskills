@@ -4,12 +4,12 @@ description: Query GTEx human tissue expression and eQTLs through the GTEx Porta
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.1.1
 tags: [gtex, transcriptomics, eqtl, rna-seq, public-data]
 covers: [heart, left ventricle, atrial appendage, skeletal muscle, brain cortex, cerebellum, liver, lung, whole blood, skin, thyroid, testis, pancreas, kidney cortex, adipose, esophagus, artery, nerve, eqtl, egene, sqtl, gene expression, median tpm, transcriptomics, bulk rna-seq, human, aging, gencode, dbgap, genotype-tissue expression]
 papers: [PMID:23715323, PMID:25954001, PMID:29022597, PMID:32913098]
 access: [open, controlled]
-datasets: [https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39, https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10, https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300, https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket, https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=1, https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz]
+datasets: ['https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39', 'https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10', 'https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300', 'https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket', 'https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=1', https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-18
