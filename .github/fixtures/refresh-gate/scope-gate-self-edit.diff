@@ -1,5 +1,5 @@
 diff --git a/scripts/is-verification-refresh.js b/scripts/is-verification-refresh.js
-index 74e910b..4a432af 100644
+index 68a8acb..69e51a0 100644
 --- a/scripts/is-verification-refresh.js
 +++ b/scripts/is-verification-refresh.js
 @@ -80,7 +80,7 @@ let raw;
