@@ -70,8 +70,9 @@ The project also ships `environment.yml` for conda — `conda env create --file
 environment.yml && conda activate omega` — pinning the same set. Use whichever you have; the
 pip line above is the one this page was verified against.
 
-Every command below assumes you are in the directory holding that checkout, and invokes the
-virtual environment's interpreter explicitly rather than activating it.
+Every block below starts by moving into the checkout if it is not already there — so it works
+whether you run it straight after this one or in a fresh shell beside the checkout — and invokes
+the virtual environment's interpreter explicitly rather than activating it.
 
 ## The arithmetic that decides your run
 
@@ -94,7 +95,7 @@ Both numbers are printed before any optimization starts, which is where to catch
 misconfigured run:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 "$PY" code/omega.py genes --config configs/test_install.yml
 ```
 
@@ -125,7 +126,7 @@ Two things will trip you up reading them back:
   the other.
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 "$PY" -c "
 import pandas as pd
 p = pd.read_csv('output/test_install/pool_stats.csv', index_col=0)
@@ -160,7 +161,7 @@ This is the trap worth knowing before you order anything. Run the stock config t
 `pool_stats.csv` comes back byte-identical while `oligo_order.csv` does not:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 for i in 1 2; do
   "$PY" code/omega.py genes --config configs/test_install.yml --output_dir "output/repro$i" > /dev/null 2>&1
 done
@@ -175,7 +176,7 @@ exact sequences you ordered to be regenerable, turn padding off and all three fi
 stable:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 for i in 1 2; do
   "$PY" code/omega.py genes --config configs/test_install.yml --pad_oligos false --output_dir "output/nopad$i" > /dev/null 2>&1
 done
@@ -200,7 +201,7 @@ carries `nopt_runs` silently uses `nopt_runs` and discards your seeds, with no w
 Clear it explicitly:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 "$PY" code/omega.py genes --config configs/test_install.yml \
   --opt_seeds '[7]' --nopt_runs null --output_dir output/seeded > /dev/null 2>&1
 "$PY" -c "
@@ -221,14 +222,15 @@ overhang-ligation measurements the optimizer scores against. Mismatched, the run
 immediately rather than scoring against the wrong table:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 "$PY" code/omega.py genes --config configs/test_install.yml \
   --enzyme BsmBI --ligation_data BsaI_cycling --output_dir output/mismatch 2>&1 | tail -2
 ```
 
 The T4 datasets (`T4_01h_25C`, `T4_18h_25C`, `T4_01h_37C`, `T4_18h_37C`) are enzyme-agnostic
 and pair with any enzyme; the cycling datasets (`BsaI_cycling`, `BbsI_cycling`,
-`BsmBI_cycling`, `Esp3I_cycling`, `SapI_cycling`) are each tied to their own enzyme.
+`BsmBI_cycling`, `Esp3I_cycling`) are each tied to their own enzyme. SapI and its cycling
+dataset are commented out in `code/data_classes.py` at this commit, so neither is accepted.
 
 The default pairing — BsaI with `T4_18h_37C`, an 18-hour 37 °C ligation — is the one the
 OMEGA paper used, and the alternatives are not interchangeable with it in practice. Scoring
@@ -242,7 +244,7 @@ The repository's 100-sequence GFP library is the realistic shape. Nothing change
 pool count:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 "$PY" code/omega.py genes --config configs/test_install.yml \
   --input_seqs data/fastas/gfp_lib_450-550.fasta --nopt_steps 50 --njobs 4 \
   --output_dir output/lib100 2>&1 | grep -E "^(Read|Target|Designed)"
@@ -254,15 +256,16 @@ cd omega && PY=./.venv/bin/python
 `n_sites` differs between pools in `pool_stats.csv`.
 
 Two settings matter once you are designing for real rather than testing. `nopt_steps` is 100
-in `test_install.yml` purely so it finishes fast — the project's default is 3000, and the
-template config uses 1000 with `nopt_runs: 5`. Raising `nopt_runs` buys more than raising
+in `test_install.yml` purely so it finishes fast. The README gives the default as 3000, but
+`genes` itself defaults to 1000 (`code/omega.py`), which is also what the template config
+uses, with `nopt_runs: 5`. Raising `nopt_runs` buys more than raising
 `nopt_steps`. And `njobs` parallelizes the runs within a subpool across CPUs; it defaults to
 1, which is slow for no reason.
 
 Run out of primer pairs and OMEGA stops before optimizing rather than halfway through:
 
 ```bash
-cd omega && PY=./.venv/bin/python
+[ -d .venv ] || cd omega; PY=./.venv/bin/python
 head -3 data/test_primers.csv > two_primer_pairs.csv
 "$PY" code/omega.py genes --config configs/test_install.yml \
   --input_seqs data/fastas/gfp_lib_450-550.fasta --primers two_primer_pairs.csv \
