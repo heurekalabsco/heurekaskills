@@ -76,7 +76,8 @@ the test drives the design functions directly and hits exactly this. A failing t
 here is a known upstream rough edge, not a broken install.
 
 There is a Tk GUI (`run_dimple_gui.py`) with the same functionality, and a Colab notebook on
-the project's `colab` branch if you would rather not install anything.
+the project's `colab` branch if you would rather not install anything. Neither was run for
+this page, and the `colab` branch is not pinned to the commit above, so it may differ.
 
 ## Input — the gene file
 
