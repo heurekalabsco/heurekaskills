@@ -25,3 +25,13 @@ jobs:
           # A concrete SHA always resolves; origin/<branch> may not exist after the
           # merge-commit checkout a pull_request event produces.
           BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+
+      # The autonomous-merge gate's own suite, and it belongs HERE because `validate` is the only
+      # required context. It was wired only into dataset-liveness.yml, whose pull_request trigger
+      # is path-filtered on skills/** and a few scripts — a filter that does not list
+      # is-verification-refresh.js, its fixtures, its generator, or the merge workflow. So a PR
+      # editing nothing but the gate shipped with the gate's suite unrun, and `check` is not a
+      # required context, so nothing blocked. A hole in that gate is not a wrong verdict in a
+      # log; it is a change to a public registry that nobody read.
+      - name: Selftest the auto-merge gate
+        run: npm run refresh-gate-selftest

@@ -1,0 +1,504 @@
+{
+  "cases": [
+    {
+      "fixture": "PASS-frontmatter-refresh.diff",
+      "expect": "accept",
+      "what": "a version bump and the verified: block, with the page itself untouched — the only shape that merges without a human"
+    },
+    {
+      "fixture": "body-threshold-moved.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the body at line"
+      ],
+      "what": "the published iLIS cutoff moved, 0.223 -> 0.023, inside an otherwise real refresh"
+    },
+    {
+      "fixture": "body-date-is-a-claim.diff",
+      "expect": "reject",
+      "because": [
+        "skills/protenix/SKILL.md changes the body at line"
+      ],
+      "what": "a training-data cutoff moved to the run date — a prose date that is a capability claim, which beat v3 even unforged"
+    },
+    {
+      "fixture": "body-date-in-inline-code.diff",
+      "expect": "reject",
+      "because": [
+        "skills/cellxgene-census/SKILL.md changes the body at line"
+      ],
+      "what": "a census_version in inline backticks — not a fence, so v3 read it as prose and let the dataset selector move"
+    },
+    {
+      "fixture": "body-doi-retargeted.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the body at line"
+      ],
+      "what": "a citation pointed at a different record"
+    },
+    {
+      "fixture": "body-line-added.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the body — 1 line(s) added or removed"
+      ],
+      "what": "arbitrary prose added, here pointing a reader at another host"
+    },
+    {
+      "fixture": "body-line-deleted.diff",
+      "expect": "reject",
+      "because": [
+        "skills/bindcraft/SKILL.md changes the body — 1 line(s) added or removed"
+      ],
+      "what": "a deleted --flag line, which a naive \"---\" header skip once swallowed whole"
+    },
+    {
+      "fixture": "body-ip-swap.diff",
+      "expect": "reject",
+      "because": [
+        "skills/brain-researcher/SKILL.md changes the body at line"
+      ],
+      "what": "a loopback address pointed somewhere else"
+    },
+    {
+      "fixture": "fm-block-scalar-smuggles-key.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes \"against: |\" into verified:",
+        "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\"",
+        "skills/afm-lis/SKILL.md makes the client read \"license\"",
+        "skills/afm-lis/SKILL.md changes verified.against without rewriting it as one line"
+      ],
+      "what": "a YAML block scalar under verified.against whose TEXT contains \"license: GPL-3.0-only\" — real YAML and validate.js both read CC-BY-4.0, the client reads GPL-3.0-only. This beat v3, whose rule only rejected values that PARSED as maps"
+    },
+    {
+      "fixture": "fm-nested-key-direct.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes \"license: GPL-3.0-only\" into verified:",
+        "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\"",
+        "skills/afm-lis/SKILL.md makes the client read \"license\"",
+        "skills/afm-lis/SKILL.md puts \"license\" inside verified:"
+      ],
+      "what": "the same attack spelled as a plain nested key rather than a block scalar"
+    },
+    {
+      "fixture": "fm-comment-smuggled.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter — \"# MAINTAINER NOTICE",
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter — \"# The iLIS cutoffs",
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter — \"# raw.githubusercontent.com"
+      ],
+      "what": "a colon-free YAML comment block in the frontmatter, telling the reader the documented cutoffs are superseded and to fetch another build. Both parsers discard comments and the naive one only makes a key when the line has a colon, so this was invisible to every check in v4 — and to validate.js and check-versions.js"
+    },
+    {
+      "fixture": "fm-comment-inside-verified.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter",
+        "skills/afm-lis/SKILL.md writes \"# the table below is stale, use the other build\" into verified:",
+        "skills/afm-lis/SKILL.md changes verified.against without rewriting it as one line"
+      ],
+      "what": "the same smuggle moved INSIDE the verified: block, where the line comparison is deliberately permissive"
+    },
+    {
+      "fixture": "fm-comment-on-verified-line.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter"
+      ],
+      "what": "a comment appended to the verified: line itself, which the span calculation treats as part of the block"
+    },
+    {
+      "fixture": "fm-version-smuggled-via-block-scalar.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes \"against: |\" into verified:",
+        "skills/afm-lis/SKILL.md makes the client read \"version\" as \"0.0.1",
+        "skills/afm-lis/SKILL.md changes verified.against without rewriting it as one line"
+      ],
+      "what": "a block scalar under verified.against carrying its own \"version: 0.0.1\" line. The client reads 0.0.1; the YAML and check-versions.js both read 1.0.1. This beat v4, because \"version\" was exempt from the client-parser rule BY NAME while also being a real top-level field in all 101 skills"
+    },
+    {
+      "fixture": "fm-yaml11-line-separator-block.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes U+2028 into verified:",
+        "skills/afm-lis/SKILL.md writes \"records: |\" into verified:",
+        "skills/afm-lis/SKILL.md changes verified.records without rewriting it as one line"
+      ],
+      "what": "a records: block scalar whose one line hides license and allowed-tools behind U+2028. js-yaml and the client parser see one line; PyYAML and libyaml see new top-level keys, GPL-3.0-only and Bash(*). This beat v5"
+    },
+    {
+      "fixture": "fm-yaml11-next-line-plain.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes U+0085 into verified:"
+      ],
+      "what": "U+0085 (NEL), a YAML 1.1 line break that js-yaml reads as an ordinary character, inside an ordinary one-line against: value. js-yaml and every layout rule accept it, so the character rule is the only one that sees a value a YAML 1.1 reader splits"
+    },
+    {
+      "fixture": "fm-verified-url.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md puts a URL in verified.against"
+      ],
+      "what": "a download location written into the observation record, which merges without review and is published in the raw file"
+    },
+    {
+      "fixture": "fm-verified-backticks.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md puts backticks in verified.against"
+      ],
+      "what": "a command written into the observation record for an agent to copy"
+    },
+    {
+      "fixture": "fm-verified-too-long.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes 992 characters into verified.against"
+      ],
+      "what": "an observation record grown into a page of prose, longer than any written so far"
+    },
+    {
+      "fixture": "fm-verified-header-deleted.diff",
+      "expect": "reject",
+      "because": [
+        "skills/4dn/SKILL.md changes verified.unverified without rewriting it as one line"
+      ],
+      "what": "a block scalar header deleted and nothing written: its text folds into the field above, so `unverified: 1` becomes a paragraph, with no new byte for the write rules to see"
+    },
+    {
+      "fixture": "fm-verified-lines-reordered.diff",
+      "expect": "reject",
+      "because": [
+        "skills/4dn/SKILL.md changes verified.unverified_reason without rewriting it as one line"
+      ],
+      "what": "reviewed prose rewritten by moving one of its carried lines, which adds nothing the write rules can see"
+    },
+    {
+      "fixture": "fm-verified-count-sexagesimal.diff",
+      "expect": "reject",
+      "because": [
+        "skills/4dn/SKILL.md verified.executed is \"1:20\", not a whole number"
+      ],
+      "what": "a count that is the string \"1:20\" to js-yaml and 80 to a YAML 1.1 reader"
+    },
+    {
+      "fixture": "PASS-block-scalar-carried.diff",
+      "expect": "accept",
+      "what": "a refresh of a skill whose unverified_reason is already a block scalar, left untouched. 36 skills hold one; the write rules apply to lines a refresh adds, not to lines it carries"
+    },
+    {
+      "fixture": "fm-verified-date-impossible.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md verified.date reads as \"2026-10-00\" but YAML resolves it to 2026-09-30"
+      ],
+      "what": "a day that does not exist. YAML silently rolls 2026-10-00 to 2026-09-30, so the future and forward-progress checks saw a sane date while the client displayed the impossible literal — which beat v4"
+    },
+    {
+      "fixture": "fm-new-key-above-verified.diff",
+      "expect": "reject",
+      "because": [
+        "skills/pathway-cca-coessentiality/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/pathway-cca-coessentiality/SKILL.md adds the frontmatter key \"allowed-tools\"",
+        "skills/pathway-cca-coessentiality/SKILL.md changes what the client's frontmatter parser reads for \"allowed-tools\""
+      ],
+      "what": "a tool grant inserted on the line above verified:, landing on a position v3 excused as being inside the block"
+    },
+    {
+      "fixture": "fm-field-changed.diff",
+      "expect": "reject",
+      "because": [
+        "skills/all-of-us/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/all-of-us/SKILL.md changes the frontmatter field \"datasets\"",
+        "skills/all-of-us/SKILL.md changes what the client's frontmatter parser reads for \"datasets\""
+      ],
+      "what": "an API version path segment retargeted, v1 -> v2"
+    },
+    {
+      "fixture": "fm-version-downgrade.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md version \"1.0.0\" -> \"0.9.0\" is not an increase"
+      ],
+      "what": "a refresh carrying a version that goes backwards"
+    },
+    {
+      "fixture": "fm-verified-erased.diff",
+      "expect": "reject",
+      "because": [
+        "skills/alphafold/SKILL.md replaces the verified: record with \"pending\""
+      ],
+      "what": "a populated verification record — date, against, executed, unverified — replaced by one scalar. validate.js accepts \"pending\" too, so nothing else caught this"
+    },
+    {
+      "fixture": "fm-verified-core-dropped.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md drops verified.executed"
+      ],
+      "what": "the \"how much of this actually ran\" count quietly removed"
+    },
+    {
+      "fixture": "fm-verified-date-future.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md verified.date 2099-01-01 is in the future"
+      ],
+      "what": "a verification stamped in the future — the one date the gate still reads, checked against its own clock rather than anything in the diff"
+    },
+    {
+      "fixture": "fm-verified-date-backwards.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md moves verified.date backwards, 2026-09-27 -> 2026-01-01"
+      ],
+      "what": "a verification backdated, which would make a stale check look recent relative to an older one"
+    },
+    {
+      "fixture": "fm-unparseable-yaml.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes \"executed: 7\" into verified:",
+        "skills/afm-lis/SKILL.md frontmatter is not parseable YAML"
+      ],
+      "what": "indentation broken inside the verified: block, which the line comparison permits and YAML does not"
+    },
+    {
+      "fixture": "fm-key-removed.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/afm-lis/SKILL.md removes the frontmatter key(s) author",
+        "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"author\""
+      ],
+      "what": "a top-level field deleted outright"
+    },
+    {
+      "fixture": "fm-already-disagreeing-key.diff",
+      "expect": "reject",
+      "because": [
+        "skills/boltz2-nim/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/boltz2-nim/SKILL.md changes the frontmatter field \"compatibility\"",
+        "skills/boltz2-nim/SKILL.md changes what the client's frontmatter parser reads for \"compatibility\"",
+        "skills/boltz2-nim/SKILL.md changes \"compatibility\", whose YAML and client values already differ"
+      ],
+      "what": "the one key in the registry whose YAML and client readings already differ — \"requests>=2.28\" loses its quotes in YAML and keeps them in the client. The gate refuses to reason about which one wins, so nothing about it may move"
+    },
+    {
+      "fixture": "fm-verified-date-not-a-date.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md verified.date is not a YYYY-MM-DD date"
+      ],
+      "what": "a verification stamped with prose instead of a date"
+    },
+    {
+      "fixture": "scope-references-file.diff",
+      "expect": "reject",
+      "because": [
+        "touches \"skills/anndata/references/io_operations.md\" — a refresh changes one skill's SKILL.md and nothing else"
+      ],
+      "what": "a change to a references/ page, where nothing a refresh records belongs"
+    },
+    {
+      "fixture": "scope-two-skills.diff",
+      "expect": "reject",
+      "because": [
+        "touches 2 files"
+      ],
+      "what": "two skills refreshed in one diff, so one review covers both"
+    },
+    {
+      "fixture": "scope-gate-self-edit.diff",
+      "expect": "reject",
+      "because": [
+        "touches \"scripts/is-verification-refresh.js\" — a refresh changes one skill's SKILL.md and nothing else"
+      ],
+      "what": "the gate editing itself — exit 0 is what the workflow reads as \"merge this\", and v1 ran the gate from the PR's own checkout",
+      "structural": true
+    },
+    {
+      "fixture": "struct-rename-samepath.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a rename (skills/afm-lis/SKILL.md)"
+      ],
+      "what": "a forged same-path rename header, which reaches the rename rule itself rather than the path-mismatch rule",
+      "structural": true
+    },
+    {
+      "fixture": "struct-fence-whitespace.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes a --- frontmatter fence line"
+      ],
+      "what": "trailing whitespace on the opening --- fence, which belongs to neither the frontmatter nor the body and so was seen by neither comparison",
+      "structural": true
+    },
+    {
+      "fixture": "struct-rename.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a diff header whose paths differ: a/skills/alphafold/SKILL.md vs b/skills/alphafold/SKILL-old.md"
+      ],
+      "what": "a rename, which carries no +/- lines at all",
+      "structural": true
+    },
+    {
+      "fixture": "struct-mode.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a file-mode change (skills/alphafold/SKILL.md)"
+      ],
+      "what": "a file made executable, which clients refuse to install",
+      "structural": true
+    },
+    {
+      "fixture": "struct-new-file.diff",
+      "expect": "reject",
+      "because": [
+        "refuses an added or deleted file (skills/alphafold/references/extra.md)",
+        "touches \"skills/alphafold/references/extra.md\""
+      ],
+      "what": "a whole new file, whose every line is an addition and so has no counterpart to compare against",
+      "structural": true
+    },
+    {
+      "fixture": "struct-deleted-file.diff",
+      "expect": "reject",
+      "because": [
+        "refuses an added or deleted file (skills/anndata/references/io_operations.md)",
+        "touches \"skills/anndata/references/io_operations.md\""
+      ],
+      "what": "a deleted page, which removes what a reader was told to consult",
+      "structural": true
+    },
+    {
+      "fixture": "struct-binary.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a binary change (skills/alphafold/references/model.bin)",
+        "touches \"skills/alphafold/references/model.bin\""
+      ],
+      "what": "a swapped binary, whose content a text diff cannot show at all",
+      "structural": true
+    },
+    {
+      "fixture": "struct-eof-newline.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: refuses a diff that changes the end-of-file newline"
+      ],
+      "what": "a diff that changes whether the file ends in a newline",
+      "structural": true
+    },
+    {
+      "fixture": "struct-header-unparseable.diff",
+      "expect": "reject",
+      "because": [
+        "cannot parse a diff header"
+      ],
+      "what": "a header the gate cannot read, which must refuse rather than skip the file it names",
+      "structural": true
+    },
+    {
+      "fixture": "fm-not-a-mapping.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md changes the frontmatter outside the verified: block",
+        "skills/afm-lis/SKILL.md frontmatter is not a mapping"
+      ],
+      "what": "the whole frontmatter replaced by a bare scalar, so it parses to a string and every key-wise check below would read from a non-object",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-orphan-hunk.diff",
+      "expect": "reject",
+      "because": [
+        "a hunk appeared before any file header"
+      ],
+      "what": "a hunk with no file header, which must refuse rather than be attributed to a guess",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-empty.diff",
+      "expect": "reject",
+      "because": [
+        "contains no file changes at all"
+      ],
+      "what": "an empty diff, which is not a harmless diff but one the gate never read",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-hunk-overcount.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: the hunk at line 5 declares 5 old and 5 new lines but carries 1 and 1"
+      ],
+      "what": "a header declaring more lines than it carries, the mirror of the undercount case",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-no-net-change.diff",
+      "expect": "reject",
+      "because": [
+        "no file content actually changed"
+      ],
+      "what": "a diff that removes and re-adds the same line, so it changes nothing and was therefore never inspected",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-before-frontmatter.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md would end up with no parseable frontmatter"
+      ],
+      "what": "a line inserted above the opening fence, so the document no longer starts with ---",
+      "malformed": true
+    },
+    {
+      "fixture": "scope-missing-skill.diff",
+      "expect": "reject",
+      "because": [
+        "cannot read skills/does-not-exist/SKILL.md in the base tree"
+      ],
+      "what": "a well-formed path for a skill that is not in the base tree, which must refuse rather than judge a file it cannot see",
+      "malformed": true
+    },
+    {
+      "fixture": "struct-binary-patch.diff",
+      "expect": "reject",
+      "because": [
+        "refuses a binary patch (skills/alphafold/references/model.bin)",
+        "touches \"skills/alphafold/references/model.bin\""
+      ],
+      "what": "an inline GIT binary patch, whose content no text comparison can inspect",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-hunk-undercount.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: the hunk at line 136 carries more lines than its header declares"
+      ],
+      "what": "a hunk header declaring fewer lines than it carries, so the gate would judge a document missing the added line",
+      "malformed": true
+    },
+    {
+      "fixture": "malformed-does-not-apply.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md: the diff does not apply to the base tree"
+      ],
+      "what": "a diff whose removed line is not what the base file says, so the gate cannot know what it would produce",
+      "malformed": true
+    }
+  ]
+}

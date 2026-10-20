@@ -4,9 +4,9 @@ description: Plan and verify a DNA cloning construct in Python with pydna — re
 category: utility
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [cloning, dna-assembly, plasmid, restriction-enzymes, primer-design]
-datasets: [https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=L09137.2&rettype=gb&retmode=text]
+datasets: ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=L09137.2&rettype=gb&retmode=text']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-10-03

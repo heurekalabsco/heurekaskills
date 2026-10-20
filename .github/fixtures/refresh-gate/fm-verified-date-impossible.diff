@@ -1,0 +1,20 @@
+diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
+index 23ea351..19fc967 100644
+--- a/skills/afm-lis/SKILL.md
++++ b/skills/afm-lis/SKILL.md
+@@ -4,13 +4,13 @@ description: Decide whether a predicted protein complex is a real interaction an
+ category: analysis
+ license: CC-BY-4.0
+ author: Heureka Labs
+-version: 1.0.0
++version: 1.0.1
+ tags: [protein-interaction, protein-structure, pae, alphafold, ppi]
+ covers: [ilis, lis, lia, local interaction score, protein-protein interaction, ppi, interface residues, pae, predicted aligned error, alphafold-multimer, colabfold, alphafold3, boltz, chai-1, openfold3, iptm, ipsae, pdockq, slim, short linear motif, disordered region, transient interaction, complex prediction, interface confidence, binding partner]
+ datasets: [https://raw.githubusercontent.com/flyark/AFM-LIS/main/lis.py, https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_unrelaxed_rank_001_alphafold2_multimer_v3_model_2_seed_000.pdb, https://zenodo.org/records/17063524/files/Dmelanogaster_CtBp_Prospero_EALSLVV_scores_rank_001_alphafold2_multimer_v3_model_2_seed_000.json]
+ allowed-tools: Read, Write, Edit, Bash
+ verified:
+-  date: 2026-09-27
++  date: 2026-10-00
+   against: AFM-LIS lis.py at commit 29144b9 dated 2026-09-26 / Python 3.11.15 / numpy 2.4.6 / scipy 1.17.1 / Zenodo record 17063524 fetched 2026-09-27 / cutoffs read from the AFM-LIS README at that commit
+   executed: 7
+   unverified: 0
