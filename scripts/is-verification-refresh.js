@@ -498,6 +498,32 @@ for (const [file, { hunks }] of files) {
     for (const k of Object.keys(hv)) {
       if (!VERIFIED_KEYS.includes(k)) refuse(`${file} puts ${JSON.stringify(k)} inside verified:, which is not one of its fields (${VERIFIED_KEYS.join(', ')})`);
     }
+    // Carried lines are exempt from the write rules above, which left removing or reordering
+    // them open. Deleting a block scalar's header folded its text into the field above —
+    // `unverified: 1` became a paragraph — and reordering continuation lines rewrote reviewed
+    // prose without writing a byte. So a field whose value changes must be rewritten whole, as
+    // the one line the write rules have already checked.
+    const segs = {};
+    let cur = null;
+    for (const l of spanLines(h.fm).slice(1)) {
+      const k = /^ {2}([A-Za-z_]+):/.exec(l)?.[1];
+      if (k) cur = k;
+      if (cur && l.trim() !== '') (segs[cur] ??= []).push(l);
+    }
+    for (const k of Object.keys(hv)) {
+      if (isMap(bv) && eq(bv[k], hv[k])) continue;
+      const seg = segs[k] ?? [];
+      if (seg.length !== 1 || !written.includes(seg[0])) {
+        refuse(`${file} changes verified.${k} without rewriting it as one line — a refresh replaces a field, it does not delete or reorder the lines of one`);
+      }
+    }
+    // Counts are counts. `executed: 1:20` is the string "1:20" to js-yaml and the number 80 to
+    // YAML 1.1's sexagesimal rule; `012` is 12 or 10 depending on who reads it.
+    for (const k of ['executed', 'unverified']) {
+      if (!Object.hasOwn(hv, k) || (isMap(bv) && eq(bv[k], hv[k]))) continue;
+      const v = /^ {2}[a-z_]+: (.*)$/.exec(segs[k]?.[0] ?? '')?.[1];
+      if (!/^(0|[1-9]\d*)$/.test(v ?? '')) refuse(`${file} verified.${k} is ${JSON.stringify(v ?? null)}, not a whole number`);
+    }
     // The one date the gate still reads, and the only one that is definitionally an observation
     // stamp. Checked against this process's clock, which does not travel in the diff.
     const nd = asDate(hv.date), od = isMap(bv) ? asDate(bv.date) : null;

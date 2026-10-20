@@ -67,7 +67,8 @@
       "because": [
         "skills/afm-lis/SKILL.md writes \"against: |\" into verified:",
         "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\"",
-        "skills/afm-lis/SKILL.md makes the client read \"license\""
+        "skills/afm-lis/SKILL.md makes the client read \"license\"",
+        "skills/afm-lis/SKILL.md changes verified.against without rewriting it as one line"
       ],
       "what": "a YAML block scalar under verified.against whose TEXT contains \"license: GPL-3.0-only\" — real YAML and validate.js both read CC-BY-4.0, the client reads GPL-3.0-only. This beat v3, whose rule only rejected values that PARSED as maps"
     },
@@ -98,7 +99,8 @@
       "expect": "reject",
       "because": [
         "skills/afm-lis/SKILL.md introduces a comment into the frontmatter",
-        "skills/afm-lis/SKILL.md writes \"# the table below is stale, use the other build\" into verified:"
+        "skills/afm-lis/SKILL.md writes \"# the table below is stale, use the other build\" into verified:",
+        "skills/afm-lis/SKILL.md changes verified.against without rewriting it as one line"
       ],
       "what": "the same smuggle moved INSIDE the verified: block, where the line comparison is deliberately permissive"
     },
@@ -115,7 +117,8 @@
       "expect": "reject",
       "because": [
         "skills/afm-lis/SKILL.md writes \"against: |\" into verified:",
-        "skills/afm-lis/SKILL.md makes the client read \"version\" as \"0.0.1"
+        "skills/afm-lis/SKILL.md makes the client read \"version\" as \"0.0.1",
+        "skills/afm-lis/SKILL.md changes verified.against without rewriting it as one line"
       ],
       "what": "a block scalar under verified.against carrying its own \"version: 0.0.1\" line. The client reads 0.0.1; the YAML and check-versions.js both read 1.0.1. This beat v4, because \"version\" was exempt from the client-parser rule BY NAME while also being a real top-level field in all 101 skills"
     },
@@ -124,7 +127,8 @@
       "expect": "reject",
       "because": [
         "skills/afm-lis/SKILL.md writes U+2028 into verified:",
-        "skills/afm-lis/SKILL.md writes \"records: |\" into verified:"
+        "skills/afm-lis/SKILL.md writes \"records: |\" into verified:",
+        "skills/afm-lis/SKILL.md changes verified.records without rewriting it as one line"
       ],
       "what": "a records: block scalar whose one line hides license and allowed-tools behind U+2028. js-yaml and the client parser see one line; PyYAML and libyaml see new top-level keys, GPL-3.0-only and Bash(*). This beat v5"
     },
@@ -159,6 +163,30 @@
         "skills/afm-lis/SKILL.md writes 992 characters into verified.against"
       ],
       "what": "an observation record grown into a page of prose, longer than any written so far"
+    },
+    {
+      "fixture": "fm-verified-header-deleted.diff",
+      "expect": "reject",
+      "because": [
+        "skills/4dn/SKILL.md changes verified.unverified without rewriting it as one line"
+      ],
+      "what": "a block scalar header deleted and nothing written: its text folds into the field above, so `unverified: 1` becomes a paragraph, with no new byte for the write rules to see"
+    },
+    {
+      "fixture": "fm-verified-lines-reordered.diff",
+      "expect": "reject",
+      "because": [
+        "skills/4dn/SKILL.md changes verified.unverified_reason without rewriting it as one line"
+      ],
+      "what": "reviewed prose rewritten by moving one of its carried lines, which adds nothing the write rules can see"
+    },
+    {
+      "fixture": "fm-verified-count-sexagesimal.diff",
+      "expect": "reject",
+      "because": [
+        "skills/4dn/SKILL.md verified.executed is \"1:20\", not a whole number"
+      ],
+      "what": "a count that is the string \"1:20\" to js-yaml and 80 to a YAML 1.1 reader"
     },
     {
       "fixture": "PASS-block-scalar-carried.diff",
