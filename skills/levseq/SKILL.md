@@ -53,10 +53,11 @@ Roughly 1 GB of disk for the worked example here, and about 2 minutes of CPU per
 Upstream recommends `conda install -c bioconda -c conda-forge samtools minimap2` inside a
 conda environment, or the published Docker images (`yueminglong/levseq:levseq-1.5.1-x86` and
 `…-arm64`), which carry the binaries already. On Debian or Ubuntu the distribution packages
-work and need no conda:
+work and need no conda. Installing them needs root; drop the `sudo` if you already are root,
+as in most containers:
 
 ```bash
-apt-get update -qq && apt-get install -y -qq samtools minimap2
+sudo apt-get update -qq && sudo apt-get install -y -qq samtools minimap2
 python3 -m venv ~/levseq-env
 ~/levseq-env/bin/pip install -q "levseq==1.5.1" "pandas<3"
 ```
@@ -170,7 +171,7 @@ PY
 
 A well's `amino_acid_substitutions` is either a substitution string like `C42R_G90V_K123N_L173F`
 — one-letter reference residue, 1-based residue number, one-letter observed residue, joined by
-underscores — or one of four markers. Knowing which is which decides whether a blank well is a
+underscores — or one of five markers. Knowing which is which decides whether a blank well is a
 failed prep or a real result:
 
 | marker | meaning |
@@ -315,7 +316,8 @@ reachable on 2026-10-20. Only plate 1 is used here, which takes about two minute
 ```bash
 set -e
 WORKDIR=$(mktemp -d) && cd "$WORKDIR"
-apt-get install -y -qq samtools minimap2 >/dev/null 2>&1 || true
+command -v samtools >/dev/null && command -v minimap2 >/dev/null \
+  || { echo "need samtools and minimap2 on PATH — see Install" >&2; exit 1; }
 python3 -m venv env
 ./env/bin/pip install -q "levseq==1.5.1" "pandas<3"
 curl -sL --retry 3 --retry-delay 2 -o ep2.fastq.zip \
