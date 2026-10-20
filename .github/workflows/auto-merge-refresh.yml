@@ -66,12 +66,24 @@ jobs:
 
             // workflow_run.pull_requests is populated for same-repo PRs, but fall back to a
             // search by head SHA rather than trusting it to be there.
-            let number = (context.payload.workflow_run.pull_requests ?? [])[0]?.number;
-            if (!number) {
+            //
+            // Either way this binds to a COMMIT, and one commit can sit in more than one open
+            // PR. `validate` is base-sensitive — check-versions.js compares against the PR's
+            // base — so the same head can pass on one PR and fail on another, and picking the
+            // first match could certify the PR that was validated while merging a different
+            // one. More than one candidate is therefore a refusal, not a choice.
+            const fromEvent = (context.payload.workflow_run.pull_requests ?? []).map((p) => p.number);
+            let candidates = fromEvent;
+            if (!candidates.length) {
               const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
-              number = data.find((p) => p.state === 'open')?.number;
+              candidates = data.filter((p) => p.state === 'open').map((p) => p.number);
             }
-            if (!number) { core.info('no open PR for this SHA — nothing to consider'); return; }
+            if (!candidates.length) { core.info('no open PR for this SHA — nothing to consider'); return; }
+            if (candidates.length > 1) {
+              core.info(`not a candidate: ${sha.slice(0, 7)} belongs to ${candidates.length} open PRs (${candidates.join(', ')}) — refusing rather than guessing which one was validated`);
+              return;
+            }
+            const number = candidates[0];
 
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
             const labels = pr.labels.map((l) => l.name);
@@ -87,9 +99,13 @@ jobs:
             // The PR author is the bot, but on a `synchronize` anyone with push access can have
             // added commits to its branch and the author stays the bot. Every commit must be the
             // bot's, or this is somebody else's content riding the bot's PR.
-            const { data: commits } = await github.rest.pulls.listCommits({ owner, repo, pull_number: number, per_page: 100 });
+            //
+            // PAGINATED. A single per_page:100 call checked only the first hundred commits, so a
+            // longer branch could satisfy this with unverified history — the check would have
+            // reported "all clear" on a list it had not finished reading.
+            const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: number, per_page: 100 });
             const alien = commits.filter((c) => c.author?.login !== 'heureka-labs-skills-bot[bot]');
-            if (alien.length) why.push(`${alien.length} commit(s) not authored by the bot (${alien.map((c) => c.author?.login ?? 'unknown').join(', ')})`);
+            if (alien.length) why.push(`${alien.length} of ${commits.length} commit(s) not authored by the bot (${[...new Set(alien.map((c) => c.author?.login ?? 'unknown'))].join(', ')})`);
 
             if (why.length) { core.info(`not a candidate: ${why.join('; ')}`); return; }
             core.setOutput('number', String(number));
