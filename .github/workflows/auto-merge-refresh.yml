@@ -3,8 +3,8 @@ name: Auto-merge a verification refresh
 # Merges, with no human, a nightshift PR that changes NOTHING a reader acts on — only when it
 # was checked and what against. Everything else is left for review.
 #
-# Three adversarial reviews found nineteen ways past the first three versions of this. Six were
-# in this file rather than in the gate, and each fix below is named for the one it closes. The
+# Five adversarial reviews found the ways past the first five versions of this — some in this
+# file rather than in the gate — and each fix below is named for the one it closes. The
 # generated fixtures under .github/fixtures/refresh-gate/ are the other half of the record, and
 # scripts/refresh-gate-selftest.js asserts the full reason set the gate gives for each — not just
 # that it refused.
@@ -95,6 +95,9 @@ jobs:
             if (!labels.includes('origin:nightly')) why.push('not labelled origin:nightly');
             if (!labels.includes('change:update')) why.push('not labelled change:update');
             if (labels.includes('hold')) why.push('hold label present');
+            // A write user could retarget a bot PR at a branch whose gate always says yes, then
+            // re-run Validate; that branch's code would run here holding the write token.
+            if (pr.base.ref !== context.payload.repository.default_branch) why.push(`base is ${pr.base.ref}, not ${context.payload.repository.default_branch}`);
 
             // The PR author is the bot, but on a `synchronize` anyone with push access can have
             // added commits to its branch and the author stays the bot. Every commit must be the
@@ -112,10 +115,17 @@ jobs:
             // the account the email belongs to. The nightshift's commits are created through the
             // GitHub API and come back verified=true/reason=valid; a commit pushed from a laptop
             // with a borrowed email does not.
+            //
+            // BUT a signature is checked against the COMMITTER, not the author (round 5). A
+            // collaborator with a registered key could keep their own committer identity, set the
+            // author email to the App's, sign, and pass both checks. Every commit the API creates
+            // for the bot is committed by `web-flow`, so that is required too.
             const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: number, per_page: 100 });
             const alien = commits.filter((c) => c.author?.login !== 'heureka-labs-skills-bot[bot]');
             if (alien.length) why.push(`${alien.length} of ${commits.length} commit(s) not authored by the bot (${[...new Set(alien.map((c) => c.author?.login ?? 'unknown'))].join(', ')})`);
             const unsigned = commits.filter((c) => c.commit?.verification?.verified !== true);
+            const relayed = commits.filter((c) => c.committer?.login !== 'web-flow');
+            if (relayed.length) why.push(`${relayed.length} of ${commits.length} commit(s) not committed through the GitHub API (${[...new Set(relayed.map((c) => c.committer?.login ?? 'unknown'))].join(', ')})`);
             if (unsigned.length) why.push(`${unsigned.length} of ${commits.length} commit(s) not signed by GitHub (${[...new Set(unsigned.map((c) => c.commit?.verification?.reason ?? 'unknown'))].join(', ')})`);
 
             if (why.length) { core.info(`not a candidate: ${why.join('; ')}`); return; }
@@ -199,10 +209,14 @@ jobs:
             const { owner, repo } = context.repo;
             const ref = process.env.HEAD_SHA;
             for (let i = 0; i < 40; i++) {
-              const { data } = await github.rest.checks.listForRef({ owner, repo, ref, per_page: 100 });
-              const by = Object.fromEntries(data.check_runs.map((c) => [c.name, c.conclusion ?? 'pending']));
-              if (by.check && by.check !== 'pending') {
-                if (by.check === 'failure') core.setFailed('the dataset check is failing — declining; a human should look');
+              // filter:'latest' — a re-run leaves several `check` entries, and an older one must
+              // not stand in for the newest.
+              const { data } = await github.rest.checks.listForRef({ owner, repo, ref, check_name: 'check', filter: 'latest', per_page: 100 });
+              const run = data.check_runs[0];
+              if (run && run.status === 'completed') {
+                // Only `success` proceeds. cancelled, timed_out, action_required, stale, neutral
+                // and skipped are all states nobody judged, and an unknown state is a decline.
+                if (run.conclusion !== 'success') core.setFailed(`the dataset check concluded ${run.conclusion} — declining; a human should look`);
                 return;
               }
               await new Promise((r) => setTimeout(r, 30000));
@@ -277,9 +291,12 @@ jobs:
             //
             // What still has to hold for a merge: `validate`, the only required context and the
             // thing that triggered this run; the branch being up to date, since protection is
-            // `strict`; and every review conversation resolved — required_conversation_resolution
-            // is deliberately KEPT, so one comment from a human on a refresh PR still blocks this,
-            // and it is the brake a human can pull without holding any repo permissions.
+            // `strict`; and every review thread resolved — required_conversation_resolution is
+            // deliberately KEPT. It counts REVIEW THREADS only, comments on a line of the diff; a
+            // top-level PR comment blocks nothing. And it only works if pulled before `validate`
+            // and the dataset check finish, which can be minutes. The brake to rely on is the
+            // `hold` label, re-read just before merge(); a comment on the diff is the one a
+            // reader without repo permissions can still pull.
             //
             // Still unobserved: no refresh PR has ever reached merge() on any version of this
             // workflow, so the first live run is also the first test of the merge call itself.

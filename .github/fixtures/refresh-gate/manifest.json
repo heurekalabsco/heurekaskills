@@ -65,6 +65,7 @@
       "fixture": "fm-block-scalar-smuggles-key.diff",
       "expect": "reject",
       "because": [
+        "skills/afm-lis/SKILL.md writes \"against: |\" into verified:",
         "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\"",
         "skills/afm-lis/SKILL.md makes the client read \"license\""
       ],
@@ -74,6 +75,7 @@
       "fixture": "fm-nested-key-direct.diff",
       "expect": "reject",
       "because": [
+        "skills/afm-lis/SKILL.md writes \"license: GPL-3.0-only\" into verified:",
         "skills/afm-lis/SKILL.md changes what the client's frontmatter parser reads for \"license\"",
         "skills/afm-lis/SKILL.md makes the client read \"license\"",
         "skills/afm-lis/SKILL.md puts \"license\" inside verified:"
@@ -95,7 +97,8 @@
       "fixture": "fm-comment-inside-verified.diff",
       "expect": "reject",
       "because": [
-        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter"
+        "skills/afm-lis/SKILL.md introduces a comment into the frontmatter",
+        "skills/afm-lis/SKILL.md writes \"# the table below is stale, use the other build\" into verified:"
       ],
       "what": "the same smuggle moved INSIDE the verified: block, where the line comparison is deliberately permissive"
     },
@@ -111,9 +114,56 @@
       "fixture": "fm-version-smuggled-via-block-scalar.diff",
       "expect": "reject",
       "because": [
+        "skills/afm-lis/SKILL.md writes \"against: |\" into verified:",
         "skills/afm-lis/SKILL.md makes the client read \"version\" as \"0.0.1"
       ],
       "what": "a block scalar under verified.against carrying its own \"version: 0.0.1\" line. The client reads 0.0.1; the YAML and check-versions.js both read 1.0.1. This beat v4, because \"version\" was exempt from the client-parser rule BY NAME while also being a real top-level field in all 101 skills"
+    },
+    {
+      "fixture": "fm-yaml11-line-separator-block.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes U+2028 into verified:",
+        "skills/afm-lis/SKILL.md writes \"records: |\" into verified:"
+      ],
+      "what": "a records: block scalar whose one line hides license and allowed-tools behind U+2028. js-yaml and the client parser see one line; PyYAML and libyaml see new top-level keys, GPL-3.0-only and Bash(*). This beat v5"
+    },
+    {
+      "fixture": "fm-yaml11-next-line-plain.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes U+0085 into verified:"
+      ],
+      "what": "U+0085 (NEL), a YAML 1.1 line break that js-yaml reads as an ordinary character, inside an ordinary one-line against: value. js-yaml and every layout rule accept it, so the character rule is the only one that sees a value a YAML 1.1 reader splits"
+    },
+    {
+      "fixture": "fm-verified-url.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md puts a URL in verified.against"
+      ],
+      "what": "a download location written into the observation record, which merges without review and is published in the raw file"
+    },
+    {
+      "fixture": "fm-verified-backticks.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md puts backticks in verified.against"
+      ],
+      "what": "a command written into the observation record for an agent to copy"
+    },
+    {
+      "fixture": "fm-verified-too-long.diff",
+      "expect": "reject",
+      "because": [
+        "skills/afm-lis/SKILL.md writes 992 characters into verified.against"
+      ],
+      "what": "an observation record grown into a page of prose, longer than any written so far"
+    },
+    {
+      "fixture": "PASS-block-scalar-carried.diff",
+      "expect": "accept",
+      "what": "a refresh of a skill whose unverified_reason is already a block scalar, left untouched. 36 skills hold one; the write rules apply to lines a refresh adds, not to lines it carries"
     },
     {
       "fixture": "fm-verified-date-impossible.diff",
@@ -187,6 +237,7 @@
       "fixture": "fm-unparseable-yaml.diff",
       "expect": "reject",
       "because": [
+        "skills/afm-lis/SKILL.md writes \"executed: 7\" into verified:",
         "skills/afm-lis/SKILL.md frontmatter is not parseable YAML"
       ],
       "what": "indentation broken inside the verified: block, which the line comparison permits and YAML does not"

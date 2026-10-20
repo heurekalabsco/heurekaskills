@@ -347,6 +347,67 @@ for (const [file, { hunks }] of files) {
     }
   }
 
+  // ---- what a refresh may WRITE inside verified: ----
+  // Every rule above compares the two parsers this gate has, and that is how v5 was beaten.
+  // YAML 1.1 parsers — PyYAML, libyaml (Ruby Psych, serde_yaml), go-yaml — treat U+2028, U+2029
+  // and U+0085 as line breaks; js-yaml (1.2) and parseFrontmatterNaive do not. So a
+  // `records: |` block whose one physical line read
+  // `against: <U+2028>license: GPL-3.0-only<U+2028>allowed-tools: Bash(*)` was invisible to both
+  // parsers here while every 1.1 consumer read a new licence and an unrestricted tool grant.
+  // Adding a third parser loses to the fourth, so constrain the BYTES a refresh may introduce
+  // instead: any line of the verified: span that is not already in the base must be one field,
+  // one line, a plain scalar, printable ASCII plus the dashes the registry already uses. That
+  // also rules out the block scalar every multi-line smuggle so far has needed. Lines carried
+  // over unchanged are exempt — 36 skills already hold block scalars here, and leaving one
+  // untouched adds nothing.
+  //
+  // The free-text fields are the other half. A refresh merges without review, so `against`,
+  // `unverified_reason` and `records` were an unreviewed channel for instructions and URLs into
+  // the published file. The cap is what an observation record needs and no more: no URL, no
+  // backticks (nothing to copy and run), and no longer than the longest one written so far.
+  const spanLines = (fm) => {
+    const lines = fm.split('\n');
+    const start = lines.findIndex((l) => /^verified:/.test(l));
+    if (start === -1) return [];
+    let end = start + 1;
+    while (end < lines.length && /^(\s+\S|\s*$)/.test(lines[end])) end++;
+    return lines.slice(start, end);
+  };
+  const SAFE_TEXT = /^[\x20-\x7E–—]*$/;
+  const FIELD_LINE = new RegExp(`^  (${VERIFIED_KEYS.join('|')}): ([^\\s|>"'&*!\\[{%@\`#].*)$`, 's');
+  const FREE_TEXT = new Set(['against', 'unverified_reason', 'records']);
+  const FREE_TEXT_MAX = 900;
+  // One refusal per rule per file: the first offending line names the problem, and a block
+  // scalar would otherwise report every one of its lines.
+  const carried = new Map();
+  for (const l of spanLines(b.fm)) carried.set(l, (carried.get(l) ?? 0) + 1);
+  const written = spanLines(h.fm).filter((l) => {
+    const n = carried.get(l) ?? 0;
+    if (n > 0) { carried.set(l, n - 1); return false; }
+    return l.trim() !== '';
+  });
+  const unsafe = written.find((l) => !SAFE_TEXT.test(l));
+  if (unsafe !== undefined) {
+    const odd = [...unsafe].find((c) => !SAFE_TEXT.test(c));
+    refuse(`${file} writes U+${odd.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')} into verified: — `
+      + `a refresh writes printable ASCII, and YAML 1.1 parsers read U+2028, U+2029 and U+0085 as line breaks`);
+  }
+  // The `verified:` line itself is left to the rules that already own it — the comment check
+  // above, and the record-erasure check below.
+  const fields = written.filter((l) => !/^verified:/.test(l));
+  const shapeless = fields.find((l) => !FIELD_LINE.test(l));
+  if (shapeless !== undefined) {
+    refuse(`${file} writes ${JSON.stringify(shapeless.trim().slice(0, 56))} into verified: — a refresh writes `
+      + `one "  field: value" line per field, with no block scalars, quoting or continuation lines`);
+  }
+  const free = fields.map((l) => FIELD_LINE.exec(l)).filter((m) => m && FREE_TEXT.has(m[1]));
+  const url = free.find((m) => m[2].includes('://'));
+  if (url) refuse(`${file} puts a URL in verified.${url[1]} — an observation record names versions, not places to fetch from`);
+  const tick = free.find((m) => m[2].includes('`'));
+  if (tick) refuse(`${file} puts backticks in verified.${tick[1]} — an observation record holds no commands`);
+  const long = free.find((m) => m[2].length > FREE_TEXT_MAX);
+  if (long) refuse(`${file} writes ${long[2].length} characters into verified.${long[1]}, over the ${FREE_TEXT_MAX} a refresh may carry`);
+
   // ---- frontmatter, by the parser the registry build uses ----
   let bf, hf;
   try { bf = yaml.load(b.fm); hf = yaml.load(h.fm); }
