@@ -4,12 +4,12 @@ description: Retrieve variant-trait associations from the NHGRI-EBI GWAS Catalog
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.1.1
 tags: [gwas, human-genetics, epidemiology, cohort, public-data]
 covers: [gwas, genome-wide association study, snp, rsid, variant, risk allele, trait association, efo, mondo, oba, ontology, p-value, odds ratio, effect size, beta, ancestry, european ancestry, east asian ancestry, african ancestry, summary statistics, type 2 diabetes, coronary artery disease, schizophrenia, body mass index, height, eye color, replication, gcst accession, nhgri, human genetics]
 papers: [PMID:19474294, PMID:24316577, PMID:30445434, PMID:36350656, PMID:39530240, PMID:33692100]
 access: [open]
-datasets: [https://www.ebi.ac.uk/gwas/rest/api/v2/metadata, https://www.ebi.ac.uk/gwas/rest/api/v2/studies?size=1, https://www.ebi.ac.uk/gwas/rest/api/v2/studies/GCST012219, https://www.ebi.ac.uk/gwas/rest/api/v2/studies/GCST012219/ancestries, https://www.ebi.ac.uk/gwas/rest/api/v2/associations?accession_id=GCST012219&size=100, https://www.ebi.ac.uk/gwas/rest/api/v2/associations/6036/loci, https://www.ebi.ac.uk/gwas/rest/api/v2/associations/35123593/loci, https://www.ebi.ac.uk/gwas/rest/api/v2/efo-traits?efo_trait=eye%20color&size=20, https://www.ebi.ac.uk/gwas/rest/api/v2/efo-traits/EFO_0003949, https://www.ebi.ac.uk/gwas/rest/api/v2/single-nucleotide-polymorphisms/rs10830963, https://www.ebi.ac.uk/gwas/rest/api/v2/single-nucleotide-polymorphisms/rs10830963/genomic-contexts, https://ftp.ebi.ac.uk/pub/databases/gwas/releases/latest/gwas-catalog-ancestry.tsv]
+datasets: [https://www.ebi.ac.uk/gwas/rest/api/v2/metadata, 'https://www.ebi.ac.uk/gwas/rest/api/v2/studies?size=1', https://www.ebi.ac.uk/gwas/rest/api/v2/studies/GCST012219, https://www.ebi.ac.uk/gwas/rest/api/v2/studies/GCST012219/ancestries, 'https://www.ebi.ac.uk/gwas/rest/api/v2/associations?accession_id=GCST012219&size=100', https://www.ebi.ac.uk/gwas/rest/api/v2/associations/6036/loci, https://www.ebi.ac.uk/gwas/rest/api/v2/associations/35123593/loci, 'https://www.ebi.ac.uk/gwas/rest/api/v2/efo-traits?efo_trait=eye%20color&size=20', https://www.ebi.ac.uk/gwas/rest/api/v2/efo-traits/EFO_0003949, https://www.ebi.ac.uk/gwas/rest/api/v2/single-nucleotide-polymorphisms/rs10830963, https://www.ebi.ac.uk/gwas/rest/api/v2/single-nucleotide-polymorphisms/rs10830963/genomic-contexts, https://ftp.ebi.ac.uk/pub/databases/gwas/releases/latest/gwas-catalog-ancestry.tsv]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-10-07
