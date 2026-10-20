@@ -111,8 +111,8 @@ That writes `out/6y1l_HL.csv` — one row per scored residue, 27 columns:
 | `assumed_region` | IMGT region label, or empty |
 | `A` … `Y` | log probability for each of the 20 amino acids, in alphabetical order |
 
-**The README names four of these differently.** It documents `aa_orig` and `aa_pred` and
-omits `assumed_region`; the code emits `pdb_res`, `top_res` and `assumed_region`, in a
+**The README names two of these differently and omits a third.** It documents `aa_orig` and
+`aa_pred` and omits `assumed_region`; the code emits `pdb_res`, `top_res` and `assumed_region`, in a
 different column order. Read the header, not the README. The twenty amino-acid columns are a
 log-softmax, so `exp()` across a row sums to 1 and `top_res` is always the argmax of that
 row — both cheap things to assert if you are building on top of the file.
@@ -355,18 +355,20 @@ assert fv.pdb_pos.max() <= 128 and ch.pdb_pos.min() > 128, "assumed_region marks
 assert len(ch) > 0, "6Y1L is a Fab, so the constant domain is scored and unlabelled"
 assert fv.perplexity.mean() < ch.perplexity.mean(), "the model is out of domain above 128"
 for h in samples:
-    assert all(m.startswith("H:") and 105 <= int(m[3:-1]) <= 117 for m in muts(h)), \
+    assert all((p := re.match(r"H:[A-Z](\d+)", m)) and 105 <= int(p.group(1)) <= 117
+               for m in muts(h)), \
         "--regions CDRH3 confines every mutation to heavy-chain IMGT 105-117"
     assert abs(num(h, "seq_recovery") - (1 - len(muts(h)) / len(df))) < 5e-5, \
         "seq_recovery divides by every scored residue, not by the designed region"
-    assert num(h, "global_score") < num(native, "global_score"), \
-        "lower is better, and sampling at T=0.2 improves on the native sequence"
 assert num(native, "score") == num(native, "global_score"), \
     "the native record prints the global score twice"
 assert hashlib.sha256(open(A.ANTIFOLD_WEIGHTS_PATH, "rb").read()).hexdigest() \
     == A.ANTIFOLD_WEIGHTS_SHA256, "weights match the hash the project pins"
 
 # observed values — AntiFold 9918344 on 2026-10-19; drift to re-record, not failures
+# Lower is better, and on this structure and seed every T=0.2 sample beat the native score.
+# That is an outcome of the sampling, not a property of the method.
+assert all(num(h, "global_score") < num(native, "global_score") for h in samples)
 assert (len(df), len(fv), len(ch)) == (440, 226, 214)
 assert abs((df.top_res == df.pdb_res).mean() - 0.6886) < 5e-4
 assert abs((fv.top_res == fv.pdb_res).mean() - 0.9071) < 5e-4
