@@ -260,29 +260,29 @@ jobs:
               core.info('marked ready for review');
             }
 
-            // NO APPROVAL, AND SO — AS OF THIS COMMIT — NO MERGE EITHER. Read this before
-            // believing the question is settled, because an earlier version of this comment
-            // claimed it was.
+            // NO APPROVAL STEP, AND AS OF 2026-10-20 NONE IS NEEDED — BUT THIS PATH HAS STILL
+            // NEVER RUN. Read this before believing the question is settled; two earlier versions
+            // of this comment claimed it was, in opposite directions.
             //
             // The organisation forbids Actions from creating or approving pull requests, so
             // createReview({event:'APPROVE'}) on GITHUB_TOKEN threw 422 and aborted this step
-            // before merge() was ever reached: the merge path has never run, on any version of
-            // this workflow. Enabling it is not available per-repo either — the repo-level
-            // setting returns 409 while the org policy stands, and that policy covers all thirty
-            // repos in the org.
+            // before merge() was ever reached. Enabling it is not available per-repo either — the
+            // repo-level setting returns 409 while the org policy stands, and that policy covers
+            // every repo in the org. So the approval was removed rather than fixed, and on
+            // 2026-10-20 the review requirement was dropped from `main` instead:
+            // required_pull_request_reviews is now ABSENT from that branch's protection. That was
+            // a deliberate trade — the repo is docs-only and every change is one revert away —
+            // and the gate in scripts/is-verification-refresh.js is the control that replaced the
+            // reviewer. If that gate is wrong, nothing downstream of here will catch it.
             //
-            // So the approval was removed rather than fixed, on the plan that `main` would stop
-            // requiring one. THAT HAS NOT HAPPENED YET: protection on `main` still carries
-            // required_approving_review_count: 1. Until it is dropped, pulls.merge() below will
-            // be refused for want of a review that nothing here can supply, the catch will post
-            // "it needs a human", and the job will fail. That is the safe direction, but it is
-            // the feature not working — not the feature being safe.
+            // What still has to hold for a merge: `validate`, the only required context and the
+            // thing that triggered this run; the branch being up to date, since protection is
+            // `strict`; and every review conversation resolved — required_conversation_resolution
+            // is deliberately KEPT, so one comment from a human on a refresh PR still blocks this,
+            // and it is the brake a human can pull without holding any repo permissions.
             //
-            // What has to hold for a merge once that requirement is gone: `validate`, a required
-            // context and the thing that triggered this run; the branch being up to date, since
-            // protection is `strict`; and every review conversation resolved —
-            // required_conversation_resolution is deliberately KEPT, so a single comment from a
-            // human on a refresh PR still blocks this.
+            // Still unobserved: no refresh PR has ever reached merge() on any version of this
+            // workflow, so the first live run is also the first test of the merge call itself.
             //
             // The record goes on the PR afterwards, in one comment, saying what actually happened.
             // v1 announced the merge in the PAST TENSE before calling merge(), so a merge that
