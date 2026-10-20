@@ -34,8 +34,10 @@ permissions:
   checks: read
 
 concurrency:
-  # Keyed on the head SHA, and NOT cancel-in-progress: a run cancelled between approving and
-  # merging would leave an approval standing on a PR nothing merged.
+  # Keyed on the head SHA, and NOT cancel-in-progress: cancelling a run partway through the
+  # merge step would leave the PR in a state nothing had finished deciding, and the run that
+  # replaced it would start from the gate again anyway. Two runs on one SHA is harmless — the
+  # second finds the PR already merged and stops.
   group: auto-merge-refresh-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
@@ -231,29 +233,34 @@ jobs:
               core.info('marked ready for review');
             }
 
-            // Branch protection requires an approving review, so the approval has to come first.
-            // v1's approval announced the merge in the PAST TENSE before calling merge(), so a
-            // merge that then failed left a PR saying it had been merged autonomously. This one
-            // states only what the gate found; the outcome is posted once it is known.
-            await github.rest.pulls.createReview({
-              owner, repo, pull_number, event: 'APPROVE', commit_id: sha,
-              body: [
-                '**Verification refresh — approved for autonomous merge.**',
-                '',
-                'The page itself is byte-identical. Only the `verified:` block and a `version:` bump',
-                'changed, the frontmatter parses to the same values the client read before, and the',
-                'verification record kept every field it had.',
-                '',
-                'The gate ran from `' + pr.base.ref + '` at `' + baseSha.slice(0, 7) + '`, not from this',
-                'branch, and judged exactly `' + sha.slice(0, 7) + '`.',
-                '',
-                '```json',
-                JSON.stringify(verdict, null, 2),
-                '```',
-                '',
-                'To stop this on a future PR, add the `hold` label.',
-              ].join('\n'),
-            });
+            // NO APPROVAL. `main` no longer requires an approving review, so this path does not
+            // need one — which removed the credential problem rather than solving it. The
+            // organisation forbids Actions from approving pull requests at all, so
+            // createReview({event:'APPROVE'}) on GITHUB_TOKEN threw 422 and aborted this step
+            // before merge() ever ran: the path was dead code for as long as it existed. The only
+            // alternatives were relaxing that policy across all thirty repos in the org, or
+            // keeping a separate App key in this public repo's secrets.
+            //
+            // What still has to hold for a merge: `validate`, a required context and the thing
+            // that triggered this run; the branch being up to date, since protection is `strict`;
+            // and every review conversation resolved — `required_conversation_resolution` is
+            // deliberately KEPT, so a single comment from a human on a refresh PR blocks this.
+            //
+            // The record goes on the PR afterwards, in one comment, saying what actually happened.
+            // v1 announced the merge in the PAST TENSE before calling merge(), so a merge that
+            // then failed left a PR claiming it had been merged autonomously.
+            const record = [
+              'The page itself is byte-identical. Only the `verified:` block and a `version:` bump',
+              'changed, the frontmatter parses to the same values the client read before, and the',
+              'verification record kept every field it had.',
+              '',
+              'The gate ran from `' + pr.base.ref + '` at `' + baseSha.slice(0, 7) + '`, not from this',
+              'branch, and judged exactly `' + sha.slice(0, 7) + '`.',
+              '',
+              '```json',
+              JSON.stringify(verdict, null, 2),
+              '```',
+            ].join('\n');
 
             // No updateBranch. v1 called it and then merged with no `sha:`, which could land a
             // commit neither the gate nor the checks had seen. If the branch is behind, the merge
@@ -263,11 +270,13 @@ jobs:
               ({ data: merged } = await github.rest.pulls.merge({ owner, repo, pull_number, sha, merge_method: 'squash' }));
             } catch (e) {
               await github.rest.issues.createComment({ owner, repo, issue_number: pull_number,
-                body: `The gate approved this as a verification refresh, but the merge did not go through: \`${e.message}\`\n\nNothing was merged. It needs a human.` });
+                body: `**The gate certified this as a verification refresh, but the merge did not go through.**\n\n\`${e.message}\`\n\nNothing was merged. It needs a human.\n\n${record}` });
               core.setFailed(`merge refused: ${e.message}`);
               return;
             }
 
             await github.rest.issues.createComment({ owner, repo, issue_number: pull_number,
-              body: `Merged without a human as a verification refresh: \`${merged.sha.slice(0, 7)}\` on \`${pr.base.ref}\`.\n\nTo undo: \`git revert ${merged.sha.slice(0, 7)}\`.` });
+              body: `**Merged with no human review: verification refresh.**\n\n`
+                + `Squashed as \`${merged.sha.slice(0, 7)}\` on \`${pr.base.ref}\`.\n\n${record}\n\n`
+                + `To undo: \`git revert ${merged.sha.slice(0, 7)}\`. To stop this on a future PR, add the \`hold\` label.` });
             core.info(`merged #${pull_number} at ${sha} as ${merged.sha}`);
