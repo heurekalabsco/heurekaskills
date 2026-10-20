@@ -4,10 +4,10 @@ description: Propose suggested reviewers for a manuscript submission, grouped so
 category: utility
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [publishing, peer-review, openalex, bibliometrics]
 covers: [suggested reviewers, reviewer selection, peer review, referee, conflict of interest, coi, cover letter, manuscript submission, editorial, expertise matching, coauthor screen, openalex, bibliometrics]
-datasets: [https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=41350470&retmode=xml, https://api.openalex.org/works/doi:10.1038/s42255-025-01410-x]
+datasets: ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=41350470&retmode=xml', https://api.openalex.org/works/doi:10.1038/s42255-025-01410-x]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-25

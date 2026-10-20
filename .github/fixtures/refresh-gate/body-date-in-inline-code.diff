@@ -1,0 +1,13 @@
+diff --git a/skills/cellxgene-census/SKILL.md b/skills/cellxgene-census/SKILL.md
+index c237ef9..5b00853 100644
+--- a/skills/cellxgene-census/SKILL.md
++++ b/skills/cellxgene-census/SKILL.md
+@@ -1073,7 +1073,7 @@ mangled and the read aborts partway through. Three things that matter when you s
+ - Always specify `census_version` explicitly
+ - Use same version across all analyses
+ - Check release notes for version-specific changes
+-- `stable` and `latest` are moving aliases. On 2026-08-18 `stable` was `2025-11-08` and `latest`
++- `stable` and `latest` are moving aliases. On 2026-10-19 `stable` was `2026-10-19` and `latest`
+   was `2025-11-17`; ten builds were listed, of which six carry the LTS flag. Weekly non-LTS
+   builds are deleted, so an analysis pinned to one stops resolving.
+ - Older releases have fewer collections and fewer organisms. `2023-05-15` is 562 datasets, two

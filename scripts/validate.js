@@ -123,6 +123,21 @@ for (const slug of slugs) {
     }
   }
 
+  // 1b. Frontmatter every YAML reader can parse, not only ours. js-yaml is YAML 1.2, which
+  //     allows `?` inside an unquoted flow-sequence item; YAML 1.1 parsers — PyYAML, libyaml
+  //     (Ruby, serde_yaml) — do not, and refuse the WHOLE frontmatter. On 2026-10-20 that was
+  //     16 of 101 skills, every one a query-string URL in `datasets: [...]`, so any Python
+  //     consumer of the registry could read none of their fields. Quoting the item reads the
+  //     same to every parser.
+  for (const line of (raw.match(/^---\s*\n([\s\S]*?)\n---/)?.[1] ?? '').split('\n')) {
+    const flow = /^([A-Za-z_-]+):\s*\[(.*)\]\s*$/.exec(line);
+    if (!flow) continue;
+    const bare = flow[2].split(',').map((x) => x.trim()).find((x) => x.includes('?') && !/^["']/.test(x));
+    if (bare) {
+      err(slug, `${flow[1]}: quote ${JSON.stringify(bare.slice(0, 60))} — an unquoted "?" inside [...] is valid YAML 1.2 but PyYAML and libyaml refuse the whole frontmatter. Write it as '${bare.slice(0, 40)}…'`);
+    }
+  }
+
   // 2. Identity.
   if (fm.name !== slug) err(slug, `frontmatter name "${fm.name}" must equal directory name "${slug}"`);
   if (!String(fm.description || '').trim()) err(slug, 'description is required');
@@ -527,10 +542,17 @@ for (const slug of slugs) {
     const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m) || [])[1] || '';
     for (const code of runnableBlocks(tryBody)) {
       const invoked = new Set();
-      // A local script named as a string arg, or run by an interpreter.
+      // A local script named as a string arg, or run by an interpreter — including one held
+      // in a variable. `PY=./.venv/bin/python; "$PY" code/x.py` is house style, and matched
+      // neither pattern while only literal interpreter names were recognised, so those blocks
+      // were never checked at all.
       for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) invoked.add(m[1]);
-      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript)\s+([\w./-]+\.(?:py|sh|R))/g)) invoked.add(m[1]);
+      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript|"?\$\{?[A-Za-z_]\w*\}?"?)\s+([\w./-]+\.(?:py|sh|R))/g)) invoked.add(m[1]);
+      // A block that clones a repository provisions that repository's scripts, so it is not
+      // invoking something an earlier block left behind.
+      const clones = /\bgit\s+clone\b/.test(code);
       for (const f of invoked) {
+        if (clones) continue;
         const base = f.replace(/^\.\//, '');
         const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         // Does this same block create it? open(...,"w"), Path.write_text, a heredoc, cp/mv.

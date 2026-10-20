@@ -1,0 +1,11 @@
+diff --git a/skills/afm-lis/SKILL.md b/skills/afm-lis/SKILL.md
+index 23ea351..af8fa3d 100644
+--- a/skills/afm-lis/SKILL.md
++++ b/skills/afm-lis/SKILL.md
+@@ -365,5 +365,5 @@ routes, which is what makes it a good regression case.
+ - Kim et al. 2024, the original LIS and LIA framework —
+   <https://doi.org/10.1101/2024.02.19.580970>.
+ - Worked-example data, Rovenko, Girych and Hietakangas, AlphaFold2 Multimer structural
+-  models for the CtBP-Prospero interaction — <https://doi.org/10.5281/zenodo.17063524>
++  models for the CtBP-Prospero interaction — <https://doi.org/10.1101/zenodo.17063524>
+   (CC-BY-4.0).

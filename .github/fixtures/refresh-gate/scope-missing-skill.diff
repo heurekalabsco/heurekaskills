@@ -1,0 +1,6 @@
+diff --git a/skills/does-not-exist/SKILL.md b/skills/does-not-exist/SKILL.md
+--- a/skills/does-not-exist/SKILL.md
++++ b/skills/does-not-exist/SKILL.md
+@@ -1,1 +1,1 @@
+-a
++b
