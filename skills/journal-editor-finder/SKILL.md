@@ -4,10 +4,10 @@ description: Find which of a journal's handling editors have recently handled pa
 category: utility
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [publishing, manuscript, peer-review, bibliometrics]
 covers: [handling editor, academic editor, associate editor, reviewing editor, editorial board, editor matching, preferred editor, cover letter, manuscript submission, conflict of interest, coi, crossref, europe pmc, jats, editor assignment, peer review]
-datasets: [https://api.crossref.org/journals?query=PLOS+Biology&rows=3, https://api.crossref.org/works/10.1371/journal.pbio.3003843, https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=JOURNAL%3A%22eLife%22&format=json&pageSize=1]
+datasets: ['https://api.crossref.org/journals?query=PLOS+Biology&rows=3', https://api.crossref.org/works/10.1371/journal.pbio.3003843, 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=JOURNAL%3A%22eLife%22&format=json&pageSize=1']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27

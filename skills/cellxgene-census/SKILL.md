@@ -5,12 +5,12 @@ category: data
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.0
+version: 1.2.1
 tags: [single-cell, atlas, transcriptomics, spatial, public-data]
 covers: [single-cell, scRNA-seq, spatial transcriptomics, gene expression, cell atlas, skeletal muscle aging, skeletal muscle ageing, human, mouse, marmoset, macaque, chimpanzee, brain, blood, kidney, lung, liver, heart, neuron, T cell, B cell, macrophage, COVID-19, Alzheimer disease, Visium, Slide-seqV2, Smart-seq2, h5ad, anndata, TileDB-SOMA]
 papers: [PMID:39607691, doi:10.1038/s43587-024-00613-3]
 access: [open]
-datasets: [https://census.cellxgene.cziscience.com/cellxgene-census/v1/release.json, https://datasets.cellxgene.cziscience.com/85954cff-a901-4de2-bd7f-a23b0077812b.h5ad, https://datasets.cellxgene.cziscience.com/05bd6f1d-bc18-4e6c-bac7-70f4e4ee6db9.h5ad, https://api.cellxgene.cziscience.com/curation/v1/collections?visibility=PUBLIC]
+datasets: [https://census.cellxgene.cziscience.com/cellxgene-census/v1/release.json, https://datasets.cellxgene.cziscience.com/85954cff-a901-4de2-bd7f-a23b0077812b.h5ad, https://datasets.cellxgene.cziscience.com/05bd6f1d-bc18-4e6c-bac7-70f4e4ee6db9.h5ad, 'https://api.cellxgene.cziscience.com/curation/v1/collections?visibility=PUBLIC']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-27

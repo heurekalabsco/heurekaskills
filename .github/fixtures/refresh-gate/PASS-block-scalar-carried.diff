@@ -1,18 +1,18 @@
 diff --git a/skills/4dn/SKILL.md b/skills/4dn/SKILL.md
-index 38b0e72..28fd7fa 100644
+index 3b14a04..05599fe 100644
 --- a/skills/4dn/SKILL.md
 +++ b/skills/4dn/SKILL.md
 @@ -4,7 +4,7 @@ description: Search and download 4D Nucleome chromatin architecture data — in
  category: data
  license: CC-BY-4.0
  author: Heureka Labs
--version: 1.0.0
-+version: 1.0.1
+-version: 1.0.1
++version: 1.0.2
  tags: [4dn, hi-c, chromatin, public-data, controlled-access]
  covers: [4d nucleome, in situ hi-c, micro-c, capture hi-c, hichip, chia-pet, sprite, damid, tsa-seq, repli-seq, atac-seq, chip-seq, rna-seq, dna fish, multiplexed fish, single particle tracking, chromatin architecture, chromosome conformation, topologically associating domain, chromatin loops, a/b compartments, insulation score, contact matrix, mcool, cooler, h1-hesc, gm12878, hffc6, human, mouse]
  papers: [PMID:28905911, PMID:35501320, PMID:32213324, PMID:34480151, PMID:37845234]
 @@ -13,7 +13,7 @@ platform: snovault
- datasets: [https://data.4dnucleome.org/search/?type=ExperimentSetReplicate&limit=1&format=json, https://data.4dnucleome.org/experiment-set-replicates/4DNES2M5JIGV/?format=json, https://data.4dnucleome.org/ga4gh/drs/v1/objects/4DNFI5INXRCH, https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/e6e5aea1-1df7-4422-a5a8-10b10e5cd9e0/4DNFI5INXRCH.bed.gz, https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/366724cc-de20-4c88-b9a6-c88992a88a9f/4DNFI23M4PPX.mcool, https://data.4dnucleome.org/profiles/?format=json]
+ datasets: ['https://data.4dnucleome.org/search/?type=ExperimentSetReplicate&limit=1&format=json', 'https://data.4dnucleome.org/experiment-set-replicates/4DNES2M5JIGV/?format=json', https://data.4dnucleome.org/ga4gh/drs/v1/objects/4DNFI5INXRCH, https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/e6e5aea1-1df7-4422-a5a8-10b10e5cd9e0/4DNFI5INXRCH.bed.gz, https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/366724cc-de20-4c88-b9a6-c88992a88a9f/4DNFI23M4PPX.mcool, 'https://data.4dnucleome.org/profiles/?format=json']
  allowed-tools: Read, Write, Edit, Bash
  verified:
 -  date: 2026-08-27

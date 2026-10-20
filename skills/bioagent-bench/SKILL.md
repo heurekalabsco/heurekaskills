@@ -4,11 +4,11 @@ description: Access BioAgent Bench, ten end-to-end bioinformatics pipeline tasks
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [benchmark, bioinformatics, agents, evaluation, public-data]
 covers: [bioagent bench, benchmark, agent evaluation, bioinformatics pipeline, rna-seq, differential expression, deseq2, single-cell, scrna-seq, variant calling, giab, na12878, metagenomics, kraken, viral metagenomics, comparative genomics, phylogenetics, transcript quantification, alzheimer, mouse model, cystic fibrosis, escherichia coli, candida parapsilosis, micrococcus, skeletal muscle, osf, ground truth, contamination, perturbation, robustness]
 access: [open]
-datasets: [https://raw.githubusercontent.com/bioagent-bench/bioagent-bench/6d098b602b8a8fdc33a9d25e410a502be7ed9ce0/src/task_metadata.json, https://files.de-1.osf.io/v1/resources/jfsme/providers/osfstorage/?meta=]
+datasets: [https://raw.githubusercontent.com/bioagent-bench/bioagent-bench/6d098b602b8a8fdc33a9d25e410a502be7ed9ce0/src/task_metadata.json, 'https://files.de-1.osf.io/v1/resources/jfsme/providers/osfstorage/?meta=']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-08-28

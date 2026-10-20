@@ -1,5 +1,5 @@
 diff --git a/skills/cellxgene-census/SKILL.md b/skills/cellxgene-census/SKILL.md
-index 6c823c8..d2ede77 100644
+index c237ef9..5b00853 100644
 --- a/skills/cellxgene-census/SKILL.md
 +++ b/skills/cellxgene-census/SKILL.md
 @@ -1073,7 +1073,7 @@ mangled and the read aborts partway through. Three things that matter when you s
