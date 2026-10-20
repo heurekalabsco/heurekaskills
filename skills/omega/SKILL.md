@@ -49,9 +49,10 @@ environment file pins `numpy=1.26`; a plain `pip install numpy` will not.
 
 Your input is a FASTA of codon-optimized coding sequences carrying **no internal recognition
 site** for the enzyme you plan to assemble with, plus a CSV of forward/reverse primer pairs —
-one pair is consumed per subpool. The repository ships 91 validated orthogonal pairs from
+one pair is consumed per subpool. The repository ships 92 validated orthogonal pairs from
 Subramanian et al. as `data/test_primers.csv`, and those are the ones to use unless you have
-a reason not to.
+a reason not to. OMEGA drops any pair that contains the assembly enzyme's own site, so 91 are
+usable with BsaI and all 92 with BbsI, BsmBI or Esp3I.
 
 ## Install
 
@@ -60,11 +61,15 @@ OMEGA is distributed as a repository rather than a package, so you clone it and 
 
 ```bash
 git clone https://github.com/RomeroLab/omega
+git -C omega checkout --quiet 160be2f
 cd omega
 python3 -m venv .venv
 ./.venv/bin/pip install "numpy<2" biopython pandas jsonargparse more-itertools tqdm joblib regex
 ./.venv/bin/python -c "import numpy, Bio, pandas; print(numpy.__version__, Bio.__version__, pandas.__version__)"
 ```
+
+The checkout pins the commit this page was verified against; every figure below comes from
+it. Drop that line to follow upstream, and expect the observed values to move.
 
 The project also ships `environment.yml` for conda — `conda env create --file
 environment.yml && conda activate omega` — pinning the same set. Use whichever you have; the
@@ -104,9 +109,17 @@ Read 15 from data/fastas/gfp_test_install.fasta.
 Sequence lengths are 657 - 726 bp
 Using BsaI and T4_18h_37C data to assemble library.
 Maximum number of GG sites allowed per pool: 50
+Upstream backbone site: CTAA
+Downstream backbone site: CATT
 Target number of genes per pool: 16 genes assembled in 1 pools.
 Genes are broken into 4 fragments.
+Optimizing library...
+…
+Designed 60 oligos. Saved to output/test_install/oligo_order.csv
 ```
+
+The first eight lines are the whole run summary; the rest is a progress bar and the paths of
+the files it wrote.
 
 ## The three output files
 
@@ -163,7 +176,8 @@ This is the trap worth knowing before you order anything. Run the stock config t
 ```bash
 [ -d .venv ] || cd omega; PY=./.venv/bin/python
 for i in 1 2; do
-  "$PY" code/omega.py genes --config configs/test_install.yml --output_dir "output/repro$i" > /dev/null 2>&1
+  "$PY" code/omega.py genes --config configs/test_install.yml --output_dir "output/repro$i" > /dev/null 2>&1 \
+    || echo "run $i FAILED — rerun it without the redirect to see why"
 done
 cmp -s output/repro1/pool_stats.csv  output/repro2/pool_stats.csv  && echo "pool_stats:  identical" || echo "pool_stats:  differs"
 cmp -s output/repro1/oligo_order.csv output/repro2/oligo_order.csv && echo "oligo_order: identical" || echo "oligo_order: differs"
@@ -178,7 +192,8 @@ stable:
 ```bash
 [ -d .venv ] || cd omega; PY=./.venv/bin/python
 for i in 1 2; do
-  "$PY" code/omega.py genes --config configs/test_install.yml --pad_oligos false --output_dir "output/nopad$i" > /dev/null 2>&1
+  "$PY" code/omega.py genes --config configs/test_install.yml --pad_oligos false --output_dir "output/nopad$i" > /dev/null 2>&1 \
+    || echo "run $i FAILED — rerun it without the redirect to see why"
 done
 cmp -s output/nopad1/oligo_order.csv output/nopad2/oligo_order.csv \
   && echo "padding off, oligo_order: identical" || echo "padding off, oligo_order: differs"
@@ -236,7 +251,7 @@ The default pairing — BsaI with `T4_18h_37C`, an 18-hour 37 °C ligation — i
 OMEGA paper used, and the alternatives are not interchangeable with it in practice. Scoring
 the same 15-gene design against BsmBI with `BsmBI_cycling` instead dropped whole-pool
 `fidelity` from 0.56 to 0.00016 and `min_gene` from 0.94 to 0.32 at otherwise identical
-settings. Change it deliberately, and change your bench protocol with it.
+settings (observed 2026-10-17 at `160be2f`). Change it deliberately, and change your bench protocol with it.
 
 ## Scaling up
 
@@ -245,6 +260,7 @@ pool count:
 
 ```bash
 [ -d .venv ] || cd omega; PY=./.venv/bin/python
+set -o pipefail   # so a run that dies after printing its first lines is not read as success
 "$PY" code/omega.py genes --config configs/test_install.yml \
   --input_seqs data/fastas/gfp_lib_450-550.fasta --nopt_steps 50 --njobs 4 \
   --output_dir output/lib100 2>&1 | grep -E "^(Read|Target|Designed)"
@@ -300,7 +316,7 @@ file is then the only copy of those sequences.
 
 ## Try it
 
-**Data** — the 15-sequence GFP test library and the 91 orthogonal primer pairs that ship with
+**Data** — the 15-sequence GFP test library and the 92 orthogonal primer pairs that ship with
 OMEGA (`data/fastas/gfp_test_install.fasta`, `data/test_primers.csv`), both GPL-3.0 with the
 repository and confirmed reachable 2026-10-17.
 
@@ -308,8 +324,12 @@ repository and confirmed reachable 2026-10-17.
 an earlier section left behind. Around a minute, including the install.
 
 ```bash
+set -o pipefail
+python3 -c 'import sys; sys.exit(sys.version_info >= (3, 13))' \
+  || { echo "numpy<2 does not install on Python 3.13+; run this with python3.10-3.12" >&2; exit 1; }
 COLD=$(mktemp -d) && cd "$COLD"
 git clone --quiet https://github.com/RomeroLab/omega && cd omega
+git checkout --quiet 160be2f
 python3 -m venv .venv
 ./.venv/bin/pip install --quiet "numpy<2" biopython pandas jsonargparse more-itertools tqdm joblib regex
 PY=./.venv/bin/python
