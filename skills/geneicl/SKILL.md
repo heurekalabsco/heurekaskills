@@ -56,7 +56,7 @@ repository that publishes them.
 
 ```bash
 pip install geneicl
-python -m geneicl        # self-check: runs all three modes on synthetic data
+python -m geneicl        # built-in check: classification, regression and survival on generated data
 ```
 
 The self-check prints `geneicl OK` and takes a few seconds on CPU. It is the fastest way
@@ -171,7 +171,8 @@ for t, p, pr in list(zip(np.array(tissues)[qry], pred, proba))[:4]:
 *Invariants* — these hold regardless of GTEx release or package version, and a failure
 here means something is wrong rather than merely different:
 
-- all 48 symbols resolve, and the matrix is `(54, 48)` — 54 GTEx tissues, one row each
+- all 48 symbols resolve, and the matrix has one row per GTEx tissue and one column per gene —
+  how many tissues depends on the release (54 in `gtex_v10`, below)
 - `X.max()` stays well under 20, so `fit` raises no scale warning
 - `proba.shape == (n_query, 2)` and every row sums to 1
 - `predict` returns labels drawn from `classes_`, which is `['brain', 'other']`
