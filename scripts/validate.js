@@ -542,10 +542,17 @@ for (const slug of slugs) {
     const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m) || [])[1] || '';
     for (const code of runnableBlocks(tryBody)) {
       const invoked = new Set();
-      // A local script named as a string arg, or run by an interpreter.
+      // A local script named as a string arg, or run by an interpreter — including one held
+      // in a variable. `PY=./.venv/bin/python; "$PY" code/x.py` is house style, and matched
+      // neither pattern while only literal interpreter names were recognised, so those blocks
+      // were never checked at all.
       for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) invoked.add(m[1]);
-      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript)\s+([\w./-]+\.(?:py|sh|R))/g)) invoked.add(m[1]);
+      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript|"?\$\{?[A-Za-z_]\w*\}?"?)\s+([\w./-]+\.(?:py|sh|R))/g)) invoked.add(m[1]);
+      // A block that clones a repository provisions that repository's scripts, so it is not
+      // invoking something an earlier block left behind.
+      const clones = /\bgit\s+clone\b/.test(code);
       for (const f of invoked) {
+        if (clones) continue;
         const base = f.replace(/^\.\//, '');
         const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         // Does this same block create it? open(...,"w"), Path.write_text, a heredoc, cp/mv.
