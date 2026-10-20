@@ -18,7 +18,7 @@ verified:
   executed: 9
   unverified: 3
   unverified_reason: >-
-    Three blocks were not run on this date, each for want of a network route rather than because anything about them is in doubt. The Data Hub probe needs services.motrpac-data.org and search.motrpac-data.org, which the verifying environment could not reach at all, so the HTTP 401 recorded against them stands from 2026-08-18 and was not re-confirmed. The coverage-grid block needs the GitHub contents API, which the same environment could not reach for this repository — the 206 objects it prints were re-confirmed independently, by git ls-tree against tag v2.1.0, which is the listing the whole-release block uses. The R package install needs the 400 MB archive from codeload.github.com, refused the same way. Re-run all three from a host with ordinary outbound access to those three endpoints.
+    Three blocks were not run on this date, each for want of a network route rather than because anything about them is in doubt. The Data Hub probe needs services.motrpac-data.org and search.motrpac-data.org, which the verifying environment could not reach at all, so the HTTP 401 recorded against them stands from 2026-08-18 and was not re-confirmed. The coverage-grid block needs the GitHub contents API, which the same environment could not reach for this repository — the 206 objects it prints were re-confirmed independently, by git ls-tree --name-only against tag v2.1.0, which is the listing the whole-release block uses. The R package install needs the 400 MB archive from codeload.github.com, refused the same way. Re-run all three from a host with ordinary outbound access to those three endpoints.
 ---
 # MoTrPAC — rat endurance exercise training multi-omics
 
@@ -354,9 +354,11 @@ The only hard part is the index: 206 individual files need a directory listing, 
 obvious ways to get one both cost something. The contents API needs a reachable
 `api.github.com` and rate-limits unauthenticated callers. The 400 MB archive is the
 download this skill exists to avoid. A **blobless clone** is neither — `--filter=blob:none
---no-checkout` transfers trees only, well under a megabyte, and `git ls-tree -l` then gives
-every object's name *and* its exact size, which is also something to check each download
-against:
+--no-checkout` transfers commits and trees only, about 100 KB, and `git ls-tree --name-only`
+lists every object from that alone. Ask it for sizes with `ls-tree -l` and git has to fetch
+each blob to measure it — the whole 380 MB release, one object at a time, before the real
+download starts. Sizes come instead from a `HEAD` per file, which is also something to check
+each download against:
 
 ```python
 import hashlib, json, os, subprocess, urllib.request
@@ -369,19 +371,22 @@ OUT  = "Data/motrpac/release"
 os.makedirs(OUT, exist_ok=True)
 
 # The index, without the API and without the 400 MB archive: a blobless, checkout-less
-# clone transfers trees only, and `ls-tree -l` then gives every object's name AND size.
-# The .rda files themselves come from raw.githubusercontent below, so nothing is fetched
-# twice.
+# clone transfers commits and trees only, and `ls-tree --name-only` reads names from those.
+# NOT `ls-tree -l`: in a blobless clone that fetches every blob to report its size.
 if not os.path.isdir("motrpac_index/.git"):
     subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", "--depth", "1",
                     "--branch", TAG, REPO, "motrpac_index"],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-listing = subprocess.run(["git", "-C", "motrpac_index", "ls-tree", "-l", "HEAD:data"],
+listing = subprocess.run(["git", "-C", "motrpac_index", "ls-tree", "--name-only", "HEAD:data"],
                          check=True, capture_output=True, text=True).stdout
 
-index = sorted((name[:-4], int(meta.split()[3]))
-               for meta, name in (ln.split("\t") for ln in listing.splitlines())
-               if name.endswith(".rda"))
+def remote_size(name):
+    req = urllib.request.Request(f"{BASE}/{name}.rda", method="HEAD")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return int(resp.headers["Content-Length"])
+
+index = sorted((name[:-4], remote_size(name[:-4]))
+               for name in listing.splitlines() if name.endswith(".rda"))
 print(f"{len(index)} objects at {TAG}, {sum(s for _, s in index) / 2**20:,.1f} MiB of .rda")
 
 manifest, needs_r, done = [], [], 0
@@ -390,7 +395,7 @@ for name, size in index:
     if not os.path.exists(rda) or os.path.getsize(rda) != size:
         urllib.request.urlretrieve(f"{BASE}/{name}.rda", rda)
     got = os.path.getsize(rda)
-    assert got == size, f"{name}: got {got} bytes, the tag says {size}"
+    assert got == size, f"{name}: got {got} bytes, the server says {size}"
     sha = hashlib.sha256(open(rda, "rb").read()).hexdigest()
 
     try:
@@ -438,7 +443,7 @@ Run 2026-10-16 at tag `v2.1.0`:
 
 Three things that matter more than they look:
 
-- **The size from `ls-tree` is a checksum you get for free.** `urlretrieve` writes a
+- **The size from the `HEAD` is a checksum you get for free.** `urlretrieve` writes a
   partial file on a dropped connection and raises nothing you will notice later; the
   `assert` turns that into a failure at the object that failed rather than a confusing
   pyreadr error, and re-running the block refetches only what is the wrong size.
