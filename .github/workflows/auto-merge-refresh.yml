@@ -103,9 +103,20 @@ jobs:
             // PAGINATED. A single per_page:100 call checked only the first hundred commits, so a
             // longer branch could satisfy this with unverified history — the check would have
             // reported "all clear" on a list it had not finished reading.
+            //
+            // AND SIGNED, which is the part that makes it mean anything. `author.login` is
+            // resolved by GitHub from the commit's author EMAIL, which is self-asserted git
+            // metadata: the adversary this check names — anyone with push access — just sets
+            // user.email to the App's address and every commit reads as the bot's. A signature
+            // cannot be spoofed that way, because GitHub verifies it against keys registered to
+            // the account the email belongs to. The nightshift's commits are created through the
+            // GitHub API and come back verified=true/reason=valid; a commit pushed from a laptop
+            // with a borrowed email does not.
             const commits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: number, per_page: 100 });
             const alien = commits.filter((c) => c.author?.login !== 'heureka-labs-skills-bot[bot]');
             if (alien.length) why.push(`${alien.length} of ${commits.length} commit(s) not authored by the bot (${[...new Set(alien.map((c) => c.author?.login ?? 'unknown'))].join(', ')})`);
+            const unsigned = commits.filter((c) => c.commit?.verification?.verified !== true);
+            if (unsigned.length) why.push(`${unsigned.length} of ${commits.length} commit(s) not signed by GitHub (${[...new Set(unsigned.map((c) => c.commit?.verification?.reason ?? 'unknown'))].join(', ')})`);
 
             if (why.length) { core.info(`not a candidate: ${why.join('; ')}`); return; }
             core.setOutput('number', String(number));
@@ -249,18 +260,29 @@ jobs:
               core.info('marked ready for review');
             }
 
-            // NO APPROVAL. `main` no longer requires an approving review, so this path does not
-            // need one — which removed the credential problem rather than solving it. The
-            // organisation forbids Actions from approving pull requests at all, so
-            // createReview({event:'APPROVE'}) on GITHUB_TOKEN threw 422 and aborted this step
-            // before merge() ever ran: the path was dead code for as long as it existed. The only
-            // alternatives were relaxing that policy across all thirty repos in the org, or
-            // keeping a separate App key in this public repo's secrets.
+            // NO APPROVAL, AND SO — AS OF THIS COMMIT — NO MERGE EITHER. Read this before
+            // believing the question is settled, because an earlier version of this comment
+            // claimed it was.
             //
-            // What still has to hold for a merge: `validate`, a required context and the thing
-            // that triggered this run; the branch being up to date, since protection is `strict`;
-            // and every review conversation resolved — `required_conversation_resolution` is
-            // deliberately KEPT, so a single comment from a human on a refresh PR blocks this.
+            // The organisation forbids Actions from creating or approving pull requests, so
+            // createReview({event:'APPROVE'}) on GITHUB_TOKEN threw 422 and aborted this step
+            // before merge() was ever reached: the merge path has never run, on any version of
+            // this workflow. Enabling it is not available per-repo either — the repo-level
+            // setting returns 409 while the org policy stands, and that policy covers all thirty
+            // repos in the org.
+            //
+            // So the approval was removed rather than fixed, on the plan that `main` would stop
+            // requiring one. THAT HAS NOT HAPPENED YET: protection on `main` still carries
+            // required_approving_review_count: 1. Until it is dropped, pulls.merge() below will
+            // be refused for want of a review that nothing here can supply, the catch will post
+            // "it needs a human", and the job will fail. That is the safe direction, but it is
+            // the feature not working — not the feature being safe.
+            //
+            // What has to hold for a merge once that requirement is gone: `validate`, a required
+            // context and the thing that triggered this run; the branch being up to date, since
+            // protection is `strict`; and every review conversation resolved —
+            // required_conversation_resolution is deliberately KEPT, so a single comment from a
+            // human on a refresh PR still blocks this.
             //
             // The record goes on the PR afterwards, in one comment, saying what actually happened.
             // v1 announced the merge in the PAST TENSE before calling merge(), so a merge that
@@ -269,6 +291,12 @@ jobs:
               'The page itself is byte-identical. Only the `verified:` block and a `version:` bump',
               'changed, the frontmatter parses to the same values the client read before, and the',
               'verification record kept every field it had.',
+              '',
+              'What this does **not** check is the *content* of that record. `against`, `executed`,',
+              '`unverified` and `records` are the nightshift\'s own account of what it ran, and the',
+              'gate constrains their names and shapes, not their truth. That is the residual trust',
+              'surface of an autonomous refresh, and it is deliberate — but it is worth knowing',
+              'that "executed: 7" is a claim, not a measurement.',
               '',
               'The gate ran from `' + pr.base.ref + '` at `' + baseSha.slice(0, 7) + '`, not from this',
               'branch, and judged exactly `' + sha.slice(0, 7) + '`.',
