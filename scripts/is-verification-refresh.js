@@ -310,7 +310,10 @@ for (const [file, { hunks }] of files) {
     const i = ho.findIndex((l, n) => l !== bo[n]);
     refuse(`${file} changes the frontmatter outside the verified: block — `
       + `${JSON.stringify((ho[i] ?? bo[i] ?? '').trim().slice(0, 56))}. Only verified: and version: may move.`);
-    continue;
+    // Deliberately NOT a `continue`. This textual rule catches every text-visible change to a
+    // top-level field, so short-circuiting here would shadow the YAML rules below and leave them
+    // untested — the same "refused, but for another rule's reason" failure the suite exists to
+    // make visible. Both reasons are reported, and the mutation test keeps both load-bearing.
   }
   // The `---` fences belong to neither the frontmatter nor the body, so neither comparison sees
   // them; trailing whitespace on one would have been a free edit to the published bytes.
