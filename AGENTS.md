@@ -39,11 +39,12 @@ NOTICE                # attribution for every adapted skill
 ```bash
 npm install
 npm run validate        # format + public-tier boundary
-npm run check-versions  # every changed skill carries a version bump
+npm run check-versions    # every changed skill carries a version bump
+npm run check-references  # no pointer to a removed or renamed skill
 ```
 
-Both run on the PR, so run both before pushing. `check-versions` compares against
-`origin/main` by default; pass a ref to compare against something else.
+All three run on the PR, so run them before pushing. `check-versions` and `check-references`
+compare against `origin/main` by default; pass a ref to compare against something else.
 
 ## Frontmatter contract
 
@@ -365,6 +366,32 @@ Do not add a `scripts/` directory to a skill, and do not reference one in the bo
    house style is not.
 5. **Do not route work through third-party AI services.** Prefer something local and
    editable — a Mermaid diagram stays readable as text; a generated image does not.
+
+### Referring to other skills
+
+Skills point at each other in prose. There is no `requires` field, and relatedness is not a
+dependency: installing one skill never installs another. What keeps the prose honest is CI.
+
+1. **Point at the neighbour; never restate it.** When another skill owns a fact — a
+   threshold, a file format, an access route — reference it instead of copying it. Two
+   skills carrying the same number means one of them is wrong, and no reader can tell which.
+2. **Write the slug in backticks.** `` `binder-design-filtering` `` is what the checks can
+   see; a bare word is left alone.
+3. **The hub pattern.** Where several skills share a stage-boundary decision, write one skill
+   for that decision and have the others point at it. `binder-design-filtering` is the
+   worked example: six design skills point there rather than each restating its cutoffs.
+4. **Removing or renaming a skill is recorded.** Add the old slug to `retired-slugs.json`
+   with its `successor` (or `null`), a `date` and a one-line `why`, then sweep every inbound
+   mention. Remember the rule above: a skill that changes what it is about becomes a new slug.
+   That rule is what creates the broken-reference risk, and this entry is what closes it.
+
+What CI enforces: `validate.js` fails a "`x` skill" phrase, a "see the `x` skill" phrase or a
+Related-skills bullet that names no skill here. `check-references.js` fails a slug that
+disappeared since the base without a ledger entry, any backticked mention of a retired slug in
+`skills/`, `AGENTS.md`, `README.md` or `CONTRIBUTING.md` (fenced code excepted), and a ledger
+entry that was deleted or had its `date` or `why` rewritten; the ledger is add-only, and only
+`successor` may move. A bare backticked slug that was never a skill is not caught; that case is
+a typo, and review catches it.
 
 ## `## Try it` — every skill must be testable
 

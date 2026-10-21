@@ -154,7 +154,7 @@ export function parseFrontmatterNaive(content) {
 //     that is not a heading at all. Hence `[ \t]+` below.
 //
 // This is what `## Try it` — the registry's claim that skills are runnable — was resting on.
-export function stripFences(md) {
+function scanFences(md, blank) {
   const out = [];
   let fence = null;                       // the opening run, e.g. ``` or ~~~~
   for (const line of md.split('\n')) {
@@ -164,13 +164,20 @@ export function stripFences(md) {
       if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) {
         fence = null;
       }
+      if (blank) out.push('');
       continue;                           // drop everything inside, including the fences
     }
-    if (m) { fence = m[1]; continue; }
+    if (m) { fence = m[1]; if (blank) out.push(''); continue; }
     out.push(line);
   }
   return out.join('\n');
 }
+
+export const stripFences = (md) => scanFences(md, false);
+
+// The same, but each fenced line becomes an empty line instead of disappearing, so a
+// position in the result is a line number in the file.
+export const blankFences = (md) => scanFences(md, true);
 
 // The body a reader actually sees: frontmatter gone, fenced blocks gone, HTML comments gone.
 export const proseOf = (md) => stripFences(md.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, ''))
