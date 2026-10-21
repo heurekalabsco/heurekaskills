@@ -26,6 +26,11 @@ jobs:
           # merge-commit checkout a pull_request event produces.
           BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
 
+      - name: No reference to a removed or renamed skill
+        run: npm run check-references
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+
       # The autonomous-merge gate's own suite, and it belongs HERE because `validate` is the only
       # required context. It was wired only into dataset-liveness.yml, whose pull_request trigger
       # is path-filtered on skills/** and a few scripts — a filter that does not list
