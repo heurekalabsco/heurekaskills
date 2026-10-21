@@ -13,6 +13,7 @@
     "check-datasets": "node scripts/check-datasets.js",
     "check-published": "node scripts/check-published.js",
     "check-versions": "node scripts/check-versions.js",
+    "check-references": "node scripts/check-references.js",
     "corroborate": "node scripts/corroborate.js",
     "corroborate-selftest": "./scripts/corroborate-selftest.sh",
     "refresh-gate": "node scripts/is-verification-refresh.js",

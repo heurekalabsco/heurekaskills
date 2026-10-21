@@ -230,6 +230,11 @@ for (const slug of slugs) {
       const name = m[1] ?? m[2];
       if (m[1] || looksLikeSkill(name)) deadRef(name, 'body');
     }
+    // The same pointer without the verb: "the registry's `alphafold` skill", "`x` skills".
+    // Backticks only, for the reason above. `\s+` spans a line break, since prose wraps.
+    for (const m of text.matchAll(/`([A-Za-z0-9-]+)`\s+skills?\b/g)) {
+      deadRef(m[1], 'body');
+    }
 
     // AGENTS.md names "any related skills section" as the other place this hides. Every
     // name bulleted under that heading reads as a registry skill, so a library listed
