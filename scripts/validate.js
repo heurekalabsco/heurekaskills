@@ -541,18 +541,62 @@ for (const slug of slugs) {
     // every block in the five most recently added skills.
     const tryBody = (raw.match(/^##\s+Try it\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m) || [])[1] || '';
     for (const code of runnableBlocks(tryBody)) {
-      const invoked = new Set();
+      // A block that clones a repository provisions that repository's scripts — but only
+      // those. This used to be a whole-block exemption: any `git clone` switched the check
+      // off, so a block that cloned repo A and then ran a script nothing created passed.
+      // Now the block is walked in order, tracking the working directory through each `cd`,
+      // and a script is exempt only if it resolves inside a directory this block cloned
+      // before invoking it — `omega/code/x.py`, or `cd omega` and then `code/x.py`. A `cd`
+      // to an absolute or variable path (`cd "$COLD"`) starts a fresh directory nothing is
+      // known to be in, so a clone made there still counts but nothing earlier does.
+      const events = [];
+      for (const m of code.matchAll(/\bgit\s+clone\b([^\n;&|]*)/g)) {
+        const args = m[1].trim().split(/\s+/).map(a => a.replace(/^["']|["']$/g, ''));
+        const u = args.findIndex(a => /:\/\/|^git@/.test(a));
+        if (u === -1) continue;
+        const dir = args[u + 1] && !args[u + 1].startsWith('-')
+          ? args[u + 1]
+          : args[u].replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop();
+        events.push({ at: m.index, clone: dir });
+      }
+      for (const m of code.matchAll(/(?:^|[;&|(]|\bthen|\bdo)[ \t]*cd[ \t]+([^\s;&|)]+)/gm)) {
+        events.push({ at: m.index, cd: m[1].replace(/^["']|["']$/g, '') });
+      }
       // A local script named as a string arg, or run by an interpreter — including one held
       // in a variable. `PY=./.venv/bin/python; "$PY" code/x.py` is house style, and matched
       // neither pattern while only literal interpreter names were recognised, so those blocks
       // were never checked at all.
-      for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) invoked.add(m[1]);
-      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript|"?\$\{?[A-Za-z_]\w*\}?"?)\s+([\w./-]+\.(?:py|sh|R))/g)) invoked.add(m[1]);
-      // A block that clones a repository provisions that repository's scripts, so it is not
-      // invoking something an earlier block left behind.
-      const clones = /\bgit\s+clone\b/.test(code);
+      for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) events.push({ at: m.index, run: m[1] });
+      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript|"?\$\{?[A-Za-z_]\w*\}?"?)\s+([\w./-]+\.(?:py|sh|R))/g)) events.push({ at: m.index, run: m[1] });
+      events.sort((a, b) => a.at - b.at);
+
+      let fresh = 0;
+      let cwd = ['@0'];
+      const resolve = p => {
+        if (/^[/~$]/.test(p)) return null;
+        const out = [...cwd];
+        for (const seg of p.split('/')) {
+          if (seg === '' || seg === '.') continue;
+          if (seg === '..') { if (out.length > 1) out.pop(); else return null; } else out.push(seg);
+        }
+        return out;
+      };
+      const cloned = [];
+      const invoked = new Set();
+      for (const e of events) {
+        if (e.clone !== undefined) {
+          const d = resolve(e.clone);
+          if (d) cloned.push(d.join('/'));
+        } else if (e.cd !== undefined) {
+          cwd = resolve(e.cd) || [`@${++fresh}`];
+        } else {
+          const r = resolve(e.run);
+          const path = r && r.join('/');
+          if (path && cloned.some(c => path.startsWith(c + '/'))) continue;
+          invoked.add(e.run);
+        }
+      }
       for (const f of invoked) {
-        if (clones) continue;
         const base = f.replace(/^\.\//, '');
         const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         // Does this same block create it? open(...,"w"), Path.write_text, a heredoc, cp/mv.
