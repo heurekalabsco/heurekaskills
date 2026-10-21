@@ -554,9 +554,77 @@ for (const slug of slugs) {
       // before invoking it — `omega/code/x.py`, or `cd omega` and then `code/x.py`. A `cd`
       // to an absolute or variable path (`cd "$COLD"`) starts a fresh directory nothing is
       // known to be in, so a clone made there still counts but nothing earlier does.
+      //
+      // Unpacking an archive provisions the same way: `unzip a.zip -d d` and `tar -xf a.tgz
+      // -C d` provision `d`, and without a target directory the archive's stem (`a.zip` ->
+      // `a/`), a heuristic for the usual one-top-folder release. So does an installer told
+      // where to write (`pip install --target d`, `setup.py --prefix d`, SESCA's `@prefix d`).
+      // Provisioning the working directory itself (`git clone url .`, `unzip a.zip -d .`) is
+      // an explicit statement and is trusted like any clone. A parent of it (`unzip -d ..`
+      // after a `cd`) provisions nothing: every later relative path would sit under it.
+      //
+      // Only real commands count. Line continuations are joined, and comments and heredoc
+      // bodies blanked (offsets kept), before looking for setup steps; scripts are looked
+      // for with comments blanked but heredoc bodies kept, since a heredoc can write a
+      // script that runs later. `git clone`, `unzip` and `tar` must start a
+      // command; an install prefix counts only on an install or `setup.py` command. Quoted
+      // text is blanked too before parentheses are paired, so a `(` in a string or a Python
+      // comment cannot open a subshell. Without this, `# unzip a.zip -d vendor` or
+      // `echo "--prefix lib"` exempted scripts nothing provided.
+      //
+      // A script reached through a variable is resolved through it. `$PWD` is the working
+      // directory; a variable this block assigns earlier expands to what it named — at the
+      // assignment when its value is `$PWD`- or variable-based, at the point of use when it
+      // is a plain relative path, as the shell does — and `$(mktemp -d)` is a fresh
+      // directory. `python "$SCRIPT"` is followed to the script the variable names. These
+      // were a blind spot: the path patterns stopped at the `$`, so `"$PWD/x.py"` was never
+      // examined and a block running a script nothing created passed. A variable the block
+      // never sets resolves to nothing, like an absolute path, and the script must be
+      // created in the block.
+      const joined = code.replace(/\\\n/g, '  ');
+      const shellText = [...joined];
+      const bare = [...joined];
+      const noComments = [...joined];
+      {
+        let q = null;
+        let heredoc = null;
+        let at = 0;
+        for (const line of joined.split('\n')) {
+          const blankLine = () => { for (let k = at; k < at + line.length; k++) shellText[k] = bare[k] = ' '; };
+          if (heredoc) {
+            blankLine();
+            if ((heredoc.tabs ? line.replace(/^\t+/, '') : line) === heredoc.word) heredoc = null;
+          } else {
+            for (let j = 0; j < line.length; j++) {
+              const c = line[j];
+              if (q) {
+                if (c === '\\' && q === '"') { bare[at + j] = ' '; j++; bare[at + j] = ' '; continue; }
+                if (c === q) { q = null; continue; }
+                bare[at + j] = ' ';
+                continue;
+              }
+              if (c === '\\') { j++; continue; }
+              if (c === '"' || c === "'") { q = c; continue; }
+              if (c === '#' && (j === 0 || /\s/.test(line[j - 1]))) {
+                for (let k = at + j; k < at + line.length; k++) shellText[k] = bare[k] = noComments[k] = ' ';
+                break;
+              }
+              const h = line.slice(j).match(/^<<(-?)\s*(["']?)([A-Za-z_]\w*)\2/);
+              if (h && line[j + 2] !== '<') heredoc = { word: h[3], tabs: h[1] === '-' };
+            }
+          }
+          at += line.length + 1;
+        }
+      }
+      const shell = shellText.join('');
+      const runText = noComments.join('');
+      const CMD = String.raw`(?:^|[;&|(!{]|\bthen|\bdo|\belse)[ \t]*`;
+
       const events = [];
-      for (const m of code.matchAll(/\bgit\s+clone\b([^\n;&|]*)/g)) {
-        const args = m[1].trim().split(/\s+/).map(a => a.replace(/^["']|["']$/g, ''));
+      const unquote = a => a.replace(/^["']|["']$/g, '');
+      const words = str => str.trim().split(/\s+/).filter(Boolean).map(unquote);
+      for (const m of shell.matchAll(new RegExp(String.raw`${CMD}git\s+clone\b([^\n;&|]*)`, 'gm'))) {
+        const args = words(m[1]);
         const u = args.findIndex(a => /:\/\/|^git@/.test(a));
         if (u === -1) continue;
         const dir = args[u + 1] && !args[u + 1].startsWith('-')
@@ -564,53 +632,144 @@ for (const slug of slugs) {
           : args[u].replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop();
         events.push({ at: m.index, clone: dir });
       }
-      for (const m of code.matchAll(/(?:^|[;&|(]|\bthen|\bdo)[ \t]*cd[ \t]+([^\s;&|)]+)/gm)) {
-        events.push({ at: m.index, cd: m[1].replace(/^["']|["']$/g, '') });
+      const stem = a => a.split('/').pop().replace(/\.(zip|tgz|tbz2?|txz|tar(\.\w+)?)$/, '');
+      for (const m of shell.matchAll(new RegExp(String.raw`${CMD}unzip\b([^\n;&|]*)`, 'gm'))) {
+        const args = words(m[1]);
+        const zip = args.find(a => /\.zip$/i.test(a));
+        if (!zip) continue;
+        const d = args.indexOf('-d');
+        events.push({ at: m.index, clone: d !== -1 && args[d + 1] ? args[d + 1] : stem(zip) });
+      }
+      for (const m of shell.matchAll(new RegExp(String.raw`${CMD}tar\b([^\n;&|]*)`, 'gm'))) {
+        const args = words(m[1]);
+        // Extract mode is an `x` in the bundled first word (`xzf`, `-xzf`) or in a short
+        // option (`-x`), or `--extract`/`--get`. Not any word with an x in it: `-czf a.tgz
+        // index` creates, and `-tzf` only lists.
+        const extract = /^-?[AcdrtuxfzjJvpkmoOPSWlhZ]+$/.test(args[0] || '') && args[0].includes('x')
+          || args.some(a => /^-[A-Za-z]+$/.test(a) && a.includes('x') || a === '--extract' || a === '--get');
+        const archive = args.find(a => /\.(tgz|tbz2?|txz|tar(\.\w+)?)$/.test(a));
+        if (!extract || !archive) continue;
+        const c = args.findIndex(a => a === '-C' || a === '--directory');
+        const eq = args.find(a => a.startsWith('--directory='));
+        const dir = c !== -1 && args[c + 1] ? args[c + 1] : eq ? eq.slice(12) : stem(archive);
+        events.push({ at: m.index, clone: dir });
+      }
+      for (const m of shell.matchAll(new RegExp(String.raw`${CMD}([^\n;&|]*)`, 'gm'))) {
+        if (!/\b(?:install|setup\.py)\b/.test(m[1])) continue;
+        for (const t of m[1].matchAll(/(^|\s)(--prefix|--target|--root|@prefix)(?:=|\s+)("[^"\n]*"|'[^'\n]*'|[^\s;&|)]+)/g)) {
+          const at = m.index + m[0].length - m[1].length + t.index + t[1].length;
+          // The option itself must be outside quotes: `echo "--prefix x"` installs nothing.
+          if (bare.slice(at, at + t[2].length).join('') !== t[2]) continue;
+          events.push({ at, clone: unquote(t[3]) });
+        }
+      }
+      // A `cd` inside a subshell — `(cd x && make)`, `$(cd x; pwd)` — does not outlive it.
+      // Parentheses are paired over the quote-blanked text, and a pair opened at a command
+      // position restores the working directory when it closes.
+      const parens = [];
+      for (let i = 0; i < bare.length; i++) {
+        if (bare[i] === '(') {
+          parens.push(i === 0 || /[\s;&|$(]/.test(bare[i - 1]) ? i : -1);
+          if (parens[parens.length - 1] !== -1) events.push({ at: i, enter: true });
+        } else if (bare[i] === ')' && parens.length && parens.pop() !== -1) {
+          events.push({ at: i, leave: true });
+        }
+      }
+      for (const m of shell.matchAll(new RegExp(String.raw`${CMD}cd[ \t]+([^\s;&|)]+)`, 'gm'))) {
+        events.push({ at: m.index, cd: unquote(m[1]) });
+      }
+      for (const m of shell.matchAll(new RegExp(String.raw`(?:^|[;&|(]|\bthen|\bdo|\bexport)[ \t]*([A-Za-z_]\w*)=("[^"\n]*"|'[^'\n]*'|\$\([^)\n]*\)|[^\s;&|]*)`, 'gm'))) {
+        events.push({ at: m.index, assign: m[1], value: unquote(m[2]) });
       }
       // A local script named as a string arg, or run by an interpreter — including one held
       // in a variable. `PY=./.venv/bin/python; "$PY" code/x.py` is house style, and matched
       // neither pattern while only literal interpreter names were recognised, so those blocks
-      // were never checked at all.
-      for (const m of code.matchAll(/["']([\w./-]+\.(?:py|sh|R|rb|pl))["']/g)) events.push({ at: m.index, run: m[1] });
-      for (const m of code.matchAll(/(?:python3?|bash|sh|Rscript|"?\$\{?[A-Za-z_]\w*\}?"?)\s+([\w./-]+\.(?:py|sh|R))/g)) events.push({ at: m.index, run: m[1] });
+      // were never checked at all. Either pattern now also takes a variable prefix on the
+      // path itself (`"$PWD/x.py"`, `${S}/x.py`, `"$S"/x.py`), and an interpreter given a
+      // bare variable (`python "$SCRIPT"`) is followed to what the variable names.
+      const VAR = String.raw`"?\$\{?[A-Za-z_]\w*\}?"?`;
+      const INTERP = String.raw`(?:python3?|bash|sh|Rscript|${VAR})\s+`;
+      for (const m of runText.matchAll(new RegExp(String.raw`["']((?:\$\{?[A-Za-z_]\w*\}?/)?[\w./-]+\.(?:py|sh|R|rb|pl))["']`, 'g'))) {
+        events.push({ at: m.index, run: m[1] });
+      }
+      for (const m of runText.matchAll(new RegExp(String.raw`${INTERP}"?((?:${VAR}/)?[\w./-]+\.(?:py|sh|R))`, 'g'))) {
+        events.push({ at: m.index, run: m[1] });
+      }
+      for (const m of runText.matchAll(new RegExp(String.raw`${INTERP}"?\$\{?([A-Za-z_]\w*)\}?"?(?=[\s;&|)]|$)`, 'gm'))) {
+        events.push({ at: m.index, runVar: m[1] });
+      }
       events.sort((a, b) => a.at - b.at);
 
       let fresh = 0;
       let cwd = ['@0'];
+      const vars = new Map();   // name -> { dir: [...] } fixed when assigned, or { rel } resolved at use
       const resolve = p => {
-        if (/^[/~$]/.test(p)) return null;
-        const out = [...cwd];
+        let base = cwd;
+        const v = p.match(/^"?\$\{?([A-Za-z_]\w*)\}?"?(?:\/|$)/);
+        if (v) {
+          const val = v[1] === 'PWD' ? { dir: cwd } : vars.get(v[1]);
+          base = val && (val.dir || (val.rel !== undefined ? resolve(val.rel) : null));
+          if (!base) return null;
+          p = p.slice(v[0].length);
+        } else if (/^[/~$]/.test(p)) return null;
+        const out = [...base];
         for (const seg of p.split('/')) {
           if (seg === '' || seg === '.') continue;
           if (seg === '..') { if (out.length > 1) out.pop(); else return null; } else out.push(seg);
         }
         return out;
       };
+      const above = (a, b) => a.length < b.length && a.every((seg, i) => b[i] === seg);
       const cloned = [];
-      const invoked = new Set();
+      const invoked = new Map();   // name as written -> names it may be created under
+      const saved = [];
       for (const e of events) {
-        if (e.clone !== undefined) {
+        if (e.enter) {
+          saved.push(cwd);
+        } else if (e.leave) {
+          if (saved.length) cwd = saved.pop();
+        } else if (e.assign !== undefined) {
+          const v = e.value;
+          vars.set(e.assign, /^\$\(\s*mktemp\s+-d\b/.test(v) ? { dir: [`@${++fresh}`], raw: v }
+            : /^[$/~]/.test(v) ? { dir: resolve(v), raw: v }
+            : { rel: v, raw: v });
+        } else if (e.clone !== undefined) {
           const d = resolve(e.clone);
-          if (d) cloned.push(d.join('/'));
+          if (d && !above(d, cwd)) cloned.push(d.join('/'));
         } else if (e.cd !== undefined) {
           cwd = resolve(e.cd) || [`@${++fresh}`];
         } else {
-          const r = resolve(e.run);
+          let run = e.run;
+          if (e.runVar !== undefined) {
+            const v = vars.get(e.runVar);
+            if (!v || !/\.(?:py|sh|R)$/.test(v.raw)) continue;
+            run = `$${e.runVar}`;
+          }
+          const r = resolve(run);
           const path = r && r.join('/');
           if (path && cloned.some(c => path.startsWith(c + '/'))) continue;
-          invoked.add(e.run);
+          const name = run.replace(/"/g, '');
+          const names = invoked.get(name) || new Set([name.replace(/^\.\//, '')]);
+          if (e.runVar !== undefined) names.add(vars.get(e.runVar).raw.replace(/^\.\//, ''));
+          // `"$PWD/t.py"` is created as `t.py`: also accept the path relative to where it ran.
+          if (r && r.length > cwd.length && cwd.every((seg, i) => r[i] === seg)) {
+            names.add(r.slice(cwd.length).join('/'));
+          }
+          invoked.set(name, names);
         }
       }
-      for (const f of invoked) {
+      for (const [f, names] of invoked) {
         const base = f.replace(/^\.\//, '');
-        const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         // Does this same block create it? open(...,"w"), Path.write_text, a heredoc, cp/mv.
-        const creates = new RegExp(
-          `(open\\(\\s*["']${esc}["']\\s*,\\s*["'][wax]|` +
-          `Path\\(\\s*["']${esc}["']\\s*\\)\\s*\\.write_|` +
-          `["']${esc}["']\\s*\\)?\\s*\\.write_text|` +
-          `cat\\s*>\\s*${esc}|cp\\s+\\S+\\s+${esc}|mv\\s+\\S+\\s+${esc})`
-        ).test(code);
+        const creates = [...names].some(n => {
+          const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return new RegExp(
+            `(open\\(\\s*["']${esc}["']\\s*,\\s*["'][wax]|` +
+            `Path\\(\\s*["']${esc}["']\\s*\\)\\s*\\.write_|` +
+            `["']${esc}["']\\s*\\)?\\s*\\.write_text|` +
+            `cat\\s*>\\s*["']?(?:\\./)?${esc}|cp\\s+\\S+\\s+["']?(?:\\./)?${esc}|mv\\s+\\S+\\s+["']?(?:\\./)?${esc})`
+          ).test(code);
+        });
         if (!creates) {
           err(slug, `"## Try it" invokes ${base} but never creates it — the block must run in a fresh directory. Write it inline, or drop the section's self-contained claim and have it fail with a message naming the missing file`);
         }
