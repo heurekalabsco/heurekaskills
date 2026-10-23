@@ -8,7 +8,7 @@ version: 1.0.0
 tags: [nmr, spectroscopy, protein-dynamics, relaxation-dispersion, chemical-shifts]
 covers: [protein nmr, cpmg, relaxation dispersion, r2eff, rex, conformational exchange, hsqc, ucsf, sparky, peak picking, lineshape fitting, hydronmr, t1, t2, noe, rotational diffusion, nmr-star, bmrb, chemical shifts, re-referencing, lacs, panav, shp2, ubiquitin]
 papers: [doi:10.64898/2026.08.17.745346]
-datasets: [https://zenodo.org/records/22161246/files/hsqcN15wfb_25deg_ntrc.ucsf, https://zenodo.org/records/22161246/files/SHP2_NSH2_CPMG.zip]
+datasets: [https://zenodo.org/records/22161246/files/hsqcN15wfb_25deg_ntrc.ucsf, https://zenodo.org/records/22161246/files/SHP2_NSH2_CPMG.zip, https://files.rcsb.org/download/1ubq.pdb]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-10-22
@@ -320,9 +320,12 @@ except OSError as e:
 
 So pinning `pandas<3` does not fix this: it turns a crash into stale results. **Pass
 `overwrite_cache=True` on every `fit_peaks` call**, as the unassigned route above does.
-Before rerunning `CPMGExperiment` on a changed config, delete `out/caches/`, the
-`shp2_hydronmr_r2.csv` it writes beside the YAML, and the two cache lines, because `run`
-gives you no way to skip either cache. The fits
+**Run this section once, in a fresh directory.** Writing a clean config does not reset
+anything: when the YAML has no cache line, `fit_peaks` and the HYDRONMR step still look
+for a cache at their default paths and load it if it is there. So before **any** rerun in
+the same directory, even with an unchanged config, delete `out/`, `out_unassigned/`,
+`shp2_hydronmr_r2.csv` and `shp2_unassigned_fit_lineshapes.json.zip`, or start in a new
+directory. `CPMGExperiment.run` gives you no way to skip either cache. The fits
 themselves are unaffected: R2eff, median Rex and the top dispersing peaks are identical
 on both pandas versions, so this is an I/O defect, not a numerical one.
 
@@ -413,8 +416,8 @@ protein is your call, and `compute_offsets` lets you see the suggestion before d
 
 ## Try it
 
-A cold check that this skill still holds, from one public file and nothing else.
-No account, no key, no GPU. It needs the network twice: to install, and to fetch.
+A cold check that this skill still holds, from two public files and nothing else.
+No account, no key, no GPU. It needs the network to install and to fetch both files.
 
 **Data**: `hsqcN15wfb_25deg_ntrc.ucsf`, a 512x512 15N-HSQC of the NtrC receiver domain
 at 25 C, from the project's own example deposit on Zenodo (record 22161246, CC-BY-4.0,
@@ -422,6 +425,11 @@ at 25 C, from the project's own example deposit on Zenodo (record 22161246, CC-B
 reachable 2026-10-22.
 
     https://zenodo.org/records/22161246/files/hsqcN15wfb_25deg_ntrc.ucsf
+
+Also `1ubq.pdb`, ubiquitin from RCSB, which is the structure that `fetch_structure`
+downloads once you pass `source="rcsb"`. PDB data is CC0. Last confirmed reachable 2026-10-22.
+
+    https://files.rcsb.org/download/1ubq.pdb
 
 The example runs into the two traps a reader meets first: the structure auto-detect
 that raises, and a peak-picking default that returns mostly noise.
