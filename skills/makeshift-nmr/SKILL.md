@@ -8,7 +8,7 @@ version: 1.0.0
 tags: [nmr, spectroscopy, protein-dynamics, relaxation-dispersion, chemical-shifts]
 covers: [protein nmr, cpmg, relaxation dispersion, r2eff, rex, conformational exchange, hsqc, ucsf, sparky, peak picking, lineshape fitting, hydronmr, t1, t2, noe, rotational diffusion, nmr-star, bmrb, chemical shifts, re-referencing, lacs, panav, shp2, ubiquitin]
 papers: [doi:10.64898/2026.08.17.745346]
-datasets: [https://zenodo.org/records/22161246/files/hsqcN15wfb_25deg_ntrc.ucsf, https://zenodo.org/records/22161246/files/SHP2_NSH2_CPMG.zip, https://files.rcsb.org/download/1ubq.pdb]
+datasets: [https://zenodo.org/records/22161246/files/hsqcN15wfb_25deg_ntrc.ucsf, https://zenodo.org/records/22161246/files/SHP2_NSH2_CPMG.zip, https://files.rcsb.org/download/1ubq.pdb, https://alphafold.ebi.ac.uk/files/AF-P04637-F1-model_v6.pdb, https://files.rcsb.org/download/9EHD.pdb]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-10-22
@@ -366,7 +366,10 @@ and `to_csv()`.
 `makeshift` also reads NMR-STAR v3 depositions. **Use the classes, not the upstream README.**
 The README's API table documents `parse_nmr_star`, `get_sequences`, `get_sample_info`,
 `get_chem_shifts` and a free `reref(df, method=...)`, and none of them exists in 0.2.0:
-`makeshift.parse_nmr_star` is an `AttributeError`. The working API is:
+`makeshift.parse_nmr_star` is an `AttributeError`. Upstream's guide page
+`docs/guide/chemical-shifts.md` does use the classes correctly, but `docs/guide/datasets.md`
+repeats both structure traps above: a bare `fetch_structure` and `version="v4"`. The
+working API is:
 
 - `NMRStarEntry.from_bmrb(id)` or `NMRStarEntry.from_file(path)`, with `.sequences()`,
   `.sample_info()`, `.shift_reference()` and many more readers on the entry.
