@@ -1,10 +1,10 @@
 ---
 name: metabolomics-workbench
-description: Find and retrieve public metabolomics and lipidomics studies from the NIH Metabolomics Workbench — study design, experimental factors, named metabolites and measured values over its path-segment REST API — plus the RefMet endpoints that map arbitrary metabolite names onto one nomenclature so two studies can be joined.
+description: Find and retrieve public metabolomics and lipidomics studies from the NIH Metabolomics Workbench — study design, factors, named metabolites and measured values over its REST API — plus RefMet, mapping metabolite names onto one nomenclature.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [metabolomics, lipidomics, mass-spectrometry, public-data, multi-omics]
 covers: [metabolomics, lipidomics, mass spectrometry, nmr, metabolites, refmet, metabolomics workbench, mwtab, gc-ms, lc-ms, ce-ms, skeletal muscle, plasma, serum, urine, liver, feces, blood, sarcopenia, aging, muscle atrophy, cachexia, diabetes, cancer, human, mouse, kegg, hmdb, lipid nomenclature, untargeted metabolomics]
 papers: [PMID:26467476, PMID:33199890, PMID:31320689, PMID:29706851, PMID:41590684]
@@ -12,8 +12,8 @@ access: [open]
 datasets: [https://www.metabolomicsworkbench.org/rest/study/study_id/ST001179/summary]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
-  against: Metabolomics Workbench REST API as served 2026-08-17 / studies ST001179 and ST004166 both v1 rev 1 / Python 3.12.8 stdlib only
+  date: 2026-10-23
+  against: Metabolomics Workbench REST API as served 2026-10-23 / studies ST001179 and ST004166 both v1 rev 1 / Python 3.11.17 stdlib only / two upstream changes found and corrected — the per-study license field now reports CC BY-NC-ND where it reported CC BY 4.0 on 2026-08-17 at the same study version and revision, and study mwtab now returns a well-formed JSON array where it returned concatenated bare documents
   executed: 15
   unverified: 1
   unverified_reason: the one curl -O under Get the files transfers a 1.25 GB raw-data archive, so its URL and byte count were confirmed with an HTTP HEAD request (200, Content-Length 1253871672) rather than by downloading it
@@ -23,8 +23,17 @@ verified:
 The Metabolomics Workbench is the NIH Common Fund's metabolomics repository — a few
 thousand deposited studies with sample metadata, experimental factors, named
 metabolites and the measured values behind them, plus **RefMet**, a reference
-nomenclature for metabolite names. Everything below is open: no account, no key, no
+nomenclature for metabolite names. Access is open: no account, no key, no
 click-through.
+
+**Open access is not open licensing, and here the two differ.** Every `summary` response
+carries a `license` field for the study it describes, and as of 2026-10-23 that field
+reads `CC BY-NC-ND` — non-commercial, no derivatives — for every study sampled across
+the accession range. On 2026-08-17 the same field read `CC BY 4.0` for ST001179 with the
+study at the same version and revision, so this is a repository-level change in the
+reported terms rather than a depositor revising one study. Read the `license` and
+`license_url` of each study you retrieve, keep them beside the data, and settle reuse
+against them before building anything on the values.
 
 Two things to settle before you start.
 
@@ -63,7 +72,8 @@ curl -s "https://www.metabolomicsworkbench.org/rest/study/study_id/ST001179/summ
 # institute     Kyoto Prefectural University
 # analysis_type CE-MS
 # ...
-# license       CC BY 4.0
+# license       CC BY-NC-ND
+# license_url   https://creativecommons.org/licenses/by-nc-nd/4.0/deed.en
 ```
 
 Eight contexts exist. `study` and `refmet` are the two that matter for most work:
@@ -347,7 +357,7 @@ for k in keys:
 
 ```
 ST001179  Metabolomic analysis of skeletal muscle in young and aged mice
-  Mus musculus · Kyoto Prefectural University · CE-MS · n=10 · released 2019-07-17 · CC BY 4.0
+  Mus musculus · Kyoto Prefectural University · CE-MS · n=10 · released 2019-07-17 · CC BY-NC-ND
   AN001956  None (Direct infusion) POSITIVE ION MODE     Agilent CE-TOFMS   units='fold'
   AN001957  None (Direct infusion) NEGATIVE ION MODE     Agilent CE-TOFMS   units='fold'
 
@@ -714,9 +724,12 @@ settings, and the metabolite annotation table with m/z, retention or migration t
 KEGG and HMDB ids. It is the authoritative record, and the only place some of that
 metadata exists.
 
-**It is not valid JSON for a multi-analysis study.** `Content-Type` says
-`application/json`, and the body is one complete JSON document *per analysis*,
-concatenated with no array around them. `json.loads` raises `Extra data`.
+**It is a JSON array of one document per analysis, and that is a change.** Until
+2026-08 the body was one complete JSON document *per analysis* concatenated with no
+array around them, so `json.loads` raised `Extra data` on any multi-analysis study and
+a reader had to decode incrementally. As of 2026-10-23 every study checked returns a
+well-formed array and `json.loads` succeeds. Parse for both: take a list as-is, wrap a
+bare object, and keep the incremental path for a body cached from before the change.
 
 ```python
 def mwtab_text(study):
@@ -726,21 +739,27 @@ def mwtab_text(study):
     return urllib.request.urlopen(url, timeout=120).read().decode("utf-8", "replace")
 
 def mwtab(study):
-    """study/<id>/mwtab returns one JSON document PER ANALYSIS, concatenated.
+    """study/<id>/mwtab returns a JSON array of one document PER ANALYSIS.
 
-    Content-Type says application/json, but a multi-analysis study is not valid
-    JSON — json.loads raises 'Extra data'. Decode incrementally instead.
+    It did not always. Before 2026-08 the documents arrived concatenated with no
+    array around them, and json.loads raised 'Extra data' on any multi-analysis
+    study. Handle both: a list is already the answer, a bare object wraps, and the
+    incremental decode still reads a body cached from the older form.
     """
     text = mwtab_text(study)
-    dec, i, out = json.JSONDecoder(), 0, []
-    while i < len(text):
-        while i < len(text) and text[i].isspace():
-            i += 1
-        if i >= len(text):
-            break
-        obj, i = dec.raw_decode(text, i)   # returns (object, index just past it)
-        out.append(obj)
-    return out
+    try:
+        payload = json.loads(text)
+        return payload if isinstance(payload, list) else [payload]
+    except json.JSONDecodeError:           # pre-2026-08 concatenated form
+        dec, i, out = json.JSONDecoder(), 0, []
+        while i < len(text):
+            while i < len(text) and text[i].isspace():
+                i += 1
+            if i >= len(text):
+                break
+            obj, i = dec.raw_decode(text, i)   # (object, index just past it)
+            out.append(obj)
+        return out
 
 for study in ["ST000001", "ST001179"]:
     try:
@@ -761,16 +780,18 @@ for study in ["ST000001", "ST001179"]:
 ST000001: json.loads succeeds  ->  1 document(s)
     AN000001  created 2016-09-17  blocks=12  metabolites=107
     STUDY_SUMMARY: This experiment tests the consequence of a mutation at the FatB gene in the wound-response of Arabidopsis. The...
-ST001179: json.loads raises JSONDecodeError: Extra data  ->  2 document(s)
+ST001179: json.loads succeeds  ->  2 document(s)
     AN001956  created May 7, 2019, 12:25 pm  blocks=12  metabolites=119
     AN001957  created May 7, 2019, 12:25 pm  blocks=12  metabolites=56
     STUDY_SUMMARY: Sarcopenia is the age-induced, progressive loss of skeletal muscle mass and function, which results in poor mu...
 ```
 
-A single-analysis study parses cleanly, which is precisely how this bug reaches
-production: the code works on the first study you try. Request
-`study/analysis_id/<AN>/mwtab` if you want one guaranteed document, or decode
-incrementally as above.
+Both lines now read `succeeds`, where the second one used to raise. Treat that as a
+reason to keep the shape check rather than to drop it: code written against the
+concatenated form breaks on the array, because the array decodes as a single object and
+every per-document lookup then indexes a list. Request
+`study/analysis_id/<AN>/mwtab` if you want one guaranteed document, and branch on
+`isinstance(payload, list)` as above rather than assuming either form.
 
 Two smaller notes. `CREATED_ON` has no fixed format — `2016-09-17` in one record,
 `May 7, 2019, 12:25 pm` in another; parse defensively or leave it as a string. And the
@@ -899,15 +920,20 @@ def rows(payload):
     return [payload]
 
 def documents(text):
-    dec, i, out = json.JSONDecoder(), 0, []
-    while i < len(text):
-        while i < len(text) and text[i].isspace():
-            i += 1
-        if i >= len(text):
-            break
-        obj, i = dec.raw_decode(text, i)
-        out.append(obj)
-    return out
+    """mwtab is a JSON array since 2026-08; the loop reads the older concatenated form."""
+    try:
+        payload = json.loads(text)
+        return payload if isinstance(payload, list) else [payload]
+    except json.JSONDecodeError:
+        dec, i, out = json.JSONDecoder(), 0, []
+        while i < len(text):
+            while i < len(text) and text[i].isspace():
+                i += 1
+            if i >= len(text):
+                break
+            obj, i = dec.raw_decode(text, i)
+            out.append(obj)
+        return out
 
 def csv_text(table):
     return "\n".join(",".join('"' + str(c).replace('"', '""') + '"' for c in row)
@@ -998,10 +1024,10 @@ save(f"{STUDY}_manifest.json", json.dumps({
 print(f"\n{len(written)} files written to {OUT}/")
 ```
 
-Run 2026-08-17 against ST001179 v1 rev 1:
+Run 2026-10-23 against ST001179 v1 rev 1:
 
 ```
-      1,829 B  Data/metabolomics_workbench/ST001179_summary.json
+      1,844 B  Data/metabolomics_workbench/ST001179_summary.json
         400 B  Data/metabolomics_workbench/ST001179_samples.csv
      70,528 B  Data/metabolomics_workbench/ST001179_AN001956_mwtab.json
      36,325 B  Data/metabolomics_workbench/ST001179_AN001957_mwtab.json
@@ -1009,7 +1035,7 @@ Run 2026-08-17 against ST001179 v1 rev 1:
      18,006 B  Data/metabolomics_workbench/ST001179_AN001956_values.csv
       8,566 B  Data/metabolomics_workbench/ST001179_AN001957_values.csv
   no raw instrument archive deposited for this study
-      1,250 B  Data/metabolomics_workbench/ST001179_manifest.json
+      1,265 B  Data/metabolomics_workbench/ST001179_manifest.json
 
 8 files written to Data/metabolomics_workbench/
 ```
@@ -1023,7 +1049,7 @@ common for older studies and for CE-MS — the processed table is all there is. 
 one line to `STUDY, OUT = "ST004166", ...` takes the other branch, same run:
 
 ```
-      2,043 B  Data/metabolomics_workbench/ST004166_summary.json
+      2,058 B  Data/metabolomics_workbench/ST004166_summary.json
       3,341 B  Data/metabolomics_workbench/ST004166_samples.csv
     557,137 B  Data/metabolomics_workbench/ST004166_AN006915_mwtab.json
     442,877 B  Data/metabolomics_workbench/ST004166_AN006916_mwtab.json
@@ -1031,7 +1057,7 @@ one line to `STUDY, OUT = "ST004166", ...` takes the other branch, same run:
     124,914 B  Data/metabolomics_workbench/ST004166_AN006915_values.csv
     106,651 B  Data/metabolomics_workbench/ST004166_AN006916_values.csv
   raw archive available: ST004166_Rawfiles.zip = 1,253,871,672 B (not downloaded)
-      1,525 B  Data/metabolomics_workbench/ST004166_manifest.json
+      1,540 B  Data/metabolomics_workbench/ST004166_manifest.json
 ```
 
 **1.25 GB of mzML for 79 injections, against 1.3 MB of processed tables.** The block
@@ -1060,8 +1086,10 @@ modes), resolved through the REST endpoint:
 
     https://www.metabolomicsworkbench.org/rest/study/study_id/ST001179/summary
 
-Released under CC BY 4.0, as reported by the endpoint itself. No account or licence
-acceptance is needed. Last confirmed reachable 2026-08-17. This study is used because it
+The endpoint reports its licence as `CC BY-NC-ND` — non-commercial, no derivatives —
+which is what every study sampled now reports; on 2026-08-17 this same study reported
+`CC BY 4.0` at the same version and revision. Retrieval needs no account and no licence
+acceptance, but reuse is bounded by those terms. This study is used because it
 is small, because it is annotated `Disease=Sarcopenia` while its title never says so,
 and because its two analyses and near-zero `fold` units route the example through four
 separate traps at once.
@@ -1087,7 +1115,7 @@ def rows(p):
     return list(p.values()) if p and all(isinstance(v, dict) for v in p.values()) else [p]
 
 s = rows(mw("study", "study_id", STUDY, "summary"))[0]
-assert s["study_id"] == STUDY and s["license"] == "CC BY 4.0"
+assert s["study_id"] == STUDY and s["license"] and s["license_url"]
 
 # One study id fans out to several analyses; each has its own units.
 analyses = rows(mw("study", "study_id", STUDY, "analysis"))
@@ -1125,6 +1153,7 @@ except ValueError as e:
     bad = f"rejected with HTTP 200 + HTML: {e}"
 
 print("title          :", s["study_title"])
+print("license        :", s["license"])
 print("analyses       :", units)
 print("data rows      :", len(data), "=",
       " + ".join(f"{k}:{len(v)}" for k, v in sorted(per.items())))
@@ -1158,12 +1187,17 @@ this skill is *wrong* rather than out of date:
   the content-type test, which is the only thing that can detect it.
 - `refmet/match` normalises a synonym — `alpha-ketoglutarate` resolves to a different
   string than the one submitted.
+- Every `summary` response carries a non-empty `license` **and** `license_url`, so the
+  terms on a study are always discoverable through the API. That the field *exists* is
+  the invariant; which licence it names is an observed value below, because it has
+  already changed once under a study whose version and revision did not move.
 
-Observed 2026-08-17 against ST001179 **version 1, revision 1** — these move if the study
+Observed 2026-10-23 against ST001179 **version 1, revision 1** — these move if the study
 is revised or the repository is rebuilt, so treat a mismatch as drift to investigate:
 
 ```
 title          : Metabolomic analysis of skeletal muscle in young and aged mice
+license        : CC BY-NC-ND
 analyses       : {'AN001956': 'fold', 'AN001957': 'fold'}
 data rows      : 165 = AN001956:113 + AN001957:52
 null cells     : 207
@@ -1209,7 +1243,10 @@ bad output verb: rejected with HTTP 200 + HTML: This output item does not exist<
 - Uchitomi et al. (2019) *Scientific Reports* 9, 10425 — https://doi.org/10.1038/s41598-019-46929-8 (the paper behind ST001179, used throughout)
 - MetaboLights, the EMBL-EBI counterpart — https://www.ebi.ac.uk/metabolights/
 
-Deposited studies carry their own licence, reported in the `license` field of every
-`summary` response; the studies used here are CC BY 4.0. Cite the depositing study's
+Deposited studies carry their own licence, reported in the `license` and `license_url`
+fields of every `summary` response; as of 2026-10-23 every study sampled, including the
+two used here, reports `CC BY-NC-ND`. The repository's own Terms of Use separately state
+that site content may be downloaded for personal, non-commercial use. Check both against
+your intended use before you reuse any values. Cite the depositing study's
 paper and its accession when you reuse its data, and cite the repository and RefMet
 papers when you rely on the infrastructure.
