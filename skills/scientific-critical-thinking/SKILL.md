@@ -5,13 +5,13 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
+version: 1.1.1
 tags: [evidence-appraisal, bias, confounding, grade, study-validity]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-17
-  against: NumPy 2.4.6 / SciPy 1.17.1 / Python 3.11.15
+  date: 2026-10-24
+  against: NumPy 2.4.6 / SciPy 1.17.1 / Python 3.11.17
   executed: 1
   unverified: 0
 ---
