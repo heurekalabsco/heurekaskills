@@ -4,13 +4,13 @@ description: Turn a paper or results summary into an accurate, accessible graphi
 category: communication
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.1.1
 tags: [graphical-abstract, figures, accessibility, svg, publishing]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-18
-  against: Python 3.11.15, standard library only
+  date: 2026-10-25
+  against: Python 3.11.17, standard library only
   executed: 7
   unverified: 0
 ---
