@@ -1,6 +1,6 @@
 ---
 name: metabolomics-workbench
-description: Find and retrieve public metabolomics and lipidomics studies from the NIH Metabolomics Workbench — study design, factors, named metabolites and measured values over its REST API — plus RefMet, mapping metabolite names onto one nomenclature.
+description: Find and retrieve public metabolomics and lipidomics studies from the NIH Metabolomics Workbench — study design, experimental factors, named metabolites and measured values over its path-segment REST API — plus the RefMet endpoints that map arbitrary metabolite names onto one nomenclature so two studies can be joined.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
@@ -12,8 +12,8 @@ access: [open]
 datasets: [https://www.metabolomicsworkbench.org/rest/study/study_id/ST001179/summary]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-10-23
-  against: Metabolomics Workbench REST API as served 2026-10-23 / studies ST001179 and ST004166 both v1 rev 1 / Python 3.11.17 stdlib only / two upstream changes found and corrected — the per-study license field now reports CC BY-NC-ND where it reported CC BY 4.0 on 2026-08-17 at the same study version and revision, and study mwtab now returns a well-formed JSON array where it returned concatenated bare documents
+  date: 2026-10-25
+  against: Metabolomics Workbench REST API as served 2026-10-25 / studies ST001179 and ST004166 both v1 rev 1 / Python 3.12.8 stdlib only / 15 of 16 runnable blocks executed cold in page order in a fresh directory, plus Try it alone in a second fresh directory / two upstream changes since 2026-08-17 confirmed and corrected - the per-study license field now reports CC BY-NC-ND where it reported CC BY 4.0 at the same study version and revision, and study mwtab now returns a well-formed JSON array where it returned concatenated bare documents / a licence census over the whole study listing found all 4656 released studies reporting CC BY-NC-ND with none missing the field / three observed-value blocks had drifted since 2026-08-17 and were re-measured
   executed: 15
   unverified: 1
   unverified_reason: the one curl -O under Get the files transfers a 1.25 GB raw-data archive, so its URL and byte count were confirmed with an HTTP HEAD request (200, Content-Length 1253871672) rather than by downloading it
@@ -27,13 +27,24 @@ nomenclature for metabolite names. Access is open: no account, no key, no
 click-through.
 
 **Open access is not open licensing, and here the two differ.** Every `summary` response
-carries a `license` field for the study it describes, and as of 2026-10-23 that field
-reads `CC BY-NC-ND` — non-commercial, no derivatives — for every study sampled across
-the accession range. On 2026-08-17 the same field read `CC BY 4.0` for ST001179 with the
-study at the same version and revision, so this is a repository-level change in the
-reported terms rather than a depositor revising one study. Read the `license` and
-`license_url` of each study you retrieve, keep them beside the data, and settle reuse
-against them before building anything on the values.
+carries a `license` field for the study it describes, and as of 2026-10-25 that field
+reads `CC BY-NC-ND` — non-commercial, no derivatives — for all 4,656 released studies in
+the archive, with no exceptions and not one missing the field. On 2026-08-17 the same
+field read `CC BY 4.0` for ST001179 with the study at the same version and revision, so
+this is a repository-level change in the reported terms rather than a depositor revising
+one study.
+
+Those two letters each forbid something specific, and the restriction is on the data you
+retrieve rather than on reaching the API. **Non-commercial bars using the retrieved
+values for any purpose primarily intended for commercial advantage or monetary
+compensation**, so a commercial reader cannot build on this data however freely the
+endpoint serves it — open retrieval is not permission to use. **No-derivatives bars
+distributing anything remixed from or built upon the data**, which lands squarely on what
+this skill exists for: the RefMet cross-study join below, the cross-study coverage
+intersections, and the merged tables it writes to disk are all derived works you may
+compute for your own analysis but may not redistribute. Read the `license` and
+`license_url` of each study you retrieve, keep them beside the data, and settle your
+intended use against them before you build on the values.
 
 Two things to settle before you start.
 
@@ -255,12 +266,16 @@ print("Sample source=Muscle         :", len(tissue["Muscle"]), "studies;",
       sum(1 for s in tissue["Muscle"] if species.get(s) == "Homo sapiens"), "human")
 ```
 
+Observed 2026-10-25 — every count here is a size of the live registry and grows as
+studies are deposited, so read a larger number as the archive moving rather than as a
+failure; the study *lists* are the part that should hold:
+
 ```
 title contains 'sarcopenia' : ['ST002998', 'ST003002']
-registry: 258 disease terms, 319 sample-source terms, 4465 studies with a species
+registry: 264 disease terms, 332 sample-source terms, 4638 studies with a species
 annotated Disease=Sarcopenia : ['ST001179', 'ST002998', 'ST003002', 'ST003703']
 missed by the title search   : ['ST001179', 'ST003703']
-Sample source=Muscle         : 144 studies; 20 human
+Sample source=Muscle         : 146 studies; 20 human
 ```
 
 Half the sarcopenia studies never say "sarcopenia" in the title. **Always cross the
@@ -727,9 +742,11 @@ metadata exists.
 **It is a JSON array of one document per analysis, and that is a change.** Until
 2026-08 the body was one complete JSON document *per analysis* concatenated with no
 array around them, so `json.loads` raised `Extra data` on any multi-analysis study and
-a reader had to decode incrementally. As of 2026-10-23 every study checked returns a
-well-formed array and `json.loads` succeeds. Parse for both: take a list as-is, wrap a
-bare object, and keep the incremental path for a body cached from before the change.
+a reader had to decode incrementally. As of 2026-10-25 every study checked returns a
+well-formed array and `json.loads` succeeds — twenty studies sampled across the accession
+range, fourteen of them multi-analysis and one with eight analyses, all led with `[`.
+Parse for both: take a list as-is, wrap a bare object, and keep the incremental path for
+a body cached from before the change.
 
 ```python
 def mwtab_text(study):
@@ -824,9 +841,13 @@ for sid in hits:
           f"{s['study_title'][:66]}")
 ```
 
+Observed 2026-10-25 — the study count rises as new studies are deposited, so treat a
+larger figure as drift to note rather than a failure; the `DATA` being empty and the
+human-muscle shortlist are the parts that should hold:
+
 ```
-Carnosine: measured in 606 studies
-  DATA populated in 0 of 606 rows -- this verb is a coverage index, not values
+Carnosine: measured in 629 studies
+  DATA populated in 0 of 629 rows -- this verb is a coverage index, not values
 
 human + muscle + Carnosine: 5 studies
   ST000149  n= 120  LC-MS        High Insulin Combined With Essential Amino Acids Stimulates Skelet
@@ -836,7 +857,7 @@ human + muscle + Carnosine: 5 studies
   ST004166  n=  79  LC-MS        Distinct skeletal muscle metabolomic alterations are associated wi
 ```
 
-**The verb is `data` and it returns no data.** All 606 rows carry `"DATA": []`. It is a
+**The verb is `data` and it returns no data.** All 629 rows carry `"DATA": []`. It is a
 coverage index — *which studies measured this* — and you still fetch each study's values
 separately. Useful, but do not plan a cross-study matrix around one request.
 
@@ -1024,7 +1045,7 @@ save(f"{STUDY}_manifest.json", json.dumps({
 print(f"\n{len(written)} files written to {OUT}/")
 ```
 
-Run 2026-10-23 against ST001179 v1 rev 1:
+Run 2026-10-25 against ST001179 v1 rev 1:
 
 ```
       1,844 B  Data/metabolomics_workbench/ST001179_summary.json
@@ -1087,12 +1108,13 @@ modes), resolved through the REST endpoint:
     https://www.metabolomicsworkbench.org/rest/study/study_id/ST001179/summary
 
 The endpoint reports its licence as `CC BY-NC-ND` — non-commercial, no derivatives —
-which is what every study sampled now reports; on 2026-08-17 this same study reported
-`CC BY 4.0` at the same version and revision. Retrieval needs no account and no licence
-acceptance, but reuse is bounded by those terms. This study is used because it
-is small, because it is annotated `Disease=Sarcopenia` while its title never says so,
-and because its two analyses and near-zero `fold` units route the example through four
-separate traps at once.
+which is what all 4,656 released studies now report; on 2026-08-17 this same study
+reported `CC BY 4.0` at the same version and revision. Retrieval needs no account and no
+licence acceptance, but what you may then do with the values is bounded by those terms,
+set out at the top of this page. **Last confirmed reachable 2026-10-25.** This study is
+used because it is small, because it is annotated `Disease=Sarcopenia` while its title
+never says so, and because its two analyses and near-zero `fold` units route the example
+through four separate traps at once.
 
 ```python
 import json, urllib.request
@@ -1192,7 +1214,7 @@ this skill is *wrong* rather than out of date:
   the invariant; which licence it names is an observed value below, because it has
   already changed once under a study whose version and revision did not move.
 
-Observed 2026-10-23 against ST001179 **version 1, revision 1** — these move if the study
+Observed 2026-10-25 against ST001179 **version 1, revision 1** — these move if the study
 is revised or the repository is rebuilt, so treat a mismatch as drift to investigate:
 
 ```
@@ -1217,9 +1239,10 @@ bad output verb: rejected with HTTP 200 + HTML: This output item does not exist<
 - **Named metabolites only.** The `metabolites` and `data` verbs cover rows the curators
   could identify. Unidentified features live in the `mwtab` annotation table with an m/z
   and a retention time, and in the raw files. Most untargeted features are never named.
-- **Coverage is uneven.** 258 disease terms and 319 sample-source terms over a few
-  thousand studies means many cells of that grid hold one study or none. Report the
-  study count you found, not just the studies.
+- **Coverage is uneven.** 264 disease terms and 332 sample-source terms as observed on
+  2026-10-25, over a few thousand studies, means many cells of that grid hold one study
+  or none. All three figures grow as the archive does. Report the study count you found,
+  not just the studies.
 - **Annotation is per study, not per sample.** A study tagged `Disease=Cancer` may
   include healthy controls; the sample-level truth is in `factors`.
 - **Studies are revised in place.** The accession does not change when the data does.
@@ -1242,11 +1265,15 @@ bad output verb: rejected with HTTP 200 + HTML: This output item does not exist<
 - Fahy & Subramaniam (2020) *Nature Methods* 17, 1173-1174 — https://doi.org/10.1038/s41592-020-01009-y
 - Uchitomi et al. (2019) *Scientific Reports* 9, 10425 — https://doi.org/10.1038/s41598-019-46929-8 (the paper behind ST001179, used throughout)
 - MetaboLights, the EMBL-EBI counterpart — https://www.ebi.ac.uk/metabolights/
+- Terms of Use — https://www.metabolomicsworkbench.org/about/termsofuse.php
 
 Deposited studies carry their own licence, reported in the `license` and `license_url`
-fields of every `summary` response; as of 2026-10-23 every study sampled, including the
-two used here, reports `CC BY-NC-ND`. The repository's own Terms of Use separately state
-that site content may be downloaded for personal, non-commercial use. Check both against
-your intended use before you reuse any values. Cite the depositing study's
-paper and its accession when you reuse its data, and cite the repository and RefMet
-papers when you rely on the infrastructure.
+fields of every `summary` response; as of 2026-10-25 all 4,656 released studies,
+including the two used here, report `CC BY-NC-ND`. **That field is the authoritative
+restriction on what the REST endpoints hand back**, and the opening section sets out what
+those terms forbid. The repository's Terms of Use are a separate and narrower document:
+they permit downloading "articles and web pages" from the site for personal,
+non-commercial use and say nothing about datasets, so read them as site terms rather than
+as the licence on the values. Cite the depositing study's paper and its accession when
+you reuse its data, and cite the repository and RefMet papers when you rely on the
+infrastructure.
