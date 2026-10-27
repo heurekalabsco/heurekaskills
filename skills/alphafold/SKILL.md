@@ -4,7 +4,7 @@ description: Retrieve predicted protein structures from the AlphaFold database b
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.3.0
+version: 1.3.1
 tags: [protein-structure, alphafold, uniprot, plddt, pae]
 covers: [protein structure, structure prediction, alphafold, uniprot, plddt, pae, alphamissense, missense variants, variant effect, cif, pdb, proteome, human, all organisms]
 papers: [PMID:34265844, PMID:34791371, PMID:37733863]
@@ -12,10 +12,11 @@ access: [open]
 datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-19
-  against: AlphaFold DB model v6 / Python 3.12.8 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
-  executed: 10
-  unverified: 0
+  date: 2026-10-27
+  against: AlphaFold DB model v6 created 2025-08-01 / Python 3.11.17 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
+  executed: 7
+  unverified: 3
+  unverified_reason: Three blocks resolve an accession through the UniProt REST service, which the validating host had no route to - the calls were refused before reaching it. Re-run from a host with outbound access to UniProt REST.
 ---
 # AlphaFold Protein Structure Database
 
