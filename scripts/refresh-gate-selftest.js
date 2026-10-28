@@ -24,12 +24,17 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const FIX = '.github/fixtures/refresh-gate';
+// The gate reads the base tree the fixtures were generated against, which is the frozen copy
+// under tree/ rather than the live skills. A refresh of a source skill used to break this suite
+// twice over — see the header of make-refresh-fixtures.js — and the rules under test here do not
+// depend on which version a live skill currently carries.
+const TREE = `${FIX}/tree`;
 const manifest = JSON.parse(fs.readFileSync(`${FIX}/manifest.json`, 'utf8'));
 
 function run(fixture) {
   try {
     const out = execFileSync('node', ['scripts/is-verification-refresh.js',
-      '--diff', `${FIX}/${fixture}`, '--base-dir', '.', '--json'], { encoding: 'utf8' });
+      '--diff', `${FIX}/${fixture}`, '--base-dir', TREE, '--json'], { encoding: 'utf8' });
     return { code: 0, verdict: JSON.parse(out) };
   } catch (e) {
     if (e.status === 1) return { code: 1, verdict: JSON.parse(e.stdout) };

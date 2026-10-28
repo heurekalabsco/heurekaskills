@@ -18,14 +18,42 @@
 // each structural case is now MINIMAL — one header, one concern — and the selftest asserts the
 // FULL reason set rather than one substring, which is what makes bundling impossible to hide.
 //
+// THE BASE TREE IS FROZEN, and that is the third thing this file got wrong. Both the generated
+// fixtures and the anchors below used to read the LIVE `skills/` tree, and the anchors name exact
+// values — `version: 1.0.0`, `date: 2026-09-27`, the whole of afm-lis's `against:` line. So a
+// verification refresh of a source skill broke the suite two ways at once: the committed fixture
+// stopped applying to the changed base, and the anchor stopped matching at all. Six live skills
+// were therefore unrefreshable by the routine that exists to refresh them — afm-lis, 4dn,
+// all-of-us, alphafold, boltz2-nim and pathway-cca-coessentiality — and #378 hit it: a
+// three-line refresh, exactly the shape the gate is built to accept, failed its own selftest.
+// Fixing it inside the anchors would mean deriving every value at generation time, which is how
+// an expectation stops pinning anything.
+//
+// So the cases are generated against copies under `tree/`, committed and deliberately static.
+// What they test is the GATE'S RULES against diff shapes, and those do not depend on which
+// version a skill currently carries. A case can no longer go vacuous either: the "matches
+// exactly 1" check below runs against a file that cannot move underneath it. The cost is that
+// `tree/` drifts from the live skills, which is why `--seed-tree` exists — re-seeding is a
+// deliberate act with its own review, not something a refresh triggers by accident.
+//
+// Nothing here writes to the working tree any more. The edits are applied inside a throwaway git
+// repo seeded from `tree/`, so `git diff` still produces real, applying diffs with real paths. The
+// previous version edited live skills and restored them in a `finally` — no signal handlers, and
+// `--check` ran the same path, so merely verifying fixture freshness could leave a mutated skill
+// behind if it died at the wrong moment.
+//
 // Usage:  node scripts/make-refresh-fixtures.js [--check]
+//         node scripts/make-refresh-fixtures.js --seed-tree   # re-copy tree/ from live skills/
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const FIX = '.github/fixtures/refresh-gate';
+const TREE = path.join(FIX, 'tree');
 const CHECK = process.argv.includes('--check');
-const git = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const SEED = process.argv.includes('--seed-tree');
+const git = (args, cwd) => execFileSync('git', args, { encoding: 'utf8', cwd, maxBuffer: 64 * 1024 * 1024 });
 
 const sub = (file, find, replace) => ({ file, find, replace });
 const insertAfter = (file, find, line) => ({ file, find, replace: `${find}\n${line}` });
@@ -359,17 +387,48 @@ const MALFORMED = [
     build: doesNotApply },
 ];
 
-// Each case edits a real file, runs `git diff`, and restores the file from an in-memory copy.
-// A file that was ALREADY modified would have its modification captured into the fixture, so
-// that refuses; untracked files cannot do that and are not a reason to stop.
-const willEdit = [...new Set(CONTENT.flatMap((c) => (c.edits ?? []).map((e) => e.file)))];
-const dirty = git(['status', '--porcelain', '--', ...willEdit])
-  .split('\n').filter((l) => l.trim() && !l.startsWith('??')).join('\n');
-if (dirty) {
-  console.error('make-refresh-fixtures: these files a case edits are modified, and their edits\n' +
-                'would be captured into the generated fixtures. Commit or stash first:\n' + dirty);
+// The files every case needs present in the frozen tree. `--seed-tree` copies them from the live
+// skills; otherwise they must already be there, because a missing one would silently turn a case
+// into a diff against nothing.
+const NEEDED = [...new Set([
+  ...CONTENT.flatMap((c) => (c.edits ?? []).map((e) => e.file)),
+  'skills/afm-lis/SKILL.md',
+])];
+
+if (SEED) {
+  for (const f of NEEDED) {
+    if (!fs.existsSync(f)) { console.error(`  --seed-tree: ${f} is not in the live tree`); process.exit(2); }
+    fs.mkdirSync(path.join(TREE, path.dirname(f)), { recursive: true });
+    fs.copyFileSync(f, path.join(TREE, f));
+  }
+  console.log(`seeded ${NEEDED.length} file(s) into ${TREE} — regenerate the fixtures next, and`);
+  console.log('review the fixture diff: re-seeding can change what a case tests.');
+  process.exit(0);
+}
+
+const missing = NEEDED.filter((f) => !fs.existsSync(path.join(TREE, f)));
+if (missing.length) {
+  console.error(`make-refresh-fixtures: the frozen base tree is incomplete — run --seed-tree:\n  ${missing.join('\n  ')}`);
   process.exit(2);
 }
+
+// A throwaway git repo seeded from the frozen tree. The edits land here, never in the working
+// tree, and `git diff` from inside it emits the `skills/...` paths the fixtures must name.
+function seedScratchRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'refresh-fixtures-'));
+  for (const f of NEEDED) {
+    fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
+    fs.copyFileSync(path.join(TREE, f), path.join(dir, f));
+  }
+  git(['init', '--quiet'], dir);
+  git(['-c', 'core.safecrlf=false', 'add', '--', ...NEEDED], dir);
+  // Committed so `git diff` compares against it. Identity is supplied inline because the
+  // environment's own may be unset, and nothing here is ever pushed.
+  git(['-c', 'user.name=fixtures', '-c', 'user.email=fixtures@invalid',
+       'commit', '--quiet', '-m', 'frozen fixture base'], dir);
+  return dir;
+}
+const SCRATCH = seedScratchRepo();
 
 let failed = 0;
 const manifest = { cases: [] };
@@ -382,26 +441,30 @@ const emit = (name, text) => {
 
 for (const c of CONTENT) {
   const touched = [...new Set(c.edits.map((e) => e.file))];
-  const saved = new Map(touched.map((f) => [f, fs.readFileSync(f, 'utf8')]));
   try {
     for (const e of c.edits) {
-      const text = fs.readFileSync(e.file, 'utf8');
+      const at = path.join(SCRATCH, e.file);
+      const text = fs.readFileSync(at, 'utf8');
       const n = text.split(e.find).length - 1;
       // A find matching twice edits both and produces a fixture nobody intended; a find matching
-      // nothing means the skill moved underneath this case and it now tests nothing.
+      // nothing means the frozen tree was re-seeded underneath this case and it now tests nothing.
       if (n !== 1) throw new Error(`${c.name}: ${e.file} matches ${JSON.stringify(e.find.slice(0, 46))} ${n} times, expected exactly 1`);
-      fs.writeFileSync(e.file, e.replace === null
+      fs.writeFileSync(at, e.replace === null
         ? text.replace(e.find.startsWith('\n') ? e.find : `${e.find}\n`, '')
         : text.replace(e.find, e.replace));
     }
-    const diff = git(['diff', '--no-color', '--', ...touched]);
+    const diff = git(['diff', '--no-color', '--', ...touched], SCRATCH);
     if (!diff.trim()) throw new Error(`${c.name}: produced an empty diff`);
     emit(c.name, diff);
     manifest.cases.push(c.expect === 'accept'
       ? { fixture: c.name, expect: 'accept', what: c.what }
       : { fixture: c.name, expect: 'reject', because: c.because, what: c.what });
   } catch (e) { console.error(`  ${e.message}`); failed = 1; }
-  finally { for (const [f, text] of saved) fs.writeFileSync(f, text); }
+  finally {
+    // Back to the frozen content, so the next case starts from it rather than from this one's
+    // edits. The scratch repo is disposable, but the cases are not independent without this.
+    for (const f of touched) fs.copyFileSync(path.join(TREE, f), path.join(SCRATCH, f));
+  }
 }
 
 for (const c of STRUCTURAL) {
@@ -410,7 +473,7 @@ for (const c of STRUCTURAL) {
 }
 for (const c of MALFORMED) {
   try {
-    emit(c.name, c.body !== undefined ? c.body : c.build('.'));
+    emit(c.name, c.body !== undefined ? c.body : c.build(TREE));
     manifest.cases.push({ fixture: c.name, expect: 'reject', because: c.because, what: c.what, malformed: true });
   } catch (e) { console.error(`  ${e.message}`); failed = 1; }
 }
@@ -423,6 +486,9 @@ if (CHECK) {
 } else {
   fs.writeFileSync(manifestPath, manifestText);
 }
+
+// The scratch repo is this script's own temp directory and nothing outside it is touched.
+fs.rmSync(SCRATCH, { recursive: true, force: true });
 
 console.log(`${CHECK ? 'checked' : 'wrote'} ${manifest.cases.length} cases${failed ? ' — WITH FAILURES' : ''}`);
 process.exit(failed);
