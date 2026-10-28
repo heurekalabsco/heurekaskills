@@ -89,17 +89,32 @@ try {
 // silence: without this line the only prompt to re-seed is somebody remembering. A drifted copy
 // is not a defect — it is a frozen fixture doing its job — but an unreported one eventually means
 // the suite is testing shapes the registry no longer has.
-const drifted = [];
-for (const f of fs.readdirSync(`${TREE}/skills`, { withFileTypes: true }).filter((d) => d.isDirectory())) {
-  for (const rel of [`skills/${f.name}/SKILL.md`, `skills/${f.name}/references/io_operations.md`]) {
-    const frozen = `${TREE}/${rel}`;
-    if (!fs.existsSync(frozen) || !fs.existsSync(rel)) continue;
-    if (fs.readFileSync(frozen, 'utf8') !== fs.readFileSync(rel, 'utf8')) drifted.push(rel);
-  }
+// Walk what the frozen tree ACTUALLY holds rather than the filenames it is expected to hold. A
+// reporter that looks for names it assumes exist goes quiet exactly when its assumption breaks:
+// the first version of this check skipped any file whose live counterpart was missing, so a
+// DELETED or retired skill read as "no drift" — the one case where the frozen copy is testing a
+// shape the registry no longer has at all, and so the one a reader most needs told. It also
+// compared a hardcoded pair of filenames, which silently ignored any other file a later re-seed
+// might pull in.
+const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+  e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
+
+const missing = [];
+const differs = [];
+for (const frozen of walk(`${TREE}/skills`)) {
+  const rel = frozen.slice(`${TREE}/`.length);
+  if (!fs.existsSync(rel)) { missing.push(rel); continue; }
+  if (fs.readFileSync(frozen, 'utf8') !== fs.readFileSync(rel, 'utf8')) differs.push(rel);
 }
-console.log(drifted.length
-  ? `  note ${'frozen tree differs from live'.padEnd(38)} ${drifted.length} file(s): ${drifted.join(', ')}`
-  : `  ok   ${'frozen tree matches live skills'.padEnd(38)} no drift`);
+if (missing.length) {
+  console.log(`  note ${'frozen file missing from live'.padEnd(38)} ${missing.length}: ${missing.join(', ')}`);
+}
+if (differs.length) {
+  console.log(`  note ${'frozen tree differs from live'.padEnd(38)} ${differs.length} file(s): ${differs.join(', ')}`);
+}
+if (!missing.length && !differs.length) {
+  console.log(`  ok   ${'frozen tree matches live skills'.padEnd(38)} no drift`);
+}
 
 console.log(failed ? '  SELFTEST FAILED' : `  all ${manifest.cases.length} cases pass`);
 process.exit(failed);
