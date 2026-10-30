@@ -40,8 +40,8 @@ account and no licence acceptance. Checked 2026-08-28:
 | `biohub/esm3-sm-open-v1` | — (MIT per the repository) | no | 1.4B params |
 | `biohub/ESMC-300M` / `ESMC-600M` | `mit`, `other` | no | 0.33B / 0.58B params |
 | `biohub/ESMC-6B` | `mit`, `other` | no | **25.4 GB** |
-| `biohub/ESMFold2` | `mit` | no | **26.3 GB** in 6 shards, plus a 0.42 GB `ccd.pkl` |
-| `biohub/ESMFold2-Fast` | `mit` | no | **26.1 GB** in 6 shards, plus the same `ccd.pkl` |
+| `biohub/ESMFold2` | `mit` | no | **26.7 GB** total: 26.3 GB in 6 shards plus a 0.42 GB `ccd.pkl` |
+| `biohub/ESMFold2-Fast` | `mit` | no | **26.1 GB** total: 6 shards and **no** `ccd.pkl` |
 
 Only ESM3-medium and ESM3-large remain hosted-only and need an `ESM_API_KEY` from the Biohub
 developer console — see *Authentication*.
@@ -62,8 +62,17 @@ Two things that table does not show, both of which cost real time if you meet th
   field is **gone**, replaced by an embedded `esmc_config` — 80 layers, hidden size 2560, the
   6B shape — and the weights are sharded across six files behind a
   `model.safetensors.index.json`. Nothing in the config names the repo the trunk came from any
-  more, so the trunk is identifiable by shape and not by name. Budget **~26 GB per checkpoint**
-  and a first-load time to match; do not expect to share one trunk download between them.
+  more, so the trunk is identifiable by shape and not by name. Budget **26.7 GB for ESMFold2 and
+  26.1 GB for `-Fast`** — whole-repo totals, observed 2026-10-30 — and a first-load time to
+  match; do not expect to share one trunk download between them.
+- **Only `ESMFold2` ships `ccd.pkl`, and `-Fast` does not.** Observed 2026-10-30: 15 files
+  against 14, and the 0.42 GB chemical component dictionary is the difference. CCD codes are how
+  the complex builder below addresses known ligands and modified residues
+  (`Modification(ccd="AIB")`, `LigandInput(ccd=["SAH"])`), so that work may not be available on
+  the throughput variant. **The file's absence is measured; the runtime consequence is not
+  tested here** — it needs the 26 GB download. If you are using CCD codes, start from
+  `biohub/ESMFold2` and treat `-Fast` as unproven for them. An earlier version of this page said
+  `-Fast` carried "the same `ccd.pkl`"; it does not.
 - **The `other` tag on the ESMC cards is not a second licence.** Their `license_link` points
   at the repository's `THIRD_PARTY_NOTICE.md`, which lists only dependency licences — PyTorch,
   flash-attn and xformers under BSD, einops, jaxtyping and attrs under MIT, lightning under
@@ -646,17 +655,25 @@ for repo in ("biohub/ESMFold2", "biohub/ESMFold2-Fast"):
 assert raw("biohub/ESMFold2", "config.json")["msa_encoder"]["enabled"] is True
 assert raw("biohub/ESMFold2-Fast", "config.json")["msa_encoder"]["enabled"] is False
 
-# --- 3. the files a local load needs are actually published ----------------------
+# --- 3. the files a local load needs are actually published, and what they weigh --
 # The weights are sharded, so no single `model.safetensors` exists; the index is what
-# `from_pretrained` reads to find the shards.
-sib = hf("biohub/ESMFold2")["siblings"]
-files = {s["rfilename"] for s in sib}
-assert {"model.safetensors.index.json", "config.json", "ccd.pkl"} <= files, sorted(files)
-shards = sorted(f for f in files if f.endswith(".safetensors"))
-assert shards, "no safetensors shards published"
-size = sum(s.get("size") or 0 for s in sib if s["rfilename"] in set(shards))
-print(f"biohub/ESMFold2          {len(shards)} shard(s), {size / 1e9:.1f} GB"
-      f" + index + config + ccd.pkl")
+# `from_pretrained` reads to find them. Report the WHOLE repo, because that is the
+# download, and ccd.pkl is 0.42 GB of it.
+for repo in ("biohub/ESMFold2", "biohub/ESMFold2-Fast"):
+    sib = hf(repo)["siblings"]
+    files = {s["rfilename"] for s in sib}
+    assert {"model.safetensors.index.json", "config.json"} <= files, sorted(files)
+    shards = sorted(f for f in files if f.endswith(".safetensors"))
+    assert shards, f"{repo} publishes no safetensors shards"
+    total = sum(s.get("size") or 0 for s in sib)
+    print(f"{repo:24s} {len(shards)} shard(s), {total / 1e9:.1f} GB in {len(sib)} files,"
+          f" ccd.pkl={'ccd.pkl' in files}")
+
+# Only the MSA-conditioned repo ships the chemical component dictionary. CCD codes are how
+# this page addresses ligands and modified residues, so the -Fast variant may not support
+# them -- the absence is measured, the runtime consequence is not tested here.
+assert "ccd.pkl" in {s["rfilename"] for s in hf("biohub/ESMFold2")["siblings"]}
+assert "ccd.pkl" not in {s["rfilename"] for s in hf("biohub/ESMFold2-Fast")["siblings"]}
 
 # --- 4. the transformers pin that breaks the model card's own quickstart ---------
 with urllib.request.urlopen("https://pypi.org/pypi/esm/json", timeout=45) as r:
@@ -674,7 +691,8 @@ biohub/ESMFold2-Fast     gated=False licence=mit
 biohub/ESMC-6B           gated=False licence=mit,other
 biohub/ESMFold2          trunk=esmc/80L msa_encoder=True
 biohub/ESMFold2-Fast     trunk=esmc/80L msa_encoder=False
-biohub/ESMFold2          6 shard(s), 26.3 GB + index + config + ccd.pkl
+biohub/ESMFold2          6 shard(s), 26.7 GB in 15 files, ccd.pkl=True
+biohub/ESMFold2-Fast     6 shard(s), 26.1 GB in 14 files, ccd.pkl=False
 esm 3.4.2    pins transformers<5.0.0,>=4.57.6
 ```
 
