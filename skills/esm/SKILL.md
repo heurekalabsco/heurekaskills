@@ -305,9 +305,10 @@ pLDDT, PAE, pTM and ipTM out the other side.
 There is a second asymmetry, and it points the other way from throughput: **`-Fast` does not
 ship `ccd.pkl`**, the chemical component dictionary that CCD codes resolve against — see
 *Before the first call*. The complex builder further down addresses known ligands and modified
-residues that way, so reach for `biohub/ESMFold2` when you are doing that work, even though
-`-Fast` is otherwise the throughput choice. Measured 2026-10-30; the runtime consequence is
-untested here.
+residues that way, and it now loads `biohub/ESMFold2` by name rather than inheriting whichever
+model you last built, because the nearest earlier load on this page is `-Fast`. Measured
+2026-10-30; the runtime consequence of the missing file is untested here, so treat `-Fast` as
+unproven for CCD codes rather than known-broken.
 
 `-Fast` has no alignment reader. **Give it an MSA and it ignores it without raising** — you
 get a single-sequence prediction with nothing to tell you the alignment was dropped. If you
@@ -398,6 +399,10 @@ an off-by-one here produces a job that validates cleanly and describes the wrong
 
 ```python
 from esm.models.esmfold2 import CovalentBond, LigandInput, Modification
+
+# Load the MSA-conditioned checkpoint explicitly, not the -Fast one used earlier on this
+# page: `ccd` codes below resolve against `ccd.pkl`, which only this repo publishes.
+model = EsmFold2Model.from_pretrained("biohub/ESMFold2", device="cuda").eval()
 
 PEPTIDE = "HAEGTFTSDVSSYLEGQAAKEFIAWLVRGRG"
 FATTY_TAIL = "C(=O)(CCOCCOCC(=O)NCCOCCOCCNCC(=O)N[C@@H](CCC(=O)NCCCCCCCCCCCCCCCCCC(=O)O)C(=O)O)"
