@@ -25,8 +25,8 @@ ESM provides protein language models for understanding, generating, and designin
 **What you need before running anything here.** More is open than this skill used to say.
 Every model it runs locally — `esm3-sm-open-v1`, all three ESMC sizes *including the 6B*, and
 both ESMFold2 checkpoints — sits on Hugging Face under the `biohub` org, ungated, needing no
-account and no licence acceptance. The ESMC rows were checked 2026-08-28; the ESM3 row and both
-ESMFold2 rows were measured 2026-10-30:
+account and no licence acceptance. The two small ESMC rows were checked 2026-08-28; every other
+row was measured 2026-10-30:
 
 | repo | licence tag on the card | gated | size |
 |---|---|---|---|
@@ -513,7 +513,7 @@ benchmark numbers attached. Do not reinvent that here.
 **ESM C Models (Embeddings):**
 - `esmc_300m` / `esmc-300m-2024-12` (30 layers) - Lightweight, fast inference (open weights, local)
 - `esmc_600m` / `esmc-600m-2024-12` (36 layers) - Balanced performance (open weights, local)
-- `esmc-6b-2024-12` (80 layers) - Maximum quality. Available hosted **and** locally: `biohub/ESMC-6B` is ungated open weights, 25.4 GB. Earlier versions of this skill said the 6B required the hosted platform or SageMaker; that is no longer true.
+- `esmc-6b-2024-12` (80 layers) - Maximum quality. Available hosted **and** locally: `biohub/ESMC-6B` is ungated open weights, 25.4 GB (observed 2026-10-30). Earlier versions of this skill said the 6B required the hosted platform or SageMaker; that is no longer true.
 
 **ESMFold2 (all-atom structure and complexes):**
 - `biohub/ESMFold2-Fast` - single-sequence, no MSA reader, the throughput choice (open weights, local)
@@ -718,11 +718,10 @@ carried here unre-measured. The `## Try it` block is the part that is current �
 the 26 GB download, and the ESM3 blocks with an `ESM_API_KEY`, before relying on those numbers.
 
 Any assertion firing is a real change, not flake. A gated flag flipping to `True` or a licence
-tag moving means the §3b position in this skill needs re-checking before anyone relies on it;
-an `esmc_id` field reappearing, or the trunk's layer count moving, means the download budget in
-the download budget under Overview is wrong; a missing shard index means the local-load
-instructions are; and the pin
-widening past `<5.0.0` means the import warning there can finally be deleted. The printed
+tag moving means the access position in this skill needs re-checking before anyone relies on it;
+an `esmc_id` field reappearing, or the trunk's layer count moving, means the download budget
+under *Overview* is wrong; a missing shard index means the local-load instructions are; and the
+pin widening past `<5.0.0` means the import warning in section 7 can finally be deleted. The printed
 version and shard total are **observed values** rather than invariants — a higher `esm` release
 or a different byte count is upstream moving, not a failure.
 
