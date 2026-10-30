@@ -14,16 +14,7 @@ verified:
   against: esm 3.4.0 (PyPI, released 2026-08-27) / transformers 4.57.6 / torch 2.11.0 / biotite 1.7.1 / Python 3.12.8 on macOS 26.4 arm64, Apple M1 Max, 64 GB, no CUDA / biohub/ESMFold2-Fast and biohub/ESMC-6B downloaded and folded on CPU / biohub HF model records and Biohub/esm LICENSE.md read 2026-08-28
   executed: 14
   unverified: 9
-  unverified_reason: >-
-    Six ESM3 blocks and the two hosted-API blocks need either the esm3-open checkpoint in a
-    generation loop or an ESM_API_KEY, neither of which this host has; the flash-attn install
-    block is CUDA-only and publishes no macOS wheel; and the fold block as written names
-    device="cuda". ESMFold2 itself was run here end to end on CPU instead — the equivalent
-    fp32 block below it loaded biohub/ESMFold2-Fast with its 25.4 GB ESMC-6B trunk (as the layout
-    stood on 2026-08-28; Before the first call describes the current one) and folded
-    ubiquitin to a valid 601-atom mmCIF, which is where the pLDDT, pTM and timing quoted in
-    section 7 come from. Re-run the ESM3 blocks with an ESM_API_KEY, and the CUDA fold on an
-    NVIDIA host.
+  unverified_reason: Six ESM3 blocks and the two hosted-API blocks need either the esm3-open checkpoint in a generation loop or an ESM_API_KEY, neither of which this host has; the flash-attn install block is CUDA-only and publishes no macOS wheel; and the fold block as written names device=cuda. ESMFold2 itself was run end to end on CPU instead - the fp32 block below loaded biohub/ESMFold2-Fast with its 25.4 GB ESMC-6B trunk, as the layout stood on 2026-08-28, and folded ubiquitin to a valid 601-atom mmCIF, which is where the pLDDT, pTM and timing in section 7 come from. The repo table under Overview describes the current layout; re-running that block now means a 26.1 GB download from one repo. Re-run the ESM3 blocks with an ESM_API_KEY and the CUDA fold on an NVIDIA host. These counts describe SKILL.md's own fences and not the five reference pages.
 ---
 # ESM: Evolutionary Scale Modeling
 
@@ -34,8 +25,8 @@ ESM provides protein language models for understanding, generating, and designin
 **What you need before running anything here.** More is open than this skill used to say.
 Every model it runs locally — `esm3-sm-open-v1`, all three ESMC sizes *including the 6B*, and
 both ESMFold2 checkpoints — sits on Hugging Face under the `biohub` org, ungated, needing no
-account and no licence acceptance. The ESM3 and ESMC rows were checked 2026-08-28; the two
-ESMFold2 rows were re-measured 2026-10-30:
+account and no licence acceptance. The ESMC rows were checked 2026-08-28; the ESM3 row and both
+ESMFold2 rows were measured 2026-10-30:
 
 | repo | licence tag on the card | gated | size |
 |---|---|---|---|
@@ -46,7 +37,7 @@ ESMFold2 rows were re-measured 2026-10-30:
 | `biohub/ESMFold2-Fast` | `mit` | no | **26.1 GB** total: 6 shards and **no** `ccd.pkl` |
 
 Every ESM3 variant other than `esm3-open` is hosted-only — medium, large, small and
-medium-multimer; their repository paths all return 401 (checked 2026-10-30). Those need an
+medium-multimer, as `references/forge-api.md` lists them. Those need an
 `ESM_API_KEY` from the Biohub
 developer console — see *Authentication*.
 
@@ -307,10 +298,10 @@ pLDDT, PAE, pTM and ipTM out the other side.
 | `biohub/ESMFold2-Fast` | no | 188.8 M | you want single-sequence throughput and need no CCD codes |
 
 There is a second asymmetry, and it points the other way from throughput: **`-Fast` does not
-ship `ccd.pkl`**, the chemical component dictionary that CCD codes resolve against — see the
-file-level detail in *Before the first call — what you need, and the one licence that bites*. The complex builder further down addresses known ligands and modified
-residues that way, and it now loads `biohub/ESMFold2` by name rather than inheriting whichever
-model you last built, because the nearest earlier load on this page is `-Fast`. Measured
+ship `ccd.pkl`**, the chemical component dictionary that CCD codes resolve against — the
+file-level detail is in the repo table under *Overview*. The complex builder further down
+addresses known ligands and modified residues that way, and the fold call beneath it loads
+`biohub/ESMFold2` by name for that reason. Measured
 2026-10-30; the runtime consequence of the missing file is untested here, so treat `-Fast` as
 unproven for CCD codes rather than known-broken.
 
@@ -427,7 +418,8 @@ spi = StructurePredictionInput(
 ```
 
 Folding is then two lines, and the fold call is identical on every backend below — only the
-loading line changes. `from_pretrained` defaults to `device="cpu"`, so name the device you
+loading line changes, and the backend examples further down load `-Fast`, which cannot resolve
+the CCD code in the `spi` above. Keep this load if you are folding that input. `from_pretrained` defaults to `device="cpu"`, so name the device you
 actually want rather than relying on the default. **Load `biohub/ESMFold2` for this input, not
 `-Fast`:** the `spi` above addresses a modified residue by CCD code, and `ccd.pkl` is published
 only by the MSA-conditioned repo. Upstream's README does the same — it reaches for `-Fast` only
@@ -530,7 +522,7 @@ benchmark numbers attached. Do not reinvent that here.
 Each ESMFold2 checkpoint **embeds its own ESMC trunk** and is a single download of 26.7 GB
 (`biohub/ESMFold2`) or 26.1 GB (`-Fast`) — there is no separate `biohub/ESMC-6B` pull, and
 nothing in either config names the repo the trunk came from. Observed 2026-10-30; upstream
-reshaped both repos on 2026-09-16. See *Before the first call* for the file-level detail.
+reshaped both repos on 2026-09-16. See the repo table under *Overview* for the file-level detail.
 
 Local `ESMC.from_pretrained()` examples use underscore aliases (`esmc_300m`, `esmc_600m`). Hosted API clients use dated model IDs such as `esmc-600m-2024-12`.
 
@@ -762,7 +754,8 @@ or a different byte count is upstream moving, not a failure.
   - ESM3 Release: https://www.evolutionaryscale.ai/blog/esm3-release
   - ESM C Launch: https://www.evolutionaryscale.ai/blog/esm-cambrian
 - **Community:** Slack community at https://bit.ly/3FKwcWd
-- **Model Weights:** Hugging Face EvolutionaryScale and Biohub organizations
+- **Model Weights:** the `biohub` organization on Hugging Face. The EvolutionaryScale org is
+  empty — its models moved, and the old paths redirect (observed 2026-10-30).
 
 ## Responsible Use
 
