@@ -10,7 +10,7 @@ ESM3 is a frontier multimodal generative language model that reasons over the se
 
 | Model ID | Parameters | Availability | Best For |
 |----------|-----------|--------------|----------|
-| `esm3-open` | 1.4B | Open weights (local, Hugging Face license acceptance required) | Development, testing, learning |
+| `esm3-open` | 1.4B | Open weights, local. The repo is `biohub/esm3-sm-open-v1` — ungated, no licence click-through (observed 2026-10-30) | Development, testing, learning |
 | `esm3-medium-2024-08` | 7B | Forge API only | Production, balanced quality/speed |
 | `esm3-large-2024-03` | 98B | Forge API only | Maximum quality, research |
 | `esm3-medium-multimer-2024-09` | 7B | Forge API only | Protein complexes (experimental) |

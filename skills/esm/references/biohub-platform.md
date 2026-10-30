@@ -20,7 +20,7 @@ Never commit API keys or paste them into notebooks checked into git.
 
 ## Installation
 
-`uv pip install "esm==3.4.0"` is the standard reproducible path for everything in this skill, ESMFold2 included. Release 3.4.0 (2026-08-27) is the first on PyPI to carry the ESMFold2 model code, so the git install upstream still recommends is no longer required — the model card's "a PyPI release is coming soon" predates it.
+`uv pip install "esm==3.4.2"` is the standard reproducible path for everything in this skill, ESMFold2 included; pin the release you tested against; 3.4.2 is current as observed 2026-10-30. Release 3.4.0 (2026-08-27) was the first on PyPI to carry the ESMFold2 model code, so the git install upstream still recommends is no longer required — the model card's "a PyPI release is coming soon" predates it.
 
 If you do need a git install for something newer than the last release, avoid floating branch installs in automated or production instructions. Pin a full 40-character commit SHA from the official Biohub repository and review it before installing:
 
@@ -32,7 +32,7 @@ Confirm which install source your task requires before mixing PyPI and GitHub bu
 
 ## ESMFold2 Structure Prediction
 
-ESMFold2 is a structure prediction model built on a frozen ESMC 6B trunk. It runs two ways: **locally from open weights** (`biohub/ESMFold2` and `biohub/ESMFold2-Fast`, both MIT and ungated — covered in section 7 of `SKILL.md`, including the ~27 GB the trunk brings with it), or **hosted** through Biohub. Biohub lists ESMFold2 as a 2026-04/2026-05 model family and documents `esmfold2-fast-2026-05` for hosted inference.
+ESMFold2 is a structure prediction model built on a frozen ESMC 6B trunk. It runs two ways: **locally from open weights** (`biohub/ESMFold2` and `biohub/ESMFold2-Fast`, both MIT and ungated — covered under *Overview* and *Model Selection Guide* in `SKILL.md`, including the ~26 GB each ESMFold2 checkpoint weighs, trunk included (26.7 GB for `biohub/ESMFold2`, 26.1 GB for `-Fast`, observed 2026-10-30)), or **hosted** through Biohub. Biohub lists ESMFold2 as a 2026-04/2026-05 model family and documents `esmfold2-fast-2026-05` for hosted inference.
 
 For the hosted route, `esmfold2_client()` is the idiomatic entry point. It is a thin wrapper that returns a `SequenceStructureForgeInferenceClient` already pointed at `https://biohub.ai` with `esmfold2-fast-2026-05` as its default model, so the two forms are equivalent and the wrapper is less to get wrong:
 
