@@ -32,7 +32,7 @@ ESMFold2 rows were measured 2026-10-30:
 |---|---|---|---|
 | `biohub/esm3-sm-open-v1` | — (MIT per the repository) | no | **5.50 GB** (1.4B params) |
 | `biohub/ESMC-300M` / `ESMC-600M` | `mit`, `other` | no | 0.33B / 0.58B params |
-| `biohub/ESMC-6B` | `mit`, `other` | no | **25.4 GB** |
+| `biohub/ESMC-6B` | `mit`, `other` | no | **25.4 GB** (observed 2026-10-30) |
 | `biohub/ESMFold2` | `mit` | no | **26.7 GB** total: 26.3 GB in 6 shards plus a 0.42 GB `ccd.pkl` |
 | `biohub/ESMFold2-Fast` | `mit` | no | **26.1 GB** total: 6 shards and **no** `ccd.pkl` |
 
@@ -418,12 +418,13 @@ spi = StructurePredictionInput(
 ```
 
 Folding is then two lines, and the fold call is identical on every backend below — only the
-loading line changes, and the backend examples further down load `-Fast`, which cannot resolve
-the CCD code in the `spi` above. Keep this load if you are folding that input. `from_pretrained` defaults to `device="cpu"`, so name the device you
+loading line changes. `from_pretrained` defaults to `device="cpu"`, so name the device you
 actually want rather than relying on the default. **Load `biohub/ESMFold2` for this input, not
-`-Fast`:** the `spi` above addresses a modified residue by CCD code, and `ccd.pkl` is published
-only by the MSA-conditioned repo. Upstream's README does the same — it reaches for `-Fast` only
-on plain-sequence folds.
+`-Fast`:** the `spi` above addresses a modified residue by CCD code, `ccd.pkl` is published only
+by the MSA-conditioned repo, and `-Fast` is therefore unproven for CCD codes rather than
+known-broken — the file's absence is measured, the runtime consequence is not. The backend
+examples below load `-Fast`; keep this load if you are folding this input. Upstream's README does
+the same — it reaches for `-Fast` only on plain-sequence folds.
 
 ```python
 model = EsmFold2Model.from_pretrained("biohub/ESMFold2", device="cuda").eval()
@@ -657,7 +658,7 @@ for repo, want in [("biohub/ESMFold2", ["mit"]),
 for repo in ("biohub/ESMFold2", "biohub/ESMFold2-Fast"):
     cfg = raw(repo, "config.json")
     assert cfg["model_type"] == "esmfold2"
-    assert "esmc_id" not in cfg, f"{repo} names its trunk again: re-read section 2"
+    assert "esmc_id" not in cfg, f"{repo} names its trunk again: re-read Overview"
     trunk = cfg["esmc_config"]
     assert trunk["model_type"] == "esmc", trunk["model_type"]
     assert trunk["num_hidden_layers"] == 80, trunk["num_hidden_layers"]
@@ -719,7 +720,8 @@ the 26 GB download, and the ESM3 blocks with an `ESM_API_KEY`, before relying on
 Any assertion firing is a real change, not flake. A gated flag flipping to `True` or a licence
 tag moving means the §3b position in this skill needs re-checking before anyone relies on it;
 an `esmc_id` field reappearing, or the trunk's layer count moving, means the download budget in
-section 7 is wrong; a missing shard index means the local-load instructions are; and the pin
+the download budget under Overview is wrong; a missing shard index means the local-load
+instructions are; and the pin
 widening past `<5.0.0` means the import warning there can finally be deleted. The printed
 version and shard total are **observed values** rather than invariants — a higher `esm` release
 or a different byte count is upstream moving, not a failure.
