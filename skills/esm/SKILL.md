@@ -25,8 +25,9 @@ ESM provides protein language models for understanding, generating, and designin
 **What you need before running anything here.** More is open than this skill used to say.
 Every model it runs locally — `esm3-sm-open-v1`, all three ESMC sizes *including the 6B*, and
 both ESMFold2 checkpoints — sits on Hugging Face under the `biohub` org, ungated, needing no
-account and no licence acceptance. The two small ESMC rows were checked 2026-08-28; every other
-row was measured 2026-10-30:
+account and no licence acceptance. The `ESMC-300M` / `ESMC-600M` row was checked 2026-08-28 — its
+licence and gated columns, since it carries parameter counts rather than a size; every other row
+was measured 2026-10-30:
 
 | repo | licence tag on the card | gated | size |
 |---|---|---|---|
