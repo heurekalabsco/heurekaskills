@@ -299,8 +299,15 @@ pLDDT, PAE, pTM and ipTM out the other side.
 
 | checkpoint | MSA conditioning | folding-trunk params | reach for it when |
 |---|---|---|---|
-| `biohub/ESMFold2` | yes | 234.8 M | the target is hard, or you have a paired MSA |
-| `biohub/ESMFold2-Fast` | no | 188.8 M | you want single-sequence throughput |
+| `biohub/ESMFold2` | yes | 234.8 M | the target is hard, you have a paired MSA, or you are addressing ligands or modified residues by CCD code |
+| `biohub/ESMFold2-Fast` | no | 188.8 M | you want single-sequence throughput and need no CCD codes |
+
+There is a second asymmetry, and it points the other way from throughput: **`-Fast` does not
+ship `ccd.pkl`**, the chemical component dictionary that CCD codes resolve against — see
+*Before the first call*. The complex builder further down addresses known ligands and modified
+residues that way, so reach for `biohub/ESMFold2` when you are doing that work, even though
+`-Fast` is otherwise the throughput choice. Measured 2026-10-30; the runtime consequence is
+untested here.
 
 `-Fast` has no alignment reader. **Give it an MSA and it ignores it without raising** — you
 get a single-sequence prediction with nothing to tell you the alignment was dropped. If you
