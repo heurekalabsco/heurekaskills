@@ -24,12 +24,17 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const FIX = '.github/fixtures/refresh-gate';
+// The gate reads the base tree the fixtures were generated against, which is the frozen copy
+// under tree/ rather than the live skills. A refresh of a source skill used to break this suite
+// twice over — see the header of make-refresh-fixtures.js — and the rules under test here do not
+// depend on which version a live skill currently carries.
+const TREE = `${FIX}/tree`;
 const manifest = JSON.parse(fs.readFileSync(`${FIX}/manifest.json`, 'utf8'));
 
 function run(fixture) {
   try {
     const out = execFileSync('node', ['scripts/is-verification-refresh.js',
-      '--diff', `${FIX}/${fixture}`, '--base-dir', '.', '--json'], { encoding: 'utf8' });
+      '--diff', `${FIX}/${fixture}`, '--base-dir', TREE, '--json'], { encoding: 'utf8' });
     return { code: 0, verdict: JSON.parse(out) };
   } catch (e) {
     if (e.status === 1) return { code: 1, verdict: JSON.parse(e.stdout) };
@@ -64,14 +69,51 @@ for (const c of manifest.cases) {
     + `       got    ${got.length}: ${got.map((w) => `\n         · ${w}`).join('')}`);
 }
 
-// The fixtures must match what the generator produces from the skills as they are NOW. A skill
-// edited later can quietly make a case vacuous — the line its exploit targets no longer exists —
-// and a stale fixture would keep passing while testing nothing.
+// The fixtures must match what the generator produces from the FROZEN tree. A re-seed can make a
+// case vacuous — the line its exploit targets no longer exists in the re-copied file — and a stale
+// fixture would keep passing while testing nothing. A refresh of a live skill cannot do that any
+// more, which is the point of the freeze; a re-seed still can, which is why this check stays.
 try {
   execFileSync('node', ['scripts/make-refresh-fixtures.js', '--check'], { encoding: 'utf8', stdio: 'pipe' });
   console.log(`  ok   ${'fixtures match the generator'.padEnd(38)} regenerating changes nothing`);
 } catch (e) {
-  bad('fixtures-are-current', `stale — run: node scripts/make-refresh-fixtures.js\n${(e.stdout || e.stderr || '').trim()}`);
+  // Both streams, joined. `stdout || stderr` short-circuits on the generator's own summary line
+  // ("checked N cases — WITH FAILURES"), which swallowed the part that names the case and its
+  // zero-match anchor. That diagnostic is now the sole vacuity tripwire, so it has to survive.
+  bad('fixtures-are-current', `stale — run: node scripts/make-refresh-fixtures.js\n`
+    + [e.stdout, e.stderr].filter(Boolean).join('\n').trim());
+}
+
+// Drift between the frozen tree and the live skills is REPORTED, never failed on. The coupling
+// this suite used to have made drift loud by breaking CI, and the cure for too-loud is not
+// silence: without this line the only prompt to re-seed is somebody remembering. A drifted copy
+// is not a defect — it is a frozen fixture doing its job — but an unreported one eventually means
+// the suite is testing shapes the registry no longer has.
+// Walk what the frozen tree ACTUALLY holds rather than the filenames it is expected to hold. A
+// reporter that looks for names it assumes exist goes quiet exactly when its assumption breaks:
+// the first version of this check skipped any file whose live counterpart was missing, so a
+// DELETED or retired skill read as "no drift" — the one case where the frozen copy is testing a
+// shape the registry no longer has at all, and so the one a reader most needs told. It also
+// compared a hardcoded pair of filenames, which silently ignored any other file a later re-seed
+// might pull in.
+const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+  e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
+
+const missing = [];
+const differs = [];
+for (const frozen of walk(`${TREE}/skills`)) {
+  const rel = frozen.slice(`${TREE}/`.length);
+  if (!fs.existsSync(rel)) { missing.push(rel); continue; }
+  if (fs.readFileSync(frozen, 'utf8') !== fs.readFileSync(rel, 'utf8')) differs.push(rel);
+}
+if (missing.length) {
+  console.log(`  note ${'frozen file missing from live'.padEnd(38)} ${missing.length}: ${missing.join(', ')}`);
+}
+if (differs.length) {
+  console.log(`  note ${'frozen tree differs from live'.padEnd(38)} ${differs.length} file(s): ${differs.join(', ')}`);
+}
+if (!missing.length && !differs.length) {
+  console.log(`  ok   ${'frozen tree matches live skills'.padEnd(38)} no drift`);
 }
 
 console.log(failed ? '  SELFTEST FAILED' : `  all ${manifest.cases.length} cases pass`);
