@@ -608,5 +608,5 @@ EvolutionaryScale (2024)
 ## Additional Resources
 
 - ESM C blog post: https://www.evolutionaryscale.ai/blog/esm-cambrian
-- Model weights: HuggingFace EvolutionaryScale organization
+- Model weights: the `biohub` organization on Hugging Face (they moved from EvolutionaryScale; observed 2026-10-30)
 - Comparison benchmarks: See blog post for detailed performance comparisons

@@ -19,7 +19,8 @@ verified:
     generation loop or an ESM_API_KEY, neither of which this host has; the flash-attn install
     block is CUDA-only and publishes no macOS wheel; and the fold block as written names
     device="cuda". ESMFold2 itself was run here end to end on CPU instead — the equivalent
-    fp32 block below it loaded biohub/ESMFold2-Fast with its 25.4 GB ESMC-6B trunk and folded
+    fp32 block below it loaded biohub/ESMFold2-Fast with its 25.4 GB ESMC-6B trunk (as the layout
+    stood on 2026-08-28; Before the first call describes the current one) and folded
     ubiquitin to a valid 601-atom mmCIF, which is where the pLDDT, pTM and timing quoted in
     section 7 come from. Re-run the ESM3 blocks with an ESM_API_KEY, and the CUDA fold on an
     NVIDIA host.
@@ -33,17 +34,20 @@ ESM provides protein language models for understanding, generating, and designin
 **What you need before running anything here.** More is open than this skill used to say.
 Every model it runs locally — `esm3-sm-open-v1`, all three ESMC sizes *including the 6B*, and
 both ESMFold2 checkpoints — sits on Hugging Face under the `biohub` org, ungated, needing no
-account and no licence acceptance. Checked 2026-08-28:
+account and no licence acceptance. The ESM3 and ESMC rows were checked 2026-08-28; the two
+ESMFold2 rows were re-measured 2026-10-30:
 
 | repo | licence tag on the card | gated | size |
 |---|---|---|---|
-| `biohub/esm3-sm-open-v1` | — (MIT per the repository) | no | 1.4B params |
+| `biohub/esm3-sm-open-v1` | — (MIT per the repository) | no | **5.50 GB** (1.4B params) |
 | `biohub/ESMC-300M` / `ESMC-600M` | `mit`, `other` | no | 0.33B / 0.58B params |
 | `biohub/ESMC-6B` | `mit`, `other` | no | **25.4 GB** |
 | `biohub/ESMFold2` | `mit` | no | **26.7 GB** total: 26.3 GB in 6 shards plus a 0.42 GB `ccd.pkl` |
 | `biohub/ESMFold2-Fast` | `mit` | no | **26.1 GB** total: 6 shards and **no** `ccd.pkl` |
 
-Only ESM3-medium and ESM3-large remain hosted-only and need an `ESM_API_KEY` from the Biohub
+Every ESM3 variant other than `esm3-open` is hosted-only — medium, large, small and
+medium-multimer; their repository paths all return 401 (checked 2026-10-30). Those need an
+`ESM_API_KEY` from the Biohub
 developer console — see *Authentication*.
 
 The ESM3 and ESMC examples below are written `.to("cuda")` as upstream writes them. **Swap in
@@ -303,8 +307,8 @@ pLDDT, PAE, pTM and ipTM out the other side.
 | `biohub/ESMFold2-Fast` | no | 188.8 M | you want single-sequence throughput and need no CCD codes |
 
 There is a second asymmetry, and it points the other way from throughput: **`-Fast` does not
-ship `ccd.pkl`**, the chemical component dictionary that CCD codes resolve against — see
-*Before the first call*. The complex builder further down addresses known ligands and modified
+ship `ccd.pkl`**, the chemical component dictionary that CCD codes resolve against — see the
+file-level detail in *Before the first call — what you need, and the one licence that bites*. The complex builder further down addresses known ligands and modified
 residues that way, and it now loads `biohub/ESMFold2` by name rather than inheriting whichever
 model you last built, because the nearest earlier load on this page is `-Fast`. Measured
 2026-10-30; the runtime consequence of the missing file is untested here, so treat `-Fast` as
@@ -319,18 +323,18 @@ went to the trouble of building one, load the full checkpoint.
 The model card opens with this line, and an agent that copies it will not get far:
 
 ```python
-from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model   # do not
+from transformers.models.esmfold2.modeling_esmfold2 import EsmFold2Model   # do not
 ```
 
 `transformers.models.esmfold2` first shipped in **transformers 5.16.0**. Every `esm` release
-through 3.4.2 pins `transformers>=4.57.6,<5.0.0` — the `## Try it` block asserts that pin is
+carrying ESMFold2 — 3.4.0 through 3.4.2 — pins `transformers>=4.57.6,<5.0.0` — the `## Try it` block asserts that pin is
 still in place rather than leaving you to trust this paragraph. The two requirements have no solution, so the card's own
 quickstart cannot run in an environment where `esm` is installed — this is not a version you
 can nudge. Use the package's own class, which takes the same checkpoints and stays inside the
 pin:
 
 ```python
-from esm.models.esmfold2 import EsmFold2Model   # note the capitalisation: EsmFold2Model
+from esm.models.esmfold2 import EsmFold2Model   # same class name, different module
 ```
 
 The package also ships `EsmFold2HFAdapter`, which wraps a transformers-native ESMFold2 in this
@@ -615,8 +619,8 @@ still matches what a local load needs, and whether the dependency pin that break
 quickstart is still in place. **No GPU, no install, no account, standard library only.** It reads
 metadata rather than downloading the ~26 GB. An earlier version of this block asserted an
 `esmc_id` field that upstream removed, so it raised `KeyError` rather than failing its own
-assertion — the hazard §7b of the contributing guide calls asserting a value a source can
-change. It now asserts the trunk's shape and the absence of that field.
+assertion. Asserting a value the source can change is the hazard; it now asserts the trunk's
+shape and the absence of that field.
 
 **Data** — the Hugging Face model records for the three repos a local ESMFold2 run touches:
 
@@ -626,7 +630,7 @@ change. It now asserts the trunk's shape and the absence of that field.
 
 All three are ungated and need no account or licence acceptance; the two ESMFold2 cards are
 tagged `mit` and ESMC-6B `mit, other` (see the note on `other` at the top of this skill). Last
-confirmed reachable 2026-08-28.
+confirmed reachable 2026-10-30, by the block below.
 
 ```python
 import json, urllib.request
