@@ -46,7 +46,8 @@ model = ESMC.from_pretrained("esmc_300m").to("cuda")
 model = ESMC.from_pretrained("esmc_600m").to("cpu")
 
 # For maximum local quality (open weights: esmc_300m or esmc_600m)
-# For 6B hosted inference, use Forge with esmc-6b-2024-12 (see forge-api.md)
+# For 6B without a 25.4 GB local download, use Forge with esmc-6b-2024-12 (see
+# forge-api.md). The weights are also published locally as biohub/ESMC-6B.
 model = ESMC.from_pretrained("esmc_600m").to("cuda")
 ```
 
@@ -54,7 +55,7 @@ model = ESMC.from_pretrained("esmc_600m").to("cuda")
 
 - **esmc_300m**: Development, real-time applications, batch processing of many sequences
 - **esmc_600m**: Production deployments, good quality/speed balance
-- **esmc-6b-2024-12** (Forge): Research, maximum accuracy when 6B open weights are unavailable locally
+- **esmc-6b-2024-12** (Forge): Research, maximum accuracy without the 25.4 GB local download — the open weights are `biohub/ESMC-6B` if you would rather hold them
 
 ### Basic Embedding Generation
 
@@ -517,7 +518,9 @@ Key differences:
 
 ### Hosted 6B Embeddings via Forge
 
-The 6B model is available through Forge (not as open local weights). Use `LogitsConfig` to return embeddings:
+Forge serves the 6B model without a local download. The same weights are **also published as
+open local weights** — `biohub/ESMC-6B`, ungated, MIT, 25.4 GB (observed 2026-10-30) — so this
+is a convenience route, not the only one. Use `LogitsConfig` to return embeddings:
 
 ```python
 import os

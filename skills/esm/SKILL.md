@@ -400,10 +400,6 @@ an off-by-one here produces a job that validates cleanly and describes the wrong
 ```python
 from esm.models.esmfold2 import CovalentBond, LigandInput, Modification
 
-# Load the MSA-conditioned checkpoint explicitly, not the -Fast one used earlier on this
-# page: `ccd` codes below resolve against `ccd.pkl`, which only this repo publishes.
-model = EsmFold2Model.from_pretrained("biohub/ESMFold2", device="cuda").eval()
-
 PEPTIDE = "HAEGTFTSDVSSYLEGQAAKEFIAWLVRGRG"
 FATTY_TAIL = "C(=O)(CCOCCOCC(=O)NCCOCCOCCNCC(=O)N[C@@H](CCC(=O)NCCCCCCCCCCCCCCCCCC(=O)O)C(=O)O)"
 lysine = PEPTIDE.index("K")          # 0-based, and so is res_idx1 below
@@ -428,10 +424,13 @@ spi = StructurePredictionInput(
 
 Folding is then two lines, and the fold call is identical on every backend below — only the
 loading line changes. `from_pretrained` defaults to `device="cpu"`, so name the device you
-actually want rather than relying on the default:
+actually want rather than relying on the default. **Load `biohub/ESMFold2` for this input, not
+`-Fast`:** the `spi` above addresses a modified residue by CCD code, and `ccd.pkl` is published
+only by the MSA-conditioned repo. Upstream's README does the same — it reaches for `-Fast` only
+on plain-sequence folds.
 
 ```python
-model = EsmFold2Model.from_pretrained("biohub/ESMFold2-Fast", device="cuda").eval()
+model = EsmFold2Model.from_pretrained("biohub/ESMFold2", device="cuda").eval()
 result = ESMFold2InputBuilder().fold(model, spi, num_loops=3, num_sampling_steps=50)
 
 print(f"pLDDT {float(result.plddt.mean()):.3f}  pTM {float(result.ptm):.3f}")
@@ -472,7 +471,9 @@ model = EsmFold2Model.from_pretrained(
 ```
 
 Folding 76-residue ubiquitin this way — CPU only, no CUDA, no MLX — took **57 s** at
-`num_loops=1, num_sampling_steps=20` on an M1 Max, and returned pLDDT 0.819 and pTM 0.771 with
+`num_loops=1, num_sampling_steps=20` on an M1 Max, and returned pLDDT 0.819 and pTM 0.771
+(measured 2026-08-28 against `esm` 3.4.0 and the pre-2026-09-16 repo layout; not re-measured
+since — see `## Try it`) with
 a radius of gyration of 11.7 Å against ubiquitin's experimental ~11.8 Å. That is a real
 structure, not a smoke test, but note the settings are well below the defaults
 (`num_loops=3, num_sampling_steps=50`) and accuracy scales with both. Use CPU to prove a
@@ -522,8 +523,10 @@ benchmark numbers attached. Do not reinvent that here.
 - `biohub/ESMFold2` - MSA-conditioned, for hard targets and paired alignments (open weights, local)
 - `esmfold2-fast-2026-05` - the same fast model hosted, no weights to download
 
-Both ESMFold2 checkpoints load a frozen `biohub/ESMC-6B` as their language trunk, so choosing
-either commits you to the 25.4 GB download as well. See section 7.
+Each ESMFold2 checkpoint **embeds its own ESMC trunk** and is a single download of 26.7 GB
+(`biohub/ESMFold2`) or 26.1 GB (`-Fast`) — there is no separate `biohub/ESMC-6B` pull, and
+nothing in either config names the repo the trunk came from. Observed 2026-10-30; upstream
+reshaped both repos on 2026-09-16. See *Before the first call* for the file-level detail.
 
 Local `ESMC.from_pretrained()` examples use underscore aliases (`esmc_300m`, `esmc_600m`). Hosted API clients use dated model IDs such as `esmc-600m-2024-12`.
 
@@ -629,7 +632,9 @@ confirmed reachable 2026-08-28.
 import json, urllib.request
 
 def hf(repo):
-    url = f"https://huggingface.co/api/models/{repo}"
+    # ?blobs=true is load-bearing: without it each sibling carries only `rfilename`,
+    # so every `size` reads None and the totals below come out as 0.0 GB.
+    url = f"https://huggingface.co/api/models/{repo}?blobs=true"
     with urllib.request.urlopen(url, timeout=45) as r:
         return json.loads(r.read())
 

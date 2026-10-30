@@ -32,7 +32,7 @@ Confirm which install source your task requires before mixing PyPI and GitHub bu
 
 ## ESMFold2 Structure Prediction
 
-ESMFold2 is a structure prediction model built on a frozen ESMC 6B trunk. It runs two ways: **locally from open weights** (`biohub/ESMFold2` and `biohub/ESMFold2-Fast`, both MIT and ungated — covered in section 7 of `SKILL.md`, including the ~27 GB the trunk brings with it), or **hosted** through Biohub. Biohub lists ESMFold2 as a 2026-04/2026-05 model family and documents `esmfold2-fast-2026-05` for hosted inference.
+ESMFold2 is a structure prediction model built on a frozen ESMC 6B trunk. It runs two ways: **locally from open weights** (`biohub/ESMFold2` and `biohub/ESMFold2-Fast`, both MIT and ungated — covered in section 7 of `SKILL.md`, including the ~26 GB each ESMFold2 checkpoint weighs, trunk included (26.7 GB for `biohub/ESMFold2`, 26.1 GB for `-Fast`, observed 2026-10-30)), or **hosted** through Biohub. Biohub lists ESMFold2 as a 2026-04/2026-05 model family and documents `esmfold2-fast-2026-05` for hosted inference.
 
 For the hosted route, `esmfold2_client()` is the idiomatic entry point. It is a thin wrapper that returns a `SequenceStructureForgeInferenceClient` already pointed at `https://biohub.ai` with `esmfold2-fast-2026-05` as its default model, so the two forms are equivalent and the wrapper is less to get wrong:
 
