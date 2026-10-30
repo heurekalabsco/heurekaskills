@@ -5,7 +5,7 @@ category: models
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.4.0
+version: 1.5.0
 tags: [protein-language-model, esm3, esmc, embeddings, structure-prediction]
 datasets: [https://huggingface.co/api/models/biohub/ESMFold2, https://huggingface.co/api/models/biohub/ESMFold2-Fast, https://huggingface.co/api/models/biohub/ESMC-6B]
 allowed-tools: Read, Write, Edit, Bash
@@ -40,8 +40,8 @@ account and no licence acceptance. Checked 2026-08-28:
 | `biohub/esm3-sm-open-v1` | — (MIT per the repository) | no | 1.4B params |
 | `biohub/ESMC-300M` / `ESMC-600M` | `mit`, `other` | no | 0.33B / 0.58B params |
 | `biohub/ESMC-6B` | `mit`, `other` | no | **25.4 GB** |
-| `biohub/ESMFold2` | `mit` | no | 0.94 GB, plus a 0.42 GB `ccd.pkl` |
-| `biohub/ESMFold2-Fast` | `mit` | no | 0.75 GB, plus the same `ccd.pkl` |
+| `biohub/ESMFold2` | `mit` | no | **26.3 GB** in 6 shards, plus a 0.42 GB `ccd.pkl` |
+| `biohub/ESMFold2-Fast` | `mit` | no | **26.1 GB** in 6 shards, plus the same `ccd.pkl` |
 
 Only ESM3-medium and ESM3-large remain hosted-only and need an `ESM_API_KEY` from the Biohub
 developer console — see *Authentication*.
@@ -55,9 +55,15 @@ PyTorch — they are informational, they name the numerical difference, and noth
 
 Two things that table does not show, both of which cost real time if you meet them at runtime:
 
-- **ESMFold2 is a folding head on a frozen ESMC-6B, and pulls it too.** That 0.94 GB is the
-  folding trunk alone. Its `config.json` names `esmc_id` as `biohub/ESMC-6B`, and so does
-  `-Fast`. Budget roughly **27 GB** and a first-load time to match, not 1 GB.
+- **Each ESMFold2 checkpoint now ships its own ESMC trunk, and the sizes above are the whole
+  download.** Observed 2026-10-30: upstream reshaped both repos on 2026-09-16. Until then the
+  folding head was published alone at under a gigabyte and its `config.json` named the trunk
+  with an `esmc_id` field reading `biohub/ESMC-6B`, so a local load pulled a second repo. That
+  field is **gone**, replaced by an embedded `esmc_config` — 80 layers, hidden size 2560, the
+  6B shape — and the weights are sharded across six files behind a
+  `model.safetensors.index.json`. Nothing in the config names the repo the trunk came from any
+  more, so the trunk is identifiable by shape and not by name. Budget **~26 GB per checkpoint**
+  and a first-load time to match; do not expect to share one trunk download between them.
 - **The `other` tag on the ESMC cards is not a second licence.** Their `license_link` points
   at the repository's `THIRD_PARTY_NOTICE.md`, which lists only dependency licences — PyTorch,
   flash-attn and xformers under BSD, einops, jaxtyping and attrs under MIT, lightning under
@@ -299,8 +305,9 @@ The model card opens with this line, and an agent that copies it will not get fa
 from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model   # do not
 ```
 
-`transformers.models.esmfold2` first shipped in **transformers 5.16.0**. `esm` 3.4.0 pins
-`transformers>=4.57.6,<5.0.0`. The two requirements have no solution, so the card's own
+`transformers.models.esmfold2` first shipped in **transformers 5.16.0**. Every `esm` release
+through 3.4.2 pins `transformers>=4.57.6,<5.0.0` — the `## Try it` block asserts that pin is
+still in place rather than leaving you to trust this paragraph. The two requirements have no solution, so the card's own
 quickstart cannot run in an environment where `esm` is installed — this is not a version you
 can nudge. Use the package's own class, which takes the same checkpoints and stays inside the
 pin:
@@ -314,7 +321,9 @@ same interface. It is the bridge *from* the HF port, not a way to reach it — w
 installed there is no HF port to wrap, and `esmfold2` is absent from the transformers config
 registry entirely. Ignore it unless you are deliberately running the two side by side.
 
-Verify the conflict yourself rather than taking it on trust — no download, no GPU:
+Verify the conflict yourself rather than taking it on trust — no download, no GPU. Substitute
+the release you are installing; the resolver output below was recorded against 3.4.0 on
+2026-08-28 and the pin it turns on is unchanged at 3.4.2 (observed 2026-10-30):
 
 ```bash
 printf 'esm==3.4.0\ntransformers>=5.16.0\n' > conflict.txt
@@ -506,8 +515,9 @@ Local `ESMC.from_pretrained()` examples use underscore aliases (`esmc_300m`, `es
 
 ## Installation
 
-Install from PyPI ([`esm` on PyPI](https://pypi.org/project/esm/)). Current release: **3.4.0**
-(2026-08-27), which is the first PyPI release carrying ESMFold2 — the model card still says a
+Install from PyPI ([`esm` on PyPI](https://pypi.org/project/esm/)). Release **3.4.2**, observed
+2026-10-30 — read the current version from PyPI rather than trusting this line. 3.4.0
+(2026-08-27) was the first PyPI release carrying ESMFold2 — the model card still says a
 PyPI release is "coming soon" and tells you to install from git, and that instruction is now
 stale. Requires **Python >=3.12** (the `<3.13` cap earlier versions of this skill quoted was
 lifted; 3.12, 3.13 and 3.14 are all declared).
@@ -515,13 +525,13 @@ lifted; 3.12, 3.13 and 3.14 are all declared).
 **Basic installation:**
 
 ```bash
-uv pip install "esm==3.4.0"
+uv pip install "esm==3.4.2"
 ```
 
 **With Flash Attention (recommended for faster inference on NVIDIA GPUs):**
 
 ```bash
-uv pip install "esm==3.4.0"
+uv pip install "esm==3.4.2"
 uv pip install flash-attn --no-build-isolation
 ```
 
@@ -576,9 +586,13 @@ These references contain detailed API specifications, parameter descriptions, an
 ## Try it
 
 A cold check on the claims this skill makes that are most likely to rot — whether the weights
-are still open, whether ESMFold2 still hangs off ESMC-6B, and whether the dependency pin that
-breaks upstream's own quickstart is still in place. **No GPU, no install, no account,
-standard library only.** It reads metadata rather than downloading the ~27 GB.
+are still open, what shape the ESMC trunk inside ESMFold2 has, whether the published file layout
+still matches what a local load needs, and whether the dependency pin that breaks upstream's own
+quickstart is still in place. **No GPU, no install, no account, standard library only.** It reads
+metadata rather than downloading the ~26 GB. An earlier version of this block asserted an
+`esmc_id` field that upstream removed, so it raised `KeyError` rather than failing its own
+assertion — the hazard §7b of the contributing guide calls asserting a value a source can
+change. It now asserts the trunk's shape and the absence of that field.
 
 **Data** — the Hugging Face model records for the three repos a local ESMFold2 run touches:
 
@@ -614,21 +628,35 @@ for repo, want in [("biohub/ESMFold2", ["mit"]),
     assert lic == want, f"{repo} licence moved: {lic}"
     print(f"{repo:24s} gated={m['gated']!s:5s} licence={','.join(lic)}")
 
-# --- 2. ESMFold2 is a head on ESMC-6B, and both checkpoints say so ----------------
+# --- 2. each ESMFold2 checkpoint carries its own ESMC trunk -----------------------
+# Upstream used to name the trunk with an `esmc_id` pointer. It does not any more: the
+# trunk's configuration is embedded as `esmc_config`, and no field names the repo it
+# came from. So assert the trunk's SHAPE, which is what the download budget rests on.
 for repo in ("biohub/ESMFold2", "biohub/ESMFold2-Fast"):
     cfg = raw(repo, "config.json")
     assert cfg["model_type"] == "esmfold2"
-    assert cfg["esmc_id"] == "biohub/ESMC-6B", f"{repo} trunk moved to {cfg['esmc_id']}"
-    print(f"{repo:24s} trunk={cfg['esmc_id']} msa_encoder={cfg['msa_encoder']['enabled']}")
+    assert "esmc_id" not in cfg, f"{repo} names its trunk again: re-read section 2"
+    trunk = cfg["esmc_config"]
+    assert trunk["model_type"] == "esmc", trunk["model_type"]
+    assert trunk["num_hidden_layers"] == 80, trunk["num_hidden_layers"]
+    print(f"{repo:24s} trunk={trunk['model_type']}/{trunk['num_hidden_layers']}L"
+          f" msa_encoder={cfg['msa_encoder']['enabled']}")
 
 # the -Fast variant must NOT read MSAs; that asymmetry is the silent trap
 assert raw("biohub/ESMFold2", "config.json")["msa_encoder"]["enabled"] is True
 assert raw("biohub/ESMFold2-Fast", "config.json")["msa_encoder"]["enabled"] is False
 
 # --- 3. the files a local load needs are actually published ----------------------
-files = {s["rfilename"] for s in hf("biohub/ESMFold2")["siblings"]}
-assert {"model.safetensors", "config.json", "ccd.pkl"} <= files, sorted(files)
-print("biohub/ESMFold2          publishes model.safetensors + config.json + ccd.pkl")
+# The weights are sharded, so no single `model.safetensors` exists; the index is what
+# `from_pretrained` reads to find the shards.
+sib = hf("biohub/ESMFold2")["siblings"]
+files = {s["rfilename"] for s in sib}
+assert {"model.safetensors.index.json", "config.json", "ccd.pkl"} <= files, sorted(files)
+shards = sorted(f for f in files if f.endswith(".safetensors"))
+assert shards, "no safetensors shards published"
+size = sum(s.get("size") or 0 for s in sib if s["rfilename"] in set(shards))
+print(f"biohub/ESMFold2          {len(shards)} shard(s), {size / 1e9:.1f} GB"
+      f" + index + config + ccd.pkl")
 
 # --- 4. the transformers pin that breaks the model card's own quickstart ---------
 with urllib.request.urlopen("https://pypi.org/pypi/esm/json", timeout=45) as r:
@@ -644,16 +672,26 @@ Expect:
 biohub/ESMFold2          gated=False licence=mit
 biohub/ESMFold2-Fast     gated=False licence=mit
 biohub/ESMC-6B           gated=False licence=mit,other
-biohub/ESMFold2          trunk=biohub/ESMC-6B msa_encoder=True
-biohub/ESMFold2-Fast     trunk=biohub/ESMC-6B msa_encoder=False
-biohub/ESMFold2          publishes model.safetensors + config.json + ccd.pkl
-esm 3.4.0    pins transformers<5.0.0,>=4.57.6
+biohub/ESMFold2          trunk=esmc/80L msa_encoder=True
+biohub/ESMFold2-Fast     trunk=esmc/80L msa_encoder=False
+biohub/ESMFold2          6 shard(s), 26.3 GB + index + config + ccd.pkl
+esm 3.4.2    pins transformers<5.0.0,>=4.57.6
 ```
+
+**The `verified:` block above dates the 2026-08-28 run and its environment, not every figure on
+this page.** That run predates upstream's 2026-09-16 reshape of both ESMFold2 repos, so the fold
+timings, pLDDT and pTM in section 7 were measured against a layout that no longer exists and are
+carried here unre-measured. The `## Try it` block is the part that is current — it ran on
+2026-10-30 and is what caught the reshape. Re-run the fold and embedding blocks on a host with
+the 26 GB download, and the ESM3 blocks with an `ESM_API_KEY`, before relying on those numbers.
 
 Any assertion firing is a real change, not flake. A gated flag flipping to `True` or a licence
 tag moving means the §3b position in this skill needs re-checking before anyone relies on it;
-`esmc_id` moving means the download budget in section 7 is wrong; and the pin widening past
-`<5.0.0` means the import warning there can finally be deleted.
+an `esmc_id` field reappearing, or the trunk's layer count moving, means the download budget in
+section 7 is wrong; a missing shard index means the local-load instructions are; and the pin
+widening past `<5.0.0` means the import warning there can finally be deleted. The printed
+version and shard total are **observed values** rather than invariants — a higher `esm` release
+or a different byte count is upstream moving, not a failure.
 
 ## Best Practices
 

@@ -20,7 +20,7 @@ Never commit API keys or paste them into notebooks checked into git.
 
 ## Installation
 
-`uv pip install "esm==3.4.0"` is the standard reproducible path for everything in this skill, ESMFold2 included. Release 3.4.0 (2026-08-27) is the first on PyPI to carry the ESMFold2 model code, so the git install upstream still recommends is no longer required — the model card's "a PyPI release is coming soon" predates it.
+`uv pip install "esm==<release>"` is the standard reproducible path for everything in this skill, ESMFold2 included; pin the release you tested against rather than this line (3.4.2, observed 2026-10-30). Release 3.4.0 (2026-08-27) was the first on PyPI to carry the ESMFold2 model code, so the git install upstream still recommends is no longer required — the model card's "a PyPI release is coming soon" predates it.
 
 If you do need a git install for something newer than the last release, avoid floating branch installs in automated or production instructions. Pin a full 40-character commit SHA from the official Biohub repository and review it before installing:
 

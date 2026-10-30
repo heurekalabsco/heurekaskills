@@ -12,7 +12,7 @@ ESM C (Cambrian) is a family of protein language models optimized for representa
 |----------|-----------|--------|----------|
 | `esmc_300m` / `esmc-300m-2024-12` | 300M | 30 | Fast inference, lightweight applications |
 | `esmc_600m` / `esmc-600m-2024-12` | 600M | 36 | Balanced performance and quality |
-| `esmc-6b-2024-12` | 6B | 80 | Maximum quality (Forge API; not open weights) |
+| `esmc-6b-2024-12` | 6B | 80 | Maximum quality. Hosted on Forge, and the same weights are published locally as `biohub/ESMC-6B` — ungated, MIT, 25.4 GB (observed 2026-10-30) |
 
 **Key Features:**
 - 3x faster inference than ESM2
