@@ -4,13 +4,13 @@ description: Score inorganic crystal structures for chemical plausibility and sy
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [crystal-structure, materials, plausibility, synthesizability, screening]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
 verified:
-  date: 2026-09-06
-  against: PRIS at commit 34e6c86 (the repository is untagged) / pymatgen 2026.5.4 / spglib 2.7.0 / numpy 2.4.6 / pandas 3.0.5 / scipy 1.17.1 / Python 3.11.15
+  date: 2026-11-09
+  against: Re-run 2026-11-09 and every documented figure reproduced exactly, the Try it cold in a fresh empty directory — PSS +3.336 for rocksalt MgO against -4.510 compressed, Law 1 rho 0.9934 to 0.8444 over a 0.804 floor, Law 8 bond valence 0.0174 to 1.3075 against 0.7143, Law 3 not triggered, silicon still unjudged with no score. The missing-table degradation reproduced to the digit too — Law 8 unavailable, Set 4 no verdict, PSS +2.726 with bv_rel_mean imputed. JSON shape re-checked field by field, and vol_per_atom still carries about four times the next largest PSS weight. PRIS at commit 34e6c86, still untagged and unpackaged / pymatgen 2026.10.24 / spglib 2.8.0 / numpy 2.4.6 / pandas 3.1.1 / scipy 1.17.1 / Python 3.11.18, so the figures hold across pymatgen 2026.5.4 to 2026.10.24, spglib 2.7.0 to 2.8.0 and pandas 3.0.5 to 3.1.1.
   executed: 6
   unverified: 0
 ---
