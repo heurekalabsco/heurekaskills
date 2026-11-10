@@ -1,1 +1,7 @@
-{}
+{
+  "ascent": {
+    "successor": null,
+    "date": "2026-11-10",
+    "why": "Upstream withdrew the bayer-group/ascent-epi-demo repository; it and all four declared datasets 404, with no fork or mirror, so there is nothing left for the skill to point a reader at."
+  }
+}
