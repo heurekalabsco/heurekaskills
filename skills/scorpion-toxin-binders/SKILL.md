@@ -13,8 +13,8 @@ platform: huggingface
 datasets: [https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/design.csv, https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/in_silico_scores.csv, https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/toxins.csv, https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/supporting_tables/OVA.csv, https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/supporting_tables/origin.csv, https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/structures/INDEX.csv, https://huggingface.co/datasets/Anthropic/scorpion-toxin-binder-design/resolve/main/structures/888c8f04/888c8f04_design-cn2.pdb]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-10-30
-  against: dataset revision 0bac3d02 (last modified 2026-10-20) — 5,108 files, 211 designs, 17 named binders / Python 3.11.17 / pandas 3.1.0 / stdlib csv and urllib only in the Try it block
+  date: 2026-11-10
+  against: dataset revision 0bac3d02 (last modified 2026-10-20) - 5,108 files, 211 designs, 17 named binders / depositors report read at source, Table S6 and Table S25 / hf CLI 2.4.0 for the download-flag behaviour / Python 3.12.8 / stdlib csv and urllib only in the Try it block
   executed: 6
   unverified: 0
 ---
@@ -108,10 +108,13 @@ find ./stbd -type f -not -path '*/.cache/*' | wc -l
 ```
 
 **Repeat the flag for each pattern.** `--include` and `--exclude` take **one** glob each. A
-second bare pattern — `--include "*.csv" "*.md"` — is parsed as a positional *filename*, and
-the CLI then prints `Ignoring --include since filenames have been explicitly set` and drops
-both filters. Written that way, the command above fetches 4,041 structure files instead of 23
-tables. It warns, on stderr, after it has started; nothing fails. Excluding one level deeper
+second bare pattern — `--include "*.csv" "*.md"` — is parsed as a positional *filename*. Run
+that way against `hf` 2.4.0 (observed 2026-11-10), the command **fails and downloads nothing**:
+it warns `Ignoring --exclude since filenames have been explicitly set`, then treats `*.md` as a
+literal name, requests `resolve/main/%2A.md`, and exits **1** with
+`Error: File not found in dataset`. Zero files land. So the mistake is loud rather than silent
+here — but it is still worth knowing, because the warning names the flag you did not mistype
+and the error names a file you did not ask for. Excluding one level deeper
 (`sensorgrams/*/*`) rather than `sensorgrams/*` is also deliberate — the latter would discard
 `sensorgrams/INDEX.csv`, which is how you find anything in there.
 
@@ -184,6 +187,14 @@ assuming the grid is full. One design, `6a7a1c19`, has no Twist measurement for 
 4. **No signal above background against CLEC12A**, an unrelated human protein, in both of
    Twist's runs: `CLEC12A_Twist_result_run_1` and `_run_2`.
 
+**Two of the seventeen cannot meet criteria 1 and 3, and were not asked to.** LqhIII was run at
+Adaptyv only — there are no `LqhIII_Twist_*` columns in `design.csv` at all — so for
+`dceea244` and `dbb87a88` there is no second lab to agree and no Twist `Rmax_ratio` to bound.
+Those two rest on criterion 2 (4.34 nM and 40.6 nM) and criterion 4, which is lab-wide rather
+than per-toxin and so still applies. Read the four as the criteria for a toxin measured at both
+labs; compose any column name from what the header actually holds, which is what the `## Try it`
+block asserts.
+
 Criterion 4 is the one that does the work, and it is worth seeing on real rows. AaH I is the
 sharpest case: 19 designs are a `hit` at Adaptyv, 19 at Twist, **16 at both** — and 4 are
 binders.
@@ -233,13 +244,36 @@ measured after. Scored over the 665 design-toxin pairs a design was actually aim
 | ≥ 0.80 | 119 | 13 | 10.9% | 76% |
 | ≥ 0.90 | 53 | 10 | 18.9% | 59% |
 
-So the score is a real filter — a 0.90 cut is about **7× enrichment** — and nowhere near a
-decision procedure: it still throws away 7 of 17 binders, and 43 of the 53 pairs it keeps did
-not work. The highest `final_score` in the whole set, 0.9492 for `1578f84e` against AaH I, is
-not a binder. Binders themselves span 0.5931 to 0.9454.
+**That apparent enrichment is composition, not discrimination, and the depositors say so.**
+The table above pools ten design sets whose base rates differ by twelve-fold — 41.7% of the
+intended pairs in set 1 are binders against 3.3% in sets 7 and 9 — so a cut that preferentially
+keeps set 1 and empties sets 7 and 9 raises pooled precision without ordering anything within
+the choice a reader actually faces. Measured on the 665 intended pairs: AUROC **0.868** pooled,
+**0.587** within `(design_set, toxin)`. Per stratum at the 0.90 cut, the cut keeps 10 of 12, 11
+of 12 and 12 of 12 pairs in three strata — filtering almost nothing — and precision *falls* in
+two of the five strata that retain any rows.
 
-Use it the way the existing `binder-design-filtering` skill frames thresholds: to order a
-list you will truncate by budget, not to decide what binds. Note also that
+The depositors' report reaches the same conclusion from their own analysis of the 180 campaign
+designs (Table S25): the final score "tracked success rates across design sets but did not pick
+out binders within a set". Within set and toxin they report AUROC **0.60 (0.38 to 0.76)** — an
+interval including 0.5 — and average precision 0.32 against a chance level of **0.32**. For the
+single-toxin sets, binders against the other 49 designs, AUROC **0.49 (0.32 to 0.66)**. They
+also find `ipSAE` under ESMFold2 beats the composite score on both measures.
+
+What survives is narrower and still useful: the highest `final_score` in the set, 0.9492 for
+`1578f84e` against AaH I, is **not** a binder, and binders span 0.5931 to 0.9454 — so no
+threshold separates them. Treat the score as a record of what the campaign used to choose, not
+as a filter to carry forward; if you want one, start from the per-toxin, per-predictor `ipSAE`
+thresholds rather than the composite.
+
+**And "scores computed before ordering" does not hold for all 211 rows.** Set 10 is 31 designs
+added after the campaign, and the report states that **the scores of 28 of those 31 come from a
+re-run after it** — by the campaign's own scores only 20 had passed. The depositors' analysis
+excludes them, which is part of why their pooled AUROC (0.83 over 510 measured pairs, 15
+binders) and the figures above (0.868 over 665 intended pairs, 17 binders) are not the same
+number. If you are using this as a calibration set, drop set 10 or report it separately.
+
+Note also that
 `supporting_tables/ipSAE_thresholds.csv` is indexed by toxin **and** predictor — fifteen rows,
 0.15 for Cn2 under ESMFold2 against 0.54 under Protenix v2. An ipSAE cutoff carried between
 predictors is not the same filter.
@@ -368,13 +402,16 @@ assert tightest["uuid"] == "0af4b327" and not tightest["binder_against"]
 
 # --- observed: predicted score as a filter, over intended pairs only ---------
 by_uuid = {r["uuid"]: r for r in scores}
-pairs = []
+pairs, strata = [], {}
 for r in designs:
     intended = [t.strip() for t in r["intended_toxins"].split(";")]
     for key, label in TOX.items():
         if label in intended:
-            pairs.append((float(by_uuid[r["uuid"]][f"{key}_final_score"]),
-                          r["binder_against"] == label))
+            score = float(by_uuid[r["uuid"]][f"{key}_final_score"])
+            is_binder = r["binder_against"] == label
+            pairs.append((score, is_binder))
+            strata.setdefault((by_uuid[r["uuid"]]["design_set"], key), []).append(
+                (score, is_binder))
 
 print()
 print("intended pairs        :", len(pairs))
@@ -388,17 +425,39 @@ assert len(pairs) == 665 and sum(b for _, b in pairs) == 17
 assert [len([b for s, b in pairs if s >= c]) for c in (0.5, 0.7, 0.8, 0.9)] == [517, 236, 119, 53]
 assert [sum(b for s, b in pairs if s >= c) for c in (0.5, 0.7, 0.8, 0.9)] == [17, 14, 13, 10]
 assert round(top_score, 4) == 0.9492 and not top_is_binder   # best score, not a binder
+
+# The pooled table above is a composition effect. Rank-compare only within the choice a
+# reader faces -- one design set, one toxin -- and the ordering nearly vanishes.
+def auroc(items):
+    pos = [s for s, b in items if b]
+    neg = [s for s, b in items if not b]
+    if not pos or not neg:
+        return None
+    return sum((x > y) + 0.5 * (x == y) for x in pos for y in neg) / (len(pos) * len(neg))
+
+within = [(a, len([1 for s, b in g if b]), len([1 for s, b in g if not b]))
+          for a, g in ((auroc(g), g) for g in strata.values()) if a is not None]
+w_num = sum(a * p * n for a, p, n in within)
+w_den = sum(p * n for _, p, n in within)
+pooled = auroc(pairs)
+assert pooled > 0.8, pooled                      # looks discriminative pooled
+assert w_num / w_den < 0.65, w_num / w_den       # and barely orders within a stratum
 print()
 print("best final_score      : %.4f, a binder: %s" % (top_score, top_is_binder))
+print("AUROC pooled          : %.3f" % pooled)
+print("AUROC within set+toxin: %.3f  (%d informative strata of %d)"
+      % (w_num / w_den, len(within), len(strata)))
 print("all assertions passed")
 ```
 
 **Expect** — invariants, which hold across revisions. A failure means this page is wrong:
 211 designs with unique text identifiers, 12 of them starting with `0`; no `LqhIII_Twist_*`
 column; `binder_against` populated exactly for the named designs; every binder `no hit` against
-CLEC12A in both runs.
+CLEC12A in both runs. And the pooled `final_score` AUROC exceeds 0.8 while the AUROC within
+`(design_set, toxin)` stays under 0.65 — the ordering is between design sets, not within the
+choice a reader actually makes.
 
-Observed 2026-10-30 against revision `0bac3d02` — these move if the depositors revise the
+Observed 2026-11-10 against revision `0bac3d02` — these move if the depositors revise the
 tables, so treat a mismatch as drift to investigate rather than a failure:
 
 ```
@@ -420,6 +479,8 @@ intended pairs        : 665
   final_score >= 0.90:  53 kept, 10 binders, precision 18.9%
 
 best final_score      : 0.9492, a binder: False
+AUROC pooled          : 0.868
+AUROC within set+toxin: 0.587  (8 informative strata of 25)
 all assertions passed
 ```
 
