@@ -1,6 +1,6 @@
 ---
 name: scorpion-toxin-binders
-description: The 211 de novo designs made against five scorpion neurotoxins — sequences, both labs' SPR verdicts and KDs, predicted scores, sensorgrams, structures. 64 design-toxin pairs look like hits and 17 are binders; mostly a page about that gap.
+description: A labelled benchmark of 211 de novo designs against five scorpion neurotoxins, every one measured by SPR at two independent labs — sequences, verdicts, KDs, sensorgrams, structures and the predicted scores. 17 worked and 194 did not; the measured failures are the point.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
@@ -23,8 +23,9 @@ verified:
 
 A labelled set of **211 de novo designed proteins** aimed at five scorpion neurotoxins, each
 one expressed, purified and measured by surface plasmon resonance at **two independent contract
-research organisations** — Adaptyv Bio and Twist Bioscience — with the predicted scores that
-were computed before any of it was ordered.
+research organisations** — Adaptyv Bio and Twist Bioscience — with the predicted scores the
+campaign selected on. (For the 31 designs of set 10, 28 of those scores come from a re-run
+*after* the campaign; see *What the predicted scores were worth*.)
 
 That combination is rare and is the reason to use this release. Most public design data is
 either unlabelled (sequences with no assay) or labelled by one lab against one target. Here
@@ -34,6 +35,13 @@ traces, and 19 structure files (20 for a fusion design).
 
 **Use it for calibration, not for a leaderboard.** 64 design-toxin pairs produced a `hit`
 somewhere; 17 of them are binders. The arithmetic of that gap is most of what this page is for.
+
+**The 194 that did not work are the scarce part.** Every one of the 211 was made and measured —
+1,519 filled lab verdicts and 118 fitted KDs across the two labs — so the release carries
+labelled *negatives*, which published design work almost never reports. That is what makes it
+usable as a benchmark rather than as a result: you cannot calibrate a score against winners
+alone, and the calibration this set supports is the one in *What the predicted scores were
+worth*.
 
 The data is **CC BY 4.0** and ungated: no account, no token, no licence to accept. Only the
 tables are small — the full repository is about **1.45 GB across 5,108 files**, so read
