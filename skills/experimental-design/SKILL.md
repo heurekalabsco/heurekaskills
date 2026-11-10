@@ -5,13 +5,13 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.4.0
+version: 1.4.1
 tags: [doe, randomization, blocking, factorial, study-design]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-08
-  against: pydoe 1.5.0 / pandas 3.0.5 / NumPy 2.4.6 / Python 3.11.15 — Try it re-run cold under NumPy 2.5.3 / Python 3.13.7, and against the deprecated pyDOE3 1.6.2 for output equality
+  date: 2026-11-10
+  against: pydoe 1.6.0 / pandas 3.1.1 / NumPy 2.4.6 / Python 3.11.18 — Try it re-run cold under NumPy 2.5.4 / Python 3.13.18, and against the deprecated pyDOE3 1.6.2 with the import swapped, for output equality; all three runs byte-identical to the figures recorded on 2026-09-08. Authored and first checked against pydoe 1.5.0, which the page still names as the pin; 1.6.0 reproduces it unchanged.
   executed: 5
   unverified: 0
 ---
