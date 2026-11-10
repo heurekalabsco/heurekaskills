@@ -46,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish_failed: ${{ steps.published.outcome == 'failure' }}
+      datasets_failed: ${{ steps.datasets.outcome == 'failure' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -125,11 +126,22 @@ jobs:
       # One gate for both, so each probe's outcome survives for the notify job to read. Without
       # this the alarm would file a dataset issue for a publish outage and send somebody to
       # swap a dataset that is perfectly healthy.
+      #
+      # Off a PR, a dead dataset does NOT turn the run red. It is an upstream host's outage, not
+      # a defect in this repo, and the same commit flapped red/green four times in two days
+      # (NCBI 400s, 4DN and SenNet timeouts) — each red one an email nobody could act on. The
+      # notify job still files or bumps the dataset-liveness issue, which is where the backlog
+      # lives; the run carries a warning. On a PR it still fails, because there the dataset is
+      # the one the author just declared. A broken publish still fails everywhere: that one is ours.
       - name: Fail if either probe failed
-        if: steps.datasets.outcome == 'failure' || steps.published.outcome == 'failure'
+        if: steps.published.outcome == 'failure' || (steps.datasets.outcome == 'failure' && github.event_name == 'pull_request')
         run: |
           echo "datasets: ${{ steps.datasets.outcome }}   published: ${{ steps.published.outcome }}"
           exit 1
+
+      - name: Warn on an upstream dataset outage
+        if: steps.datasets.outcome == 'failure' && github.event_name != 'pull_request'
+        run: echo "::warning::A declared dataset failed its probe; filed on the dataset-liveness issue rather than failing the run"
 
   # This vantage's result, published where the nightshift can read it an hour later.
   #
@@ -209,7 +221,8 @@ jobs:
   # visible on the PR itself.
   notify:
     needs: check
-    if: failure() && github.event_name != 'pull_request'
+    # failure() alone no longer covers a dead dataset: that probe now leaves the run green off a PR.
+    if: always() && github.event_name != 'pull_request' && (needs.check.result == 'failure' || needs.check.outputs.datasets_failed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
