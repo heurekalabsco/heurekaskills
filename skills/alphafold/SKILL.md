@@ -399,8 +399,11 @@ presented to a patient-facing decision.
   point mutant's structure off it, and swapping the residue in the file is not a
   prediction.
 - **Nothing over 2700 residues.** Not "may be absent": titin (`Q8WZ42`), OBSCN (`Q5VST9`),
-  BRCA2 (`P51587`), RYR1 (`P21817`) and DMD (`P11532`) all lack a canonical model, and half of
-  them still answer `200`. See *Proteins with no canonical model*.
+  BRCA2 (`P51587`), RYR1 (`P21817`) and DMD (`P11532`) all lack a canonical model. **Four of
+  those five answer `404`; only DMD answers `200`**, with 14 isoform records and no canonical
+  one (measured 2026-11-09). The `200` shape is the rarer of the two and the only one that
+  corrupts an analysis silently — `CENPE` (`Q02224`) is the other case the table below records.
+  See *Proteins with no canonical model*.
 - **Not every record is AlphaFold's.** Check `providerId`; `VR3D` records are ColabFold
   predictions from Viro3D, under their own citation and copyright.
 
@@ -522,7 +525,7 @@ P11532: 200, 14 record(s), no canonical; longest 2344/3685 aa (64%); records[0] 
 Q09666: 200, 1 record(s), no canonical; longest 149/5890 aa (3%); records[0] = 149 aa
 Q15086         : 404 here, but UniProt resolves it to P04637 — retry, don't predict
 P0DTC2         : AF-0000000365840314 - ColabFold v1.5.2 (Viro3D, not AlphaFold)
-P0DTD1         : 28 records; one covers 1368-1493 of 7096 — add uniprotStart-1 before mapping
+P0DTD1         : 28 records, none starting at 1; one covers 1368-1493 of 7096 — add uniprotStart-1 before mapping
 ```
 
 
