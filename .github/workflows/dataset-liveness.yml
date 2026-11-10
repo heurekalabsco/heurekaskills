@@ -123,6 +123,82 @@ jobs:
           SKILLS_DIR: ${{ inputs.selftest == 'publish' && '.github/fixtures/dataset-selftest/skills' || '' }}
         run: node scripts/check-published.js
 
+      # Which of the probe's findings are this PR's business.
+      #
+      # The probe above covers all ~220 declared datasets, and that breadth is wanted: its
+      # report is what the other vantage corroborates against, so narrowing the PROBE would
+      # blind corroboration. What was wrong was the GATE. A PR was failed by any outage
+      # anywhere: on 2026-11-06 EBI served HTML for four fastq URLs declared by `dimsum` and
+      # `ena`, and that failed #380, #390, #391 and #395 — none of which declares, touches or
+      # has any relationship to an EBI fastq URL. The URLs were never dead; the host had a
+      # bad morning, and four unrelated PRs wore it for a week.
+      #
+      # So: probe everything, report everything, and fail this PR only for a finding in a
+      # skill this PR actually changed. That keeps the property the gate exists to defend —
+      # an author cannot land a dataset they just declared that nobody can fetch — and drops
+      # the one nobody wants, a stranger's outage blocking your merge.
+      - name: Scope the findings to the skills this PR touches
+        id: scope
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          DATASETS_OUTCOME: ${{ steps.datasets.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const outcome = process.env.DATASETS_OUTCOME;
+            if (outcome !== 'failure') {
+              core.setOutput('relevant', 'false');
+              return;
+            }
+            const path = '/tmp/ci-liveness.json';
+            if (!fs.existsSync(path)) {
+              // The probe failed and left no report, so there is nothing to scope BY. Fail
+              // closed: a missing report is not evidence that this PR is clean. (The script
+              // exits 2 for an unwritable path, which is a caller problem, but from here the
+              // two are indistinguishable — and the safe reading of "I cannot tell" on a
+              // gate is to stop.)
+              core.setOutput('relevant', 'true');
+              core.warning('dataset probe failed and produced no report — failing the PR rather than guessing it is unaffected');
+              return;
+            }
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+            // `failed = dead.length + unprobed.length` in check-datasets.js — a declared URL
+            // that could not even be parsed is as much this author's problem as a dead one,
+            // so the gate must consider both or it would wave through a malformed entry.
+            const findings = [...(r.dead || []), ...(r.unprobed || [])];
+
+            // Changed files from the API, not from git: the checkout is shallow and may not
+            // have the base commit to diff against.
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner, repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number, per_page: 100,
+            });
+            const touched = new Set(
+              files.map((f) => f.filename.match(/^skills\/([^/]+)\//)?.[1]).filter(Boolean),
+            );
+
+            const mine = findings.filter((f) => touched.has(f.slug));
+            const others = findings.filter((f) => !touched.has(f.slug));
+            core.setOutput('relevant', mine.length ? 'true' : 'false');
+
+            const name = (f) => `${f.slug}: ${f.url || f.value} — ${f.reason}`;
+            for (const f of mine) core.error(`this PR declares a dataset that failed its probe — ${name(f)}`);
+            if (others.length) {
+              core.warning(
+                `${others.length} dataset finding(s) in skills this PR does not touch, not failing it: ` +
+                others.map((f) => f.slug).join(', ') +
+                ' — these are tracked on the dataset-liveness issue',
+              );
+            }
+            core.summary.addRaw(
+              mine.length
+                ? `**${mine.length} dataset finding(s) in skills this PR touches:**\n\n` + mine.map((f) => `- ${name(f)}`).join('\n')
+                : `No dataset findings in the ${touched.size} skill(s) this PR touches.` +
+                  (others.length ? ` ${others.length} elsewhere in the registry are not this PR's business.` : ''),
+            );
+            await core.summary.write();
+
       # One gate for both, so each probe's outcome survives for the notify job to read. Without
       # this the alarm would file a dataset issue for a publish outage and send somebody to
       # swap a dataset that is perfectly healthy.
@@ -134,7 +210,7 @@ jobs:
       # lives; the run carries a warning. On a PR it still fails, because there the dataset is
       # the one the author just declared. A broken publish still fails everywhere: that one is ours.
       - name: Fail if either probe failed
-        if: steps.published.outcome == 'failure' || (steps.datasets.outcome == 'failure' && github.event_name == 'pull_request')
+        if: steps.published.outcome == 'failure' || steps.scope.outputs.relevant == 'true'
         run: |
           echo "datasets: ${{ steps.datasets.outcome }}   published: ${{ steps.published.outcome }}"
           exit 1
@@ -142,6 +218,13 @@ jobs:
       - name: Warn on an upstream dataset outage
         if: steps.datasets.outcome == 'failure' && github.event_name != 'pull_request'
         run: echo "::warning::A declared dataset failed its probe; filed on the dataset-liveness issue rather than failing the run"
+
+      # The scoping step already annotated which findings were whose. This exists so the run
+      # itself carries a visible warning when a PR passed the gate while the registry had a
+      # live outage — green here must not read as "every dataset is reachable".
+      - name: Warn when a PR passed over someone else's outage
+        if: steps.datasets.outcome == 'failure' && steps.scope.outputs.relevant == 'false'
+        run: echo "::warning::Dataset findings exist elsewhere in the registry but none in the skills this PR touches; see the dataset-liveness issue"
 
   # This vantage's result, published where the nightshift can read it an hour later.
   #
