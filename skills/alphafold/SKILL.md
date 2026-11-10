@@ -4,7 +4,7 @@ description: Retrieve predicted protein structures from the AlphaFold database b
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.3.0
+version: 1.3.1
 tags: [protein-structure, alphafold, uniprot, plddt, pae]
 covers: [protein structure, structure prediction, alphafold, uniprot, plddt, pae, alphamissense, missense variants, variant effect, cif, pdb, proteome, human, all organisms]
 papers: [PMID:34265844, PMID:34791371, PMID:37733863]
@@ -12,10 +12,11 @@ access: [open]
 datasets: [https://alphafold.ebi.ac.uk/api/prediction/P04637]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-19
-  against: AlphaFold DB model v6 / Python 3.12.8 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
-  executed: 10
-  unverified: 0
+  date: 2026-10-27
+  against: AlphaFold DB model v6 created 2025-08-01 / Python 3.11.17 / requests 2.34.2 / biopython 1.88 / pandas 3.0.5
+  executed: 7
+  unverified: 3
+  unverified_reason: Three blocks resolve an accession through the UniProt REST service, which the validating host had no route to - the calls were refused before reaching it. Re-run from a host with outbound access to UniProt REST.
 ---
 # AlphaFold Protein Structure Database
 
@@ -398,8 +399,11 @@ presented to a patient-facing decision.
   point mutant's structure off it, and swapping the residue in the file is not a
   prediction.
 - **Nothing over 2700 residues.** Not "may be absent": titin (`Q8WZ42`), OBSCN (`Q5VST9`),
-  BRCA2 (`P51587`), RYR1 (`P21817`) and DMD (`P11532`) all lack a canonical model, and half of
-  them still answer `200`. See *Proteins with no canonical model*.
+  BRCA2 (`P51587`), RYR1 (`P21817`) and DMD (`P11532`) all lack a canonical model. **Four of
+  those five answer `404`; only DMD answers `200`**, with 14 isoform records and no canonical
+  one (measured 2026-11-09). The `200` shape is the rarer of the two and the only one that
+  corrupts an analysis silently — `CENPE` (`Q02224`) is the other case the table below records.
+  See *Proteins with no canonical model*.
 - **Not every record is AlphaFold's.** Check `providerId`; `VR3D` records are ColabFold
   predictions from Viro3D, under their own citation and copyright.
 
@@ -521,7 +525,7 @@ P11532: 200, 14 record(s), no canonical; longest 2344/3685 aa (64%); records[0] 
 Q09666: 200, 1 record(s), no canonical; longest 149/5890 aa (3%); records[0] = 149 aa
 Q15086         : 404 here, but UniProt resolves it to P04637 — retry, don't predict
 P0DTC2         : AF-0000000365840314 - ColabFold v1.5.2 (Viro3D, not AlphaFold)
-P0DTD1         : 28 records; one covers 1368-1493 of 7096 — add uniprotStart-1 before mapping
+P0DTD1         : 28 records, none starting at 1; one covers 1368-1493 of 7096 — add uniprotStart-1 before mapping
 ```
 
 

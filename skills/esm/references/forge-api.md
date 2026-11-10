@@ -21,10 +21,11 @@ Create a token in the [Biohub developer console](https://biohub.ai/developer-con
 ### 2. Install ESM SDK
 
 ```bash
-uv pip install "esm==3.2.3"
+uv pip install "esm==3.4.2"
 ```
 
-Requires Python 3.12. The Forge client is included in the standard PyPI package.
+Requires Python 3.12 or newer (3.4.2 declares `>=3.12`; the `<3.13` cap that older releases
+carried is gone). The Forge client is included in the standard PyPI package. Observed 2026-10-30.
 
 ### 3. Set API Key
 
