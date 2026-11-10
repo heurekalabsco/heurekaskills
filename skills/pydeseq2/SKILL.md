@@ -5,13 +5,13 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.1.0
+version: 1.1.1
 tags: [rna-seq, differential-expression, deseq2, statistics]
 datasets: [https://raw.githubusercontent.com/owkin/PyDESeq2/main/datasets/synthetic/test_counts.csv, https://raw.githubusercontent.com/owkin/PyDESeq2/main/datasets/synthetic/test_metadata.csv]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-24
-  against: pydeseq2 0.5.4 / anndata 0.12.19 / pandas 2.3.3 / numpy 2.4.6 / Python 3.11.15
+  date: 2026-11-03
+  against: pydeseq2 0.5.4 / anndata 0.12.19 / pandas 2.3.3 / numpy 2.4.6 / scipy 1.17.1 / scikit-learn 1.9.1 / Python 3.11.18 / Try it re-run cold in a fresh directory and every figure in its ten-gene result table reproduced exactly, including the three genes below the 0.05 FDR threshold, the size-factor range and the two trend coefficients / the 60 runnable blocks execute against a representative bulk count matrix carrying condition, batch and age, and the 2 unverified ones still carry a literal placeholder in place of a design or contrast vector
   executed: 60
   unverified: 2
   unverified_reason: >-

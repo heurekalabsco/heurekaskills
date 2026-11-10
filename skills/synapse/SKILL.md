@@ -1,10 +1,10 @@
 ---
 name: synapse
-description: Find and retrieve consortium datasets from Synapse (Sage Bionetworks) — resolve a syn id to entity metadata and annotations, walk a project's folders, and read an entity's access tier before attempting a download. Covers AMP-AD, the AD Knowledge Portal, PsychENCODE and HTAN. Most Synapse files need a free account; some need an approved data use certificate.
+description: Retrieve consortium datasets from Synapse — resolve a syn id, walk a project tree, read annotations, and check the access tier before downloading. Covers AMP-AD, PsychENCODE and HTAN. Most files need an account, some a data use certificate.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.0
+version: 1.2.0
 tags: [synapse, public-data, controlled-access, alzheimers, consortium-data]
 covers: [synapse, sage bionetworks, syn id, amp-ad, ad knowledge portal, agora, alzheimers, dementia, neurodegeneration, aging, rosmap, mount sinai brain bank, mayo rnaseq, psychencode, htan, dorsolateral prefrontal cortex, superior temporal gyrus, hippocampus, cerebellum, amygdala, plasma proteomics, brain proteomics, tmt, rna-seq, methylation, metabolomics, gwas, human, mouse, data use certificate]
 papers: [PMID:24071850, PMID:26853544, PMID:33085189, PMID:30084846, PMID:29865057, PMID:30204156, PMID:27727239, PMID:35115731, PMID:32302568]
@@ -13,10 +13,11 @@ platform: synapse
 datasets: [https://repo-prod.prod.sagebase.org/repo/v1/entity/syn9890650, https://repo-prod.prod.sagebase.org/repo/v1/entity/syn3219045/accessRequirement, https://repo-prod.prod.sagebase.org/repo/v1/entity/syn3157322, https://repo-prod.prod.sagebase.org/repo/v1/entity/syn17083367, https://repo-prod.prod.sagebase.org/repo/v1/entity/syn32140646, https://repo-prod.prod.sagebase.org/repo/v1/entity/syn13363290/version]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-18
-  against: Synapse stack 601.0-20-g9b3fa3d75e / repo REST v1 / Python 3.12.8 (stdlib only)
-  executed: 14
-  unverified: 0
+  date: 2026-11-02
+  against: Synapse stack 611.0-2-g9e5628710a / repo REST v1 / Python 3.11.18 (stdlib only)
+  executed: 12
+  unverified: 2
+  unverified_reason: The two blocks that transfer file bytes are unexecuted — Get the files, and step 4 of Try it. The validating run reached the Synapse metadata service normally and was issued a valid pre-signed download URL, but its network path refused the separate content host that URL points at, so no bytes could be fetched. Re-run both from a host that can fetch a Synapse pre-signed download URL.
 ---
 # Synapse — Sage Bionetworks
 
@@ -39,7 +40,7 @@ Every call below runs anonymously against the production API. No key, no account
 
 ```bash
 curl -s "https://repo-prod.prod.sagebase.org/repo/v1/version"
-# {"version":"601.0-20-g9b3fa3d75e","stackInstance":"601"}
+# {"version":"611.0-2-g9e5628710a","stackInstance":"611"}
 ```
 
 Two services on one host, and the split matters: `/repo/v1` serves metadata, annotations
@@ -115,7 +116,7 @@ for sid in ("syn9890650", "syn3219045", "syn3157322", "syn3381264", "syn2344867"
         print(f"{sid:14} HTTP {e.code}  {json.loads(e.read())['reason']}")
 ```
 
-Run 2026-08-18, anonymous:
+Run 2026-11-02, anonymous:
 
 ```
 syn9890650     open             OPEN                       AR=[]                       link->None        AMP-AD Knowledge Portal-Controlled
@@ -278,11 +279,11 @@ print(f"syn32140646 Dataset  children() {len(children('syn32140646'))}  "
       f"items declared {len(ds['items'])}")
 ```
 
-Run 2026-08-18:
+Run 2026-11-02:
 
 ```
 syn2580853  AD Knowledge Portal backend (Project)
-   folder+file only   11   all types  141   {'Folder': 11, 'Dataset': 69, 'EntityView': 36, 'DatasetCollection': 2, 'TableEntity': 23}
+   folder+file only   11   all types  147   {'Folder': 11, 'Dataset': 74, 'EntityView': 36, 'DatasetCollection': 2, 'MaterializedView': 1, 'TableEntity': 23}
 syn4921369  PsychENCODE Knowledge Portal (Project)
    folder+file only   11   all types   69   {'EntityView': 27, 'Dataset': 26, 'Folder': 11, 'TableEntity': 5}
 syn5759376  ACT study (Folder)
@@ -296,11 +297,11 @@ Four things about listing, and three of them are ways to be handed a fraction of
 without noticing.
 
 - **`includeTypes` has no default, and folder-plus-file is the wrong one.** On the AD
-  Knowledge Portal's backend project that pair returns **11 of 141** children — every
-  Dataset, EntityView, TableEntity and DatasetCollection is dropped, which on this portal
-  is where the curated catalogues live. PsychENCODE's project: 11 of 69.
+  Knowledge Portal's backend project that pair returns **11 of 147** children — every
+  Dataset, EntityView, TableEntity, DatasetCollection and MaterializedView is dropped, which
+  on this portal is where the curated catalogues live. PsychENCODE's project: 11 of 69.
 - **One call is one level.** `children("syn3219045")` on the ROSMAP study folder returns
-  **2**. `descend` on the same id returns **33,694** entities — 184 folders and 33,510 files
+  **2**. `descend` on the same id returns **36,433** entities — 519 folders and 35,914 files
   — over 8 levels. A technique that lists immediate children and reports the count has
   described 0.006% of that study.
 - **`POST /repo/v1/entity/children` pages at 50** with a `nextPageToken` and never reports a
@@ -311,8 +312,8 @@ without noticing.
   do not catch those into an empty result — but it returns `[]` for files, tables, views and
   Datasets, which are not empty, just not listable this way.
 
-Ancestry does not imply readability either. Of the 196 studies in the portal's own catalogue
-table, **8 answer 403** to an anonymous caller on their study folder — `syn38190930`
+Ancestry does not imply readability either. Of the 207 studies in the portal's own catalogue
+table, **10 answer 403** to an anonymous caller on their study folder — `syn38190930`
 (ABC-DS) among them. A study being in the catalogue is not a promise that its tree is
 readable.
 
@@ -345,7 +346,7 @@ for k, v in list(ann["annotations"].items())[:5]:
     print(f"  {k:20} {v['type']:8} {v['value']}")
 ```
 
-Run 2026-08-18:
+Run 2026-11-02:
 
 ```
 annotations on syn3219045:
@@ -419,7 +420,7 @@ for sid in ("syn3219045", "syn3157322", "syn9890650"):
 ```
 
 For the ROSMAP metadata folder this prints two requirements — the portal-wide click-wrap,
-and the committee-reviewed one (2026-08-17):
+and the committee-reviewed one (2026-11-02):
 
 ```
 {
@@ -428,7 +429,7 @@ and the committee-reviewed one (2026-08-17):
   "kind": "ManagedACTAccessRequirement",
   "means": "ACT review — an application a human approves",
   "accessType": "DOWNLOAD",
-  "coversEntities": 277,
+  "coversEntities": 283,
   "isCertifiedUserRequired": false,
   "isValidatedProfileRequired": false,
   "isDUCRequired": true,
@@ -447,7 +448,7 @@ published, an IRB approval is not required, and access lapses after a year. That
 to tell a reader what they are in for without them opening a browser.
 
 `subjectIds` is the trap in this response. It lists every entity the requirement governs —
-191 for the click-wrap, 277 for the ACT requirement — so the payload is tens of kilobytes of
+190 for the click-wrap, 283 for the ACT requirement — so the payload is tens of kilobytes of
 identifiers unrelated to the question. Take its length and discard it.
 
 Note also that `accessType` is `DOWNLOAD` on all of these. A requirement gates *transfer*,
@@ -461,7 +462,7 @@ Two routes, and they fail in completely different ways.
 
 **Single file.** `GET /repo/v1/entity/{id}/file` 307-redirects to a pre-signed URL;
 `?redirect=false` hands back the same URL as plain text so the fetch stays a separate,
-inspectable step. This route fails loudly. Anonymous, 2026-08-17:
+inspectable step. This route fails loudly. Anonymous, 2026-11-02:
 
 ```bash
 curl -s "https://repo-prod.prod.sagebase.org/repo/v1/entity/syn13363290/file?redirect=false"
@@ -701,7 +702,7 @@ for v in versions("syn9890650"):
     print(f"  v{v['versionNumber']:<3} {v['contentSize']:>7} B  md5 {v['contentMd5'][:12]}")
 ```
 
-Run 2026-08-18:
+Run 2026-11-02:
 
 ```
 syn13363290  bare GET /version -> 10 rows, totalNumberOfResults 11   |   paged -> 115 versions, latest v119
@@ -763,10 +764,10 @@ for q in (("alzheimers",), ("proteomics",), ("brain",),
     print(f"  found({' + '.join(q)}) = {find(*q, node_type='project', size=1)['found']}")
 ```
 
-Run 2026-08-18:
+Run 2026-11-02:
 
 ```
-matches: 516 — a union of the three terms, not an intersection
+matches: 521 — a union of the three terms, not an intersection
   syn73569657    BPSD brain proteomics
   syn20609824    Hales Proteomics Paper - Detergent-Insoluble Brain Proteome
   syn25006611    Consensus TMT Deep Proteomics of Human Brain in Alzheimer's Disease
@@ -775,14 +776,14 @@ matches: 516 — a union of the three terms, not an intersection
   syn20933797    Consensus Brain Protein Coexpression Study
 
   found(alzheimers) = 36
-  found(proteomics) = 153
-  found(brain) = 391
-  found(alzheimers + proteomics + brain) = 516
-  found(alzheimers + proteomics + brain + zzzznotaword) = 516
+  found(proteomics) = 156
+  found(brain) = 394
+  found(alzheimers + proteomics + brain) = 521
+  found(alzheimers + proteomics + brain + zzzznotaword) = 521
 ```
 
 **`queryTerm` is ORed, not ANDed, and adding terms makes the result set larger.** One term
-matches 36 projects; the three together match 516, which is their union rather than any
+matches 36 projects; the three together match 521, which is their union rather than any
 intersection — and appending a word that matches nothing at all leaves the count unchanged,
 which no conjunction would do. The top of the hit list still looks like a precise answer
 because relevance ranking floats documents matching more of the terms, so the error is
@@ -879,15 +880,15 @@ for r in rows[:5]:
     print(f"  {r[0]:14} {str(r[1])[:26]:28} {str(r[5])[:44]}")
 ```
 
-Run 2026-08-18:
+Run 2026-11-02:
 
 ```
-syn17083367  one request    183 rows   table reports    196   maxRowsPerPage 183
-syn20448807  one request    308 rows   table reports   5166   maxRowsPerPage 308
+syn17083367  one request    183 rows   table reports    207   maxRowsPerPage 183
+syn20448807  one request    308 rows   table reports   5670   maxRowsPerPage 308
 syn9738945   one request    351 rows   table reports  12282   maxRowsPerPage 351
 
-196 studies -> Data/synapse/adkp_studies.csv
-99 of them human Alzheimer studies
+207 studies -> Data/synapse/adkp_studies.csv
+106 of them human Alzheimer studies
   syn70753079    None                         ["Epigenetics"]
   syn38190930    ABC-DS                       ["Gene Expression"]
   syn21680862    ACOM                         ["Gene Expression"]
@@ -903,19 +904,19 @@ mistake available here, because nothing in the response looks wrong: a query tha
 351 rows returns them cheerfully, with a 2xx and no warning. The service sizes
 `maxRowsPerPage` from the row width, so a wide `SELECT *` gets a *smaller* page, and a
 `LIMIT 500` on `syn17083367` still comes back with 183 — the cap wins over the LIMIT.
-Measured anonymously on 2026-08-18:
+Measured anonymously on 2026-11-02:
 
 | table | one request | the table's own `queryCount` | you would have had |
 |---|---|---|---|
-| `syn17083367` AD Knowledge Portal studies | 183 | 196 | 93% |
-| `syn13897207` Portal - People | 343 | 539 | 64% |
-| `syn20448807` Portal - Publications | 308 | 5,166 | 6% |
+| `syn17083367` AD Knowledge Portal studies | 183 | 207 | 88% |
+| `syn13897207` Portal - People | 343 | 568 | 60% |
+| `syn20448807` Portal - Publications | 308 | 5,670 | 5% |
 | `syn9738945` RNAseq_Reprocessing file view | 351 | 12,282 | **2.9%** |
 | `syn32140646` Dataset, single-cell eQTL | 1,067 | 3,847 | 28% |
 
 Request `partMask` bit `0x2` — the function above does — and **compare `queryCount` to what
 you kept**. Paging on `query.offset` until the two agree recovered all 12,282 rows of
-`syn9738945` in 131 s and all 5,166 of `syn20448807` in 54 s. A count you cannot reconcile is
+`syn9738945` in 129 s and all 5,670 of `syn20448807` in 67 s. A count you cannot reconcile is
 a truncation you have not noticed yet.
 
 The SQL dialect and the job have five more edges:
@@ -936,14 +937,17 @@ The SQL dialect and the job have five more edges:
   same anonymous caller. Query permission and file-download permission are separate grants,
   so try the query rather than inferring the answer from the pre-flight, and handle the
   refusal as an access error rather than a bad query.
-- **Large views can take minutes to build an index, or never finish.** The legacy view
-  `syn11346063` returned `202 PROCESSING` with `Waiting for the table index to become
-  available...` continuously for over eight minutes on 2026-08-17, and again on 2026-08-18.
-  Bound the poll and treat the timeout as "use a smaller table", not as a bug in your SQL.
+- **Large views can take minutes to build an index, and a timeout is not a verdict.** The
+  legacy view `syn11346063` returned `202 PROCESSING` with `Waiting for the table index to
+  become available...` continuously for over eight minutes on 2026-08-17, and again on
+  2026-08-18. On 2026-11-02 it answered, and the answer is the widest page-cap gap on this
+  page: **226 rows against a declared `queryCount` of 1,768,873**, or 0.01%. Bound the poll
+  either way, treat a timeout as "come back, or use a smaller table" rather than as a bug in
+  your SQL, and reconcile the count whenever it does answer.
 
 Portal catalogues are curated artifacts, so treat them as a fast index rather than the
 authority: `syn21783965` and `syn17083367` are both AD Knowledge Portal study tables and hold
-34 and 196 rows respectively, and 8 of those 196 studies are 403 to an anonymous caller.
+34 and 207 rows respectively, and 10 of those 207 studies are 403 to an anonymous caller.
 Confirm what you find against the entity tree.
 
 ## Requesting access
@@ -990,7 +994,7 @@ declared in advance.
 **The table answers "can I get the bytes", not "can I get the data".** `canDownload: false`
 does not mean the content is closed to you: `syn9738945`, `syn20448807` and the Dataset
 `syn32140646` all report `canDownload: false` to an anonymous caller and all return their
-full contents to an anonymous SQL query — 12,282, 5,166 and 3,847 rows respectively. Before
+full contents to an anonymous SQL query — 12,282, 5,670 and 3,847 rows respectively. Before
 telling anyone a portal catalogue needs an account, try querying it. Two entity types make
 the table read the wrong thing outright: a `Link` reports its own restriction rather than its
 target's, and a `Dataset`'s tier says nothing about the tiers of the thousands of files it
@@ -1090,7 +1094,7 @@ that each break a plausible simplification:
     https://repo-prod.prod.sagebase.org/repo/v1/entity/syn9890650        Open Data, downloadable
     https://repo-prod.prod.sagebase.org/repo/v1/entity/syn3219045        ROSMAP — click-through terms
     https://repo-prod.prod.sagebase.org/repo/v1/entity/syn3157322        ROSMAP metadata — ACT controlled
-    https://repo-prod.prod.sagebase.org/repo/v1/entity/syn17083367       study catalogue table, 196 rows
+    https://repo-prod.prod.sagebase.org/repo/v1/entity/syn17083367       study catalogue table, 207 rows
     https://repo-prod.prod.sagebase.org/repo/v1/entity/syn9738945        file view, 12,282 rows
     https://repo-prod.prod.sagebase.org/repo/v1/entity/syn32140646       Dataset, 3,849 items
     https://repo-prod.prod.sagebase.org/repo/v1/entity/syn3381264        Link into a controlled folder
@@ -1104,7 +1108,7 @@ that needs no credential. The last five are queried or inspected, never download
 table, view and Dataset answer anonymous SQL in full, and `syn3381264` and `syn13363290` are
 read for their restriction and version records only. The portal asks that publications using
 AD Knowledge Portal data cite both the portal and the contributing groups. Last confirmed
-reachable 2026-08-18.
+reachable 2026-11-02.
 
 Steps 6 to 10 are the counter-examples this skill was rewritten around — each one is a route
 that returns a plausible answer that is not the whole answer, and each assertion fails if the
@@ -1325,7 +1329,7 @@ Invariants — these hold regardless of stack version, and a failure means the s
 - **`GET /entity/{id}/version` returns 10 rows** and declares a `totalNumberOfResults` smaller
   than the number of versions that actually exist.
 
-Observed 2026-08-18 against stack **601.0-20-g9b3fa3d75e** — these move when Synapse
+Observed 2026-11-02 against stack **611.0-2-g9e5628710a** — these move when Synapse
 restacks or a portal recurates, so treat a mismatch as drift to investigate, not a failure:
 
 ```
@@ -1337,14 +1341,21 @@ restacks or a portal recurates, so treat a mismatch as drift to investigate, not
 4  AMP-AD Knowledge Portal-Controlled Accees DUC-v6.pdf  117,501 B  application/pdf  md5 ok=True
 5  bulk download -> HTTP 201 but status=FAILURE code=UNAUTHORIZED
 6  syn9738945 one request -> 351 rows, table reports 12282
-6  syn17083367 paged -> 196 rows, table reports 196
-7  search found: 1 term 36, 3 terms 516, 3 terms + a non-word 516
-8  syn2580853 children: folder+file 11, all types 141  |  syn32140646 Dataset: children 0, items 3849
+6  syn17083367 paged -> 207 rows, table reports 207
+7  search found: 1 term 36, 3 terms 521, 3 terms + a non-word 521
+8  syn2580853 children: folder+file 11, all types 146  |  syn32140646 Dataset: children 0, items 3849
 9  link syn3381264 OPEN -> target syn2344867 CONTROLLED_BY_ACT
 10 syn13363290 versions: bare call 10 rows declaring 11, paged 115
 
 all assertions passed
 ```
+
+Every line above is from the 2026-11-02 run except **step 4**, which was not re-run: the
+validating host was issued a valid pre-signed download URL and then refused at the network
+layer when it tried to fetch the bytes, so the line shown is still the 2026-08-18
+observation. That is a limitation of the validating environment, not of the route — the
+entity still reports `canDownload: true` to an anonymous caller and still hands out a signed
+URL. Run step 4 from a host that can fetch one.
 
 `canDownload` is per-caller, so a reader who has already accepted the AD Knowledge Portal
 click-wrap will see `True` on `syn3219045` in step 3 — that is correct behaviour, not drift.
