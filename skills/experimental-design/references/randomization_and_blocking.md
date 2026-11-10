@@ -105,8 +105,10 @@ a leading cause of irreproducible high-throughput results.
   replicates spanning edge and interior.
 - **Include anchor/reference samples** in every batch to estimate and correct batch
   shifts.
-- Use `assign_factorial_runs()` / the randomization functions to generate a
-  randomized processing order and position map.
+- Generate the processing order and position map with the seeded generators in
+  SKILL.md — `block_randomization` or `stratified_block_randomization` for assigning
+  samples to batches and positions, and `to_real`, which shuffles run order as it
+  scales a DOE matrix into real units.
 
 ## Documentation
 
