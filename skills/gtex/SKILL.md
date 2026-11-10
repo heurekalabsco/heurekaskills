@@ -1,19 +1,19 @@
 ---
 name: gtex
-description: Query GTEx human tissue expression and eQTLs through the GTEx Portal API — median TPM across 54 tissues including heart left ventricle, atrial appendage and skeletal muscle, per-sample values by donor age bracket, and significant cis-eQTLs by gene and tissue. Resolves gene symbols to the versioned GENCODE ids GTEx requires, and says which data is open and which is dbGaP-controlled.
+description: Query GTEx human tissue expression and eQTLs through the GTEx Portal API — median TPM across 54 tissues, per-sample values by donor age bracket, cis-eQTLs by gene and tissue. Resolves symbols to versioned GENCODE ids; flags dbGaP-controlled data.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.1.1
+version: 1.2.0
 tags: [gtex, transcriptomics, eqtl, rna-seq, public-data]
 covers: [heart, left ventricle, atrial appendage, skeletal muscle, brain cortex, cerebellum, liver, lung, whole blood, skin, thyroid, testis, pancreas, kidney cortex, adipose, esophagus, artery, nerve, eqtl, egene, sqtl, gene expression, median tpm, transcriptomics, bulk rna-seq, human, aging, gencode, dbgap, genotype-tissue expression]
 papers: [PMID:23715323, PMID:25954001, PMID:29022597, PMID:32913098]
 access: [open, controlled]
-datasets: ['https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39', 'https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10', 'https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300', 'https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket', 'https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=1', https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz]
+datasets: ['https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39', 'https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10', 'https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300', 'https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket', 'https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=1', 'https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v47', 'https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.19&datasetId=gtex_v11', https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-18
-  against: GTEx Portal API v2.0.0 / gtex_v10 (GENCODE v39, GRCh38) / bulk store v10 and v11 / Python 3.12.8 stdlib only / curl 8.7.1
+  date: 2026-11-01
+  against: GTEx Portal API 2.0.0 (OpenAPI 3.1.0) / gtex_v10 (GENCODE v39, GRCh38) and gtex_v11 (GENCODE v47) / bulk store v10 and both v11 drops, 2025-08-22 and 2026-05-19 / Python 3.11.18 stdlib only / curl 8.5.0
   executed: 13
   unverified: 0
 ---
@@ -68,7 +68,7 @@ And not the suffix from a different GTEx release — the suffix is part of the k
 |---|---|---|---|
 | v8 | `gtex_v8` | v26 | `ENSG00000141510.16` |
 | v10 | `gtex_v10` | v39 | `ENSG00000141510.18` |
-| v11 (bulk files only) | not in the API | — | `ENSG00000141510.19` |
+| v11 | `gtex_v11` | v47 | `ENSG00000141510.19` |
 
 Resolve the symbol first, against the GENCODE build of the release you are about to
 query:
@@ -101,7 +101,7 @@ import json, urllib.parse, urllib.request
 BASE = "https://gtexportal.org/api/v2"
 # The two defaults do not agree: /reference/gene defaults to GENCODE v26,
 # every expression endpoint defaults to dataset gtex_v10 (GENCODE v39).
-GENCODE_FOR = {"gtex_v8": "v26", "gtex_v10": "v39"}
+GENCODE_FOR = {"gtex_v8": "v26", "gtex_v10": "v39", "gtex_v11": "v47"}
 
 
 def get(path, params):
@@ -180,8 +180,8 @@ ENSG00000169100.14_PAR_Y   54 tissues, 0 above zero
 
 Consequences worth building around:
 
-- **Never hardcode a versioned id.** `.16` was right for v8, `.18` for v10, `.19` in
-  the v11 bulk files. Resolve at run time and record what you resolved.
+- **Never hardcode a versioned id.** `.16` was right for v8, `.18` for v10, `.19` for
+  v11. Resolve at run time and record what you resolved.
 - **Never cache a resolution across datasets.** Keyed by symbol alone it is wrong for
   one of them.
 - **Treat an empty `data` on a gene you believe exists as a resolution bug**, not as
@@ -756,7 +756,7 @@ directory of TSVs with no version stamp cannot be compared against a later pull.
 import csv, datetime, json, os, urllib.parse, urllib.request
 
 BASE = "https://gtexportal.org/api/v2"
-GENCODE_FOR = {"gtex_v8": "v26", "gtex_v10": "v39"}
+GENCODE_FOR = {"gtex_v8": "v26", "gtex_v10": "v39", "gtex_v11": "v47"}
 
 SYMBOL = "TP53"
 DATASET = "gtex_v10"
@@ -1037,14 +1037,22 @@ routes are the same numbers. Two differences to expect between them:
   the API's tissue enum has no value for — `Liver_Hepatocyte`, `Liver_Portal_Tract`,
   `Pancreas_Islets`, `Pancreas_Acini`, `Stomach_Mucosa`, `Stomach_Muscularis`,
   `Colon_Transverse_Muscularis` and similar. Only reachable through the files.
-- **The bucket is ahead of the API.** A **v11** release is already published there
+- **v11 is in the API now, and the bucket carries two drops of it.** The `datasetId`
+  enum holds `gtex_v8`, `gtex_snrnaseq_pilot`, `gtex_v10` and `gtex_v11`. v11 keys on
+  **GENCODE v47**, so TP53 is `ENSG00000141510.19` there and the v10 id returns `[]` at
+  HTTP 200 exactly as Trap 1 describes — re-resolve every identifier for the build you
+  query. Expect the numbers to move: TP53's left-ventricle median is 3.67865 TPM in v8,
+  3.73045 in v10 and 2.69388 in v11. Sample counts move too — left ventricle is 452
+  RNA-seq samples in v10 and 450 in v11, and Kidney_Medulla drops to 0. The bulk store's
+  v11 directory holds two drops: the original `2025-08-22`
   (`GTEx_Analysis_2025-08-22_v11_RNASeQCv2.4.3_gene_median_tpm.gct.gz`, 74,628 genes in
-  the same 68 columns, TP53 as `ENSG00000141510.19`) while the API's `datasetId` enum
-  still holds only `gtex_v8`, `gtex_v10` and `gtex_snrnaseq_pilot`. Re-resolve every
-  identifier for that build, and expect the numbers to move: TP53's left-ventricle
-  median is 3.67865 TPM in v8, 3.73045 in v10 and 2.69388 in the v11 file. The v11
-  directory also carries a second, later drop stamped `2026-05-19` alongside the
-  original — read the date in the filename rather than assuming one v11.
+  the same 68 columns) and a later `2026-05-19` that ships `gene_reads` and `gene_tpm`
+  but **no** `gene_median_tpm` — read the date in the filename rather than assuming one
+  v11.
+- **`dgtex_v1` appears in the published schema and is not a value you can use here.** It
+  belongs to a different project, so every `adult-gtex` endpoint rejects it with
+  `dataset_belongs_to_project` rather than an empty result. A client generated from the
+  schema enum will offer it; this skill's endpoints do not accept it.
 
 ## Requesting access
 
@@ -1136,13 +1144,16 @@ Signing Official to make. Draft the science; leave the attestations blank.
 A self-contained check that this skill still works. Public data, no account, no key,
 Python standard library only.
 
-**Data** — the GTEx Portal v2 API, `gtex_v10` release, reached through five endpoints:
+**Data** — the GTEx Portal v2 API, `gtex_v10` release plus a two-call `gtex_v11`
+release check, reached through seven endpoints:
 
     https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v39
     https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10
     https://gtexportal.org/api/v2/dataset/tissueSiteDetail?datasetId=gtex_v10&itemsPerPage=300
     https://gtexportal.org/api/v2/expression/geneExpression?gencodeId=ENSG00000141510.18&datasetId=gtex_v10&tissueSiteDetailId=Kidney_Medulla&attributeSubset=ageBracket
     https://gtexportal.org/api/v2/association/egene?tissueSiteDetailId=Testis&datasetId=gtex_v10&itemsPerPage=20000
+    https://gtexportal.org/api/v2/reference/gene?geneId=TP53&gencodeVersion=v47
+    https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000141510.19&datasetId=gtex_v11
 
 GTEx open-access data needs no account or licence acceptance, and the dbGaP study record
 states that releases from v5 onward carry no restrictions on use or publication. TP53 is
@@ -1153,13 +1164,13 @@ tissue. The other four probes are the counter-examples that a single-gene, singl
 test misses: **SLC25A6** for the pseudoautosomal twin that answers with 54 zeros,
 **DDX3Y** for the multi-gene page that cuts inside a gene, **Kidney_Medulla** and
 **Uterus** for the empty subset group, and **Testis** for the eGene table that outgrows a
-fixed `itemsPerPage`. Last confirmed reachable 2026-08-18.
+fixed `itemsPerPage`. Last confirmed reachable 2026-11-01.
 
 ```python
 import json, statistics, urllib.parse, urllib.request
 
 BASE = "https://gtexportal.org/api/v2"
-GENCODE_FOR = {"gtex_v8": "v26", "gtex_v10": "v39"}
+GENCODE_FOR = {"gtex_v8": "v26", "gtex_v10": "v39", "gtex_v11": "v47"}
 DATASET, SYMBOL = "gtex_v10", "TP53"
 HEART = ["Heart_Atrial_Appendage", "Heart_Left_Ventricle"]
 
@@ -1290,6 +1301,24 @@ assert len(cut["data"]) == 20000 < cut["paging_info"]["totalNumberOfItems"]
 assert cut["paging_info"]["totalNumberOfItems"] == n_egene["Testis"]
 print(f"Testis eGenes          : {n_egene['Testis']}, a 20000-row request holds "
       f"{len(cut['data'])} across {cut['paging_info']['numberOfPages']} pages")
+
+# 6. The release set and its keying. "Which datasetIds exist" is exactly what went
+# stale on this page before: v11 reached the API months before the page said so, and
+# the only symptom was a correct-looking v10 id returning nothing against it.
+RELEASES = {"gtex_v10": ("v39", "ENSG00000141510.18"),
+            "gtex_v11": ("v47", "ENSG00000141510.19")}
+for ds, (gencode, want) in RELEASES.items():
+    assert GENCODE_FOR[ds] == gencode, (ds, GENCODE_FOR[ds])
+    ids, _ = get("reference/gene", geneId=SYMBOL, gencodeVersion=gencode)
+    assert [g["gencodeId"] for g in ids
+            if g["geneSymbolUpper"] == SYMBOL.upper()] == [want], (ds, ids)
+    hit, _ = get("expression/medianGeneExpression", gencodeId=want,
+                 datasetId=ds, tissueSiteDetailId="Heart_Left_Ventricle")
+    other = next(w for d, (_, w) in RELEASES.items() if d != ds)
+    miss, _ = get("expression/medianGeneExpression", gencodeId=other,
+                  datasetId=ds, tissueSiteDetailId="Heart_Left_Ventricle")
+    assert miss == [], (ds, other, miss)
+    print(f"{ds} GENCODE {gencode:4}  : {want} LV {hit[0]['median']}, {other} -> []")
 ```
 
 **Expect**
@@ -1334,9 +1363,16 @@ Invariants — these hold regardless of release, and a failure means the skill i
   is Testis (22,694) and Nerve_Tibial (20,101) against a 20,000-row request — the request that
   loses 2,694 of them looks exactly like the one that returns all 11,070 of left
   ventricle's. Assert against `eGeneCount` from the tissue table.
+- **Both released datasets answer, each only to its own GENCODE build.** `gtex_v10` keys
+  on v39 and `gtex_v11` on v47, and each returns `data: []` at HTTP 200 for the other's
+  versioned id. This is the check that would have caught v11 arriving in the API: a
+  release reaches the enum silently, and a page that names the releases goes stale with
+  no failing call anywhere. If a third release resolves here, this skill needs the same
+  treatment rather than a loosened assertion.
 
-Observed 2026-08-18 against **`gtex_v10`** (GENCODE v39, GRCh38, API 2.0.0) — these move
-when GTEx releases, so treat a mismatch as drift to investigate, not as a failure:
+Observed 2026-11-01 against **`gtex_v10`** (GENCODE v39, GRCh38, API 2.0.0), with the
+release check also reading **`gtex_v11`** (GENCODE v47) — these move when GTEx releases,
+so treat a mismatch as drift to investigate, not as a failure:
 
 ```
 gencodeId              : ENSG00000141510.18 (GENCODE v39)
@@ -1351,6 +1387,8 @@ subset rows / reported : 12 / 2
 empty subset groups    : Kidney_Medulla ['40-49', '70-79'], Uterus male n=0
 ERAP2 eQTL paging      : page 0 holds 250 of 751 across 4 pages
 Testis eGenes          : 22694, a 20000-row request holds 20000 across 2 pages
+gtex_v10 GENCODE v39   : ENSG00000141510.18 LV 3.73045, ENSG00000141510.19 -> []
+gtex_v11 GENCODE v47   : ENSG00000141510.19 LV 2.69388, ENSG00000141510.18 -> []
 ```
 
 ## Sources
