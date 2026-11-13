@@ -177,6 +177,10 @@ What the page holds, and how the parser reads it:
   no taxid — strain-level or obscure names such as *Molinema dessetae* (15 of 548 rows for
   EC 1.1.1.27, 33 of 498 for 2.7.1.40). Keep them and flag them; dropping them is a choice
   the reader should make knowingly.
+- **`brenda_refs` is part of the value, not decoration.** It is the only link from a constant
+  to the paper that measured it, and a constant that cannot name its paper cannot be checked
+  or cited. Keep it on every row through any filtering or slimming; never drop the column to
+  shrink a table.
 - **"additional information" is BRENDA's no-number row** — a value of `-999` with the
   substrate `more` in the database, rendered as the words *additional information* on this
   page. It carries a qualitative finding in the commentary ("sigmoidal kinetics with respect
