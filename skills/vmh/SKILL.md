@@ -363,14 +363,32 @@ mets = sparql("""SELECT ?abbr ?chebi ?hmdb WHERE {
   OPTIONAL { ?m vmh:chebiId ?chebi } OPTIONAL { ?m vmh:hmdb ?hmdb }
   FILTER(?abbr IN ("glc_D", "pyr", "lac_L", "atp", "akg")) }""")
 print(mets)
-genes_found = sparql("""SELECT ?sym ?entrez WHERE { ?g a vmh:Gene ; vmh:symbol ?sym .
-  OPTIONAL { ?g vmh:entrezId ?entrez } FILTER(?sym IN ("PKM", "HK1", "TPI1", "SOD1")) }""")
-print("genes SPARQL can see:", sorted(r["sym"] for r in genes_found), "of PKM, HK1, TPI1, SOD1")
+
+def sparql_genes(symbols):
+    """Look symbols up in one SPARQL call. A miss is 'unconfirmed', never absent."""
+    values = ", ".join(f'"{s}"' for s in symbols)
+    hits = sparql(f"""SELECT ?sym ?entrez WHERE {{ ?g a vmh:Gene ; vmh:symbol ?sym .
+      OPTIONAL {{ ?g vmh:entrezId ?entrez }} FILTER(?sym IN ({values})) }}""")
+    found = {r["sym"]: r.get("entrez") for r in hits}
+    return {s: {"status": "found", "entrez": found[s]} if s in found
+               else {"status": "unconfirmed", "entrez": None} for s in symbols}
+
+genes = sparql_genes(["PKM", "HK1", "TPI1", "SOD1"])
+for sym, g in genes.items():
+    print(sym, g["status"], g["entrez"])
+unconfirmed = [s for s, g in genes.items() if g["status"] == "unconfirmed"]
+print("re-check with getGeneHandler before counting:", unconfirmed)
 ```
 
 On 2026-11-12: 15,181 human reactions in VMH's reaction records (more than the 14,208 in
-Recon3.1 — the records include reactions outside the reconstruction); PKM and HK1 are found and
-TPI1 and SOD1 are not.
+Recon3.1 — the records include reactions outside the reconstruction); PKM and HK1 are `found`
+and TPI1 and SOD1 come back `unconfirmed`, though both exist in `getGeneHandler`.
+
+`sparql_genes` never returns a miss as absent. A symbol SPARQL did not return is tagged
+`unconfirmed`, so no count of genes absent from VMH can be built from it by accident. Before
+reporting any gene as not in VMH, look each `unconfirmed` symbol up with `getGeneHandler` (one
+call per symbol, inside the hourly budget); only a `404` there means absent. For more symbols
+than the budget allows, report them as unconfirmed rather than as missing.
 
 ## Joining out — on identifiers
 
