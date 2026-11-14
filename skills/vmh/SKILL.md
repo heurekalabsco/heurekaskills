@@ -4,7 +4,7 @@ description: Retrieve the Virtual Metabolic Human (VMH) human reconstruction (Re
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [metabolic-modeling, public-data, metabolites]
 covers: [vmh, virtual metabolic human, recon3d, recon3.1, recon, human metabolic reconstruction, genome-scale metabolic model, gem, metabolic network, gene-protein-reaction, gpr, stoichiometry, metabolite, reaction, subsystem, chebi, hmdb, kegg, inchikey, metanetx, hgnc, entrez, sparql, inborn errors of metabolism, cobra json, human, homo sapiens]
 papers: [PMID:30371894, PMID:29457794]
@@ -12,7 +12,7 @@ access: [open]
 datasets: ['https://www.vmh.life/api/public/getHumanReconstruction?type=recon_x', 'https://www.vmh.life/api/public/getRxnHandler?id=HEX1', 'https://www.vmh.life/api/public/getMetHandler?id=glc_D', 'https://www.vmh.life/api/public/getGeneHandler?id=PKM', 'https://www.vmh.life/api/reconstructionFiles?download=Recon%2F3D.01%2FRecon3DModel_301.mat']
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-11-12
+  date: 2026-11-13
   against: VMH public API (OpenAPI 1.0.0, VMH release 2026-09-18) / Recon3.1 JSON via getHumanReconstruction / Recon3DModel_301.mat and Recon3D.zip from the VMH download area / Python 3.12 standard library for every API and JSON block / cobra 0.32.1 and scipy 1.18.1 for the Recon3D block / every block run in page order in one fresh directory including the 404 and unknown-id error paths, and Try it run again alone in a fresh mktemp directory
   executed: 8
   unverified: 0
@@ -404,11 +404,13 @@ than the budget allows, report them as unconfirmed rather than as missing.
 - **Reactions:** the abbreviation (`HEX1`) is the key in Recon3D, Recon3.1 and the reaction
   records, and the record adds KEGG, Rhea, MetaNetX and EC numbers. But **abbreviations were
   renamed between Recon3D and Recon3.1** — `11DOCRTSLte` is `11DOCRTSLt` now — and
-  `getRxnHandler` resolves the old one to the new record. Map old ids through it rather than
-  matching strings.
+  `getRxnHandler` resolves the old one to the new record. Map the old ids you care about through
+  it rather than matching strings. That is a per-reaction route: the bulk model carries no
+  rename fields, and resolving all 3,314 Recon3D-only ids would take about 34 hours of budget.
 
-Recon3D next to Recon3.1, joined on reaction abbreviation (needs `cobra` or `scipy` for the `.mat`;
-this block uses COBRApy):
+Recon3D next to Recon3.1, joined on reaction abbreviation. Reading the `.mat` needs `scipy`, and
+this block loads it through COBRApy, which calls scipy for `.mat` files but does not install it
+(`pip install cobra scipy`; without scipy, `load_matlab_model` raises `ImportError`):
 
 ```python
 import cobra
@@ -416,17 +418,20 @@ import cobra
 r3d = cobra.io.load_matlab_model("Data/vmh/Recon3DModel_301.mat")
 ids_31 = {r["id"] for r in R}
 ids_3d = {r.id for r in r3d.reactions}
-print("Recon3D model:", len(ids_3d), "| Recon3.1:", len(ids_31), "| shared:", len(ids_3d & ids_31),
-      "| only in 3D:", len(ids_3d - ids_31), "| only in 3.1:", len(ids_31 - ids_3d))
+print("Recon3D model:", len(ids_3d), "| Recon3.1:", len(ids_31),
+      "| shared by raw id:", len(ids_3d & ids_31),
+      "| only in 3D by raw id:", len(ids_3d - ids_31), "| only in 3.1 by raw id:", len(ids_31 - ids_3d))
 hex_3d = sorted({g.id.split(".")[0] for g in r3d.reactions.get_by_id("HEX1").genes}, key=int)
 hex_31 = sorted(gpr_genes(next(r for r in R if r["id"] == "HEX1")["gene_reaction_rule"]))
 print("HEX1 in Recon3D, Entrez:", hex_3d, "| in Recon3.1, symbols:", hex_31)
 print("objective, Recon3D:", r3d.objective.expression)
 ```
 
-Only 7,286 reaction ids appear in both: 3,314 are Recon3D-only and 6,922 Recon3.1-only. Part
-of that is genuine growth, and part is renaming — the reason not to compare the two models on
-raw id strings. HEX1 is `{3098, 3099, 3101, 2645, 80201}` in Recon3D and `{HK1, HK2, HK3, GCK,
+By raw id, 7,286 reactions appear in both: 3,314 are Recon3D-only and 6,922 Recon3.1-only. The
+comparison never resolves renames, so a renamed reaction lands in both "only" counts and in
+neither shared. **7,286 is a lower bound on agreement, and the two "only" counts are upper
+bounds on divergence.** Part of the gap is genuine growth and part is renaming; raw ids cannot
+say how much of each. HEX1 is `{3098, 3099, 3101, 2645, 80201}` in Recon3D and `{HK1, HK2, HK3, GCK,
 HKDC1}` in Recon3.1 — the same five hexokinases, keyed on ids in one file and on labels in the
 other.
 
