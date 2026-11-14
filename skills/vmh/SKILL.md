@@ -406,7 +406,7 @@ than the budget allows, report them as unconfirmed rather than as missing.
   renamed between Recon3D and Recon3.1** — `11DOCRTSLte` is `11DOCRTSLt` now — and
   `getRxnHandler` resolves the old one to the new record. Map the old ids you care about through
   it rather than matching strings. That is a per-reaction route: the bulk model carries no
-  rename fields, and resolving all 3,314 Recon3D-only ids would take about 34 hours of budget.
+  rename fields, and resolving all 3,314 Recon3D-only ids would take about 33 hours of budget.
 
 Recon3D next to Recon3.1, joined on reaction abbreviation. Reading the `.mat` needs `scipy`, and
 this block loads it through COBRApy, which calls scipy for `.mat` files but does not install it
@@ -429,7 +429,7 @@ print("objective, Recon3D:", r3d.objective.expression)
 
 By raw id, 7,286 reactions appear in both: 3,314 are Recon3D-only and 6,922 Recon3.1-only. The
 comparison never resolves renames, so a renamed reaction lands in both "only" counts and in
-neither shared. **7,286 is a lower bound on agreement, and the two "only" counts are upper
+neither shared. Assuming a shared id names the same reaction in both models, **7,286 is a lower bound on agreement, and the two "only" counts are upper
 bounds on divergence.** Part of the gap is genuine growth and part is renaming; raw ids cannot
 say how much of each. HEX1 is `{3098, 3099, 3101, 2645, 80201}` in Recon3D and `{HK1, HK2, HK3, GCK,
 HKDC1}` in Recon3.1 — the same five hexokinases, keyed on ids in one file and on labels in the
@@ -458,7 +458,7 @@ Each was tried on 2026-11-12.
 **Data** — VMH's live human reconstruction and three records, all public, no account:
 `https://www.vmh.life/api/public/getHumanReconstruction?type=recon_x` plus
 `getRxnHandler?id=HEX1`, `getMetHandler?id=glc_D` and `getGeneHandler?id=PKM`. Seven API calls in
-total, within the hourly limit. VMH curated content is CC BY 4.0. Confirmed reachable 2026-11-12.
+total, within the hourly limit. VMH curated content is CC BY 4.0. Confirmed reachable 2026-11-13.
 Standard library only. It routes through the traps: the `User-Agent` refusal, the
 `metData`/`cheBlId` field names and mixed field types, a mixed-case GPR with a hyphenated gene, a lookup by a previous
 symbol, and the 30,000-row SPARQL cap.
@@ -565,7 +565,7 @@ could be fixed upstream, and a failure here means re-read the page rather than t
 uppercase operators and hyphenated symbols in the rules; ChEBI under `cheBlId`; Python's default
 `User-Agent` refused with `1010`; SPARQL capped at 30,000 gene rows without TPI1.
 
-Observed 2026-11-12 (VMH release 2026-09-18) — these move with each VMH release, so a mismatch is
+Observed 2026-11-12 and again 2026-11-13 (VMH release 2026-09-18) — these move with each VMH release, so a mismatch is
 drift to investigate, not a failure:
 
 ```
