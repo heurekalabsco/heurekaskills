@@ -4,25 +4,19 @@ description: Audit a multi-step clinical LLM agent for demographic disparity in 
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [fairness, clinical-ai, benchmark, agents, evaluation]
 covers: [fairmedagent, fairness audit, demographic disparity, health equity, clinical decision support, counterfactual, counterfactual fairness, instability floor, noise floor, flip rate, llm agents, agentic evaluation, triage, esi acuity, opioid prescribing, controlled substance, admission decision, icu escalation, referral, race, insurance, medicaid, limited english proficiency, synthetic vignettes, mcnemar, cluster bootstrap, multiple comparisons, leaderboard gating]
 access: [open]
 datasets: [https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep01/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep02/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep03/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep04/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep05/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep06/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep07/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep08/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep09/trajectories.json, https://raw.githubusercontent.com/rohithreddybc/FairMedAgent/7430b2a0b2b8b98f0829647ac28f431d79e9a70c/experiments/floor16/rep10/trajectories.json]
-papers: [doi:10.5281/zenodo.22165979]
+papers: [doi:10.48550/arXiv.2609.03221, doi:10.5281/zenodo.22165979]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-11
-  against: >-
-    repository at commit 7430b2a (main, 2026-08-29), which is one commit past tag v0.1.1 /
-    distribution FairMedAgent 0.1.1 / Python 3.11.15 / standard library only — the metrics,
-    bands, conditions and runner layers declare no dependencies
+  date: 2026-11-15
+  against: repository at commit 7430b2a (main, 2026-08-29), which is one commit past tag v0.1.1 / distribution FairMedAgent 0.1.1 / Python 3.11.18 / standard library only - the metrics, bands, conditions and runner layers declare no dependencies. All 8 runnable blocks re-run in document order, then Try it re-run cold in a fresh empty directory, and every documented output reproduced byte for byte, including the instability floor table. Re-checked at the pin - tag commit a4149fa still declares 0.1.0, the pinned commit 0.1.1, licence Apache-2.0, the cli entry point still declared there with no cli module shipping (main has since dropped the entry point), still no release on the package index, and the six-replicate second-model study still present. Upstream main is now commit f02e47f, the v0.1.12 tag, whose pyproject.toml declares 0.1.10 and whose README says 0.1.12; the concept DOI resolves to v0.1.12. Nothing here is checked against main or any later release.
   executed: 8
   unverified: 0
-  unverified_reason: >-
-    Every runnable block ran, including the three that exist to show a refusal. No provider
-    key was needed: the agentic loop is driven here by a deterministic stand-in, and the
-    floor reproduction reads released trajectories rather than calling a model.
+  unverified_reason: Every runnable block ran, including the three that exist to show a refusal. No provider key was needed - the agentic loop is driven here by a deterministic stand-in, and the floor reproduction reads released trajectories rather than calling a model.
 ---
 # FairMedAgent
 
@@ -105,9 +99,15 @@ Three things to carry forward:
    Read the distribution version, not `fairmedagent.__version__`.
 2. **The tag is not the version.** Tag `v0.1.1` points at commit `a4149fa`, whose
    `pyproject.toml` still declares `0.1.0`; `0.1.1` first appears one commit later, at
-   `7430b2a` on `main`, which is what this skill pins. The Zenodo archive
-   (`10.5281/zenodo.22165979`) is of the `v0.1.1` tree. The floor trajectories are identical
-   across both, so the reproduction below gives the same numbers either way.
+   `7430b2a` on `main`, which is what this skill pins. The floor trajectories are identical
+   across both, so the reproduction below gives the same numbers either way. The Zenodo
+   archive of the `v0.1.1` tree is the **version** DOI `10.5281/zenodo.22165980`; the concept
+   DOI `10.5281/zenodo.22165979` resolves to whatever is newest instead, which is no longer
+   that tree. Upstream has gone on releasing, so this pin is deliberately behind. On 2026-11-15
+   `main` was `f02e47f`, the `v0.1.12` tag, and the concept DOI resolved to `v0.1.12`, but
+   that commit's `pyproject.toml` declares `0.1.10` — the same tag-and-version skew as above. Every claim on this page is
+   written against `7430b2a` and was re-confirmed there; nothing here has been checked
+   against a later release.
 3. **The `fairmedagent` console script is broken.** `pyproject.toml` declares an entry point
    at `fairmedagent.cli:main` and no `cli` module ships. There is no command-line interface;
    use the Python API. Nothing else is affected.
@@ -499,9 +499,13 @@ knowing about before you design a run:
 ## Provenance and limits
 
 - **Source.** `github.com/rohithreddybc/FairMedAgent`, Apache-2.0. Archived at Zenodo as
-  `10.5281/zenodo.22165979` (concept DOI; v0.1.1, 2026-08-29). The paper is
-  arXiv:2609.03221, *Counterfactual Fairness Audits of Multi-Step Clinical LLM Agents Require
-  a Measured Per-Action Instability Floor*. Cite the paper, not the archive.
+  `10.5281/zenodo.22165979` (concept DOI, which always resolves to the newest release —
+  `v0.1.12` as of 2026-11-15); the `v0.1.1` tree this page pins is archived under the version
+  DOI `10.5281/zenodo.22165980`. The paper is
+  arXiv:2609.03221, *Instability Floors: Separating Bias from Noise in Fairness Audits of
+  Clinical LLM Agents with FairMedAgent* (v3, 2026-09-29; v1 and v2 were titled
+  *Counterfactual Fairness Audits of Multi-Step Clinical LLM Agents Require a Measured
+  Per-Action Instability Floor*). Cite the paper, not the archive.
 - **Scope.** Sixteen synthetic emergency-presentation vignettes, six binary outcomes, one
   clinical loop. The floor is a property of *that* agent, *those* prompts and *that* decoding
   configuration. It does not transfer to your system — measure your own, which is what the

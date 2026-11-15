@@ -5,21 +5,16 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.3.0
+version: 1.4.0
 tags: [h5ad, single-cell, data-format, scverse]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-23
-  against: anndata 0.13.2 / scanpy 1.12.3 / Python 3.12.11
-  executed: 7
-  unverified: 2
-  unverified_reason: >-
-    The scanpy clustering block needs leidenalg, which scanpy 1.12.3 keeps behind its
-    `leiden` extra, and the AnnLoader block needs torch. Both run once those are
-    installed. The Muon block is excluded from the denominator rather than counted
-    unverified — it references variables this page never creates, so it cannot run
-    standalone whether or not muon is present.
+  date: 2026-11-14
+  against: anndata 0.13.4 / scanpy 1.12.4 / Python 3.12.8 / numpy 2.5.4 / pandas 3.1.1 / pip 26.3 / uv 0.11.32 and 0.9.24
+  executed: 9
+  unverified: 1
+  unverified_reason: The AnnLoader block needs torch, which the validating environment does not have. Without torch the class falls back to a plain object and construction fails with a TypeError that names nothing relevant, so the block is counted unverified rather than failing. It runs once torch is installed; the API it shows is deprecated upstream in favour of the annbatch loader either way. The scanpy clustering block was unverified in the previous pass and is now executed, with the leiden extra installed. The Muon block stays excluded from the denominator rather than counted unverified, because it references variables this page never creates and so cannot run standalone whether or not muon is present.
 ---
 # AnnData
 
@@ -40,13 +35,13 @@ Use this skill when:
 
 ## Installation
 
-Requires Python 3.12+ — 0.13 dropped 3.11. Current stable release: 0.13.2 (released 2026-07-13).
+Requires Python 3.12+ — 0.13 dropped 3.11. Current stable release: 0.13.4 (released 2026-09-18).
 
 ```bash
-uv pip install "anndata==0.13.2"
+uv pip install "anndata==0.13.4"
 
 # Lazy I/O and dask-backed operations
-uv pip install "anndata[dask,lazy]==0.13.2"
+uv pip install "anndata[dask,lazy]==0.13.4"
 ```
 
 Use unpinned installs only when intentionally tracking the latest compatible release.
@@ -59,11 +54,18 @@ working while silently giving you none of what it used to. **Both installers war
 both still exit 0, so the failure is a line in a log rather than a broken build:
 
 ```
-pip  WARNING: anndata 0.13.2 does not provide the extra 'dev'
-uv   warning: The package `anndata==0.13.2` does not have an extra named `dev`
+pip  WARNING: anndata 0.13.4 does not provide the extra 'dev'
+uv   warning: The package `anndata==0.13.4` does not have an extra named `dev`
 ```
 
-Checked 2026-08-23 against pip 26.2.1 and uv 0.9.24, for `dev`, `test` and `doc`.
+uv's line is easy to miss: it comes **last**, after the full `+ package` list, so anything
+that shows only the head of the output (a `| head`, a collapsed CI step) drops it. And there
+is one case where uv says nothing at all — when anndata is already installed in the target
+environment, re-running the install with an unknown extra prints only `Checked 1 package`
+and no warning. Grep your own install commands against the list above rather than relying on
+the installer to tell you.
+
+Checked 2026-11-14 against pip 26.3, uv 0.11.32 and uv 0.9.24, for `dev`, `test` and `doc`.
 
 Current API notes:
 - Use `anndata.io` for non-native `read_*` and `write_*` helpers. Top-level `anndata.read_h5ad` and `anndata.read_zarr` remain supported.
@@ -79,7 +81,7 @@ These bite silently — the old form either raises or quietly does something dif
 - **Writing to a subset's `.X` no longer reaches the parent.** `.X` now behaves the way `.layers` and the other slots already did, so `my_subset.X = 0` leaves the object the subset came from untouched. Assign into the original, or take an explicit `.copy()` and keep the result.
 - **`adata['key'] = ...` is gone.** `AnnData.__setitem__` and `__delitem__` were removed; write to `.obs`, `.var`, `.layers`, `.obsm` or `.uns` explicitly.
 - **`.X` now surfaces as a layer under the `None` key.** The text repr shows `layers: None (.X)`, and `list(adata.layers.keys())` returns `[None]` for an object whose `.layers` you never touched. Code that treated a non-empty `.layers` as proof that someone added one needs updating.
-- **Zarr needs the v3 package line** (`zarr>=3.1`), and new stores are written in zarr format 3 with sharding on by default. Both remain settings you can change — see *Troubleshooting*.
+- **Zarr needs the v3 package line** (`zarr>=3.1`), and new stores are written in zarr format 3 with sharding on by default. Sharding is still a setting you can change; the write-format setting is deprecated as of 0.13.4 and is going away — see *Troubleshooting*.
 
 ## Quick Start
 
@@ -284,19 +286,42 @@ Follow recommended patterns for memory efficiency, performance, and reproducibil
 
 Key recommendations:
 ```python
-# Use sparse matrices for sparse data
+import anndata as ad
+import numpy as np
+import pandas as pd
 from scipy.sparse import csr_matrix
+
+# A small stand-in for a real dataset: mostly-zero counts, string metadata
+rng = np.random.default_rng(0)
+counts = rng.poisson(0.3, size=(200, 50)).astype(np.float32)
+adata = ad.AnnData(
+    X=counts,
+    obs=pd.DataFrame({"sample": ["A", "B"] * 100},
+                     index=[f"cell_{i}" for i in range(200)]),
+    var=pd.DataFrame({"highly_variable": rng.random(50) > 0.5},
+                     index=[f"gene_{j}" for j in range(50)]),
+)
+
+# Use sparse matrices for sparse data
 adata.X = csr_matrix(adata.X)
 
 # Convert strings to categoricals
 adata.strings_to_categoricals()
+adata.write_h5ad("large.h5ad")
 
-# Use backed mode for large files
-adata = ad.read_h5ad('large.h5ad', backed='r')
+# Use backed mode for large files: metadata is in memory, X stays on disk
+backed = ad.read_h5ad("large.h5ad", backed="r")
+subset = backed[backed.obs["sample"] == "A"]   # select on metadata without loading X
+
+# A backed object cannot be copied in place (.copy() needs a filename),
+# so bring the part you need into memory before storing raw
+adata = subset.to_memory()
+backed.file.close()
 
 # Store raw before filtering
 adata.raw = adata.copy()
-adata = adata[:, adata.var['highly_variable']]
+adata = adata[:, adata.var["highly_variable"]].copy()
+print(adata.shape, "| raw keeps", adata.raw.shape[1], "genes")
 ```
 
 ## Integration with Scverse Ecosystem
@@ -334,7 +359,8 @@ mdata = mu.MuData({'rna': adata_rna, 'protein': adata_protein})
 ### PyTorch integration
 
 `AnnLoader` still works in 0.13 but warns on construction that it is deprecated and
-points at `annbatch.Loader` as its replacement. Prefer `annbatch` for new code.
+points at `annbatch.Loader` as its replacement. It has been deprecated since 0.12.17, and
+upstream has not stated a version in which it will be removed. Prefer `annbatch` for new code.
 
 ```python
 from anndata.experimental import AnnLoader
@@ -442,14 +468,33 @@ Use compression and appropriate formats:
 adata.strings_to_categoricals()
 adata.write_h5ad('file.h5ad', compression='gzip')
 
-# Use Zarr for cloud storage. In 0.13 both of these are already the defaults —
-# set them explicitly only to pin the behaviour, or to opt back out.
+# Use Zarr for cloud storage. Sharding is already the default in 0.13, so set it
+# only to opt back out. On the write-format setting, see the note below this block.
 import anndata as ad
 
-ad.settings.zarr_write_format = 3      # default 3 since 0.13; set 2 to write v2 stores
-ad.settings.auto_shard_zarr_v3 = True  # default True since 0.13
+ad.settings.auto_shard_zarr_v3 = True  # default True since 0.13; set False to stop sharding
 adata.write_zarr('file.zarr', chunks=(1000, 1000))
 ```
+
+**`ad.settings.zarr_write_format` is deprecated as of 0.13.4** and is scheduled for removal in
+0.14, after which zarr v3 is simply the default with no setting to pin it. The warning fires on
+*reading* the setting, not on assigning it — `print(ad.settings.zarr_write_format)` emits:
+
+```
+DeprecationWarning: This setting will be removed in 0.14 (deprecated in 0.13) and zarr v3 will be the default
+```
+
+while `ad.settings.zarr_write_format = 2` (or `= 3`) on its own is silent. With the setting at
+2, the next `write_zarr` emits a separate warning at write time, and still writes a v2 store:
+
+```
+DeprecationWarning: zarr v3 will become the only option in 0.14 anndata for `{read,write}_zarr`. This setting (`anndata.settings.zarr_write_format`) will be removed in 0.14.
+```
+
+0.13.2 and 0.13.3.post0 emitted neither, so these appear on upgrade rather than on anything you
+changed. Drop the assignment: format 3 is already what you get. Keep it only if you need to
+write v2 stores (`= 2`), and expect that escape hatch to disappear in 0.14 — pin `anndata<0.14`
+if you depend on it. `auto_shard_zarr_v3` carries no such warning and is unaffected.
 
 ### Index alignment issues
 Always align external data on index:
@@ -476,7 +521,7 @@ failures — the old form still executes, it just no longer does what it used to
 **Run** — needs Python 3.12+:
 
 ```bash
-uv pip install "anndata==0.13.2"
+uv pip install "anndata==0.13.4"
 ```
 
 ```python
@@ -540,22 +585,28 @@ layers keys    : [None]
 parent intact  : True
 dtype= kwarg   : TypeError, as documented
 h5ad round-trip: X, obs and var_names all identical
-anndata        : 0.13.2
+anndata        : 0.13.4
 X[0, 0]        : 0.636962
 zarr defaults  : format 3 | auto-shard True
 ```
 
-One line on stderr is expected and is not a failure — assigning `.X` on a view is what
-turns it into a real object:
+Two lines on stderr are expected and neither is a failure. Assigning `.X` on a view is what
+turns it into a real object, and the last print reads a setting that 0.13.4 deprecated:
 
 ```
 ImplicitModificationWarning: Setting element `.X` of view, initializing view as actual.
+DeprecationWarning: This setting will be removed in 0.14 (deprecated in 0.13) and zarr v3 will be the default
 ```
 
-The last three printed lines are **observed values**, recorded 2026-08-23 against anndata
-0.13.2. A change there is drift to investigate, not a bug: `0.636962` is the first draw of
+On 0.13.2 and 0.13.3.post0 only the first line appears; the second arrives with 0.13.4 and is the
+reason *Troubleshooting* no longer tells you to set `zarr_write_format`. When 0.14 removes the
+setting, the final print and this second warning both go — that is the expected change, not a
+regression.
+
+The last three printed lines are **observed values**, recorded 2026-11-14 against anndata
+0.13.4. A change there is drift to investigate, not a bug: `0.636962` is the first draw of
 NumPy's PCG64 from seed 0 and moves only if that generator does, and the two zarr defaults
-became defaults in 0.13 and are settings a caller can override.
+became defaults in 0.13 and remain what a fresh install gives you.
 
 ## Additional Resources
 
