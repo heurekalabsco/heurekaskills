@@ -10,8 +10,8 @@ datasets: []
 tags: [manuscript, preprint, submission, publishing]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-11-11
-  against: paperpush 0.5.4 / venue data 7af06f9 published 2026-11-10 / pypdf 7.0.1 / pydantic 2.14.3 / playwright 1.65.0 / Python 3.11.18
+  date: 2026-11-14
+  against: paperpush 0.5.4 / venue data ddc5a27 published 2026-11-14 / pypdf 7.1.0 / pydantic 2.14.3 / playwright 1.65.2 / Python 3.11.14
   executed: 10
   unverified: 1
   unverified_reason: The install block's playwright browser download is unrun because the validating environment does not fetch it, and login and submit need that browser plus real portal credentials, which is why they are shown as plain output rather than runnable blocks. Re-run from a host that can download a Playwright browser and holds a test account on a venue. Separately, the reference DOI checks were exercised only as far as reporting that they could not run — the DOI registry was unreachable from the validating host, so no text for a mismatched, unregistered or retracted DOI was observed. Re-run from a host that can reach the registry to confirm those messages.
@@ -325,7 +325,7 @@ Command: paperpush validate biorxiv.sub.txt --show-errors-only (run in …)
 Generated: …
 File: biorxiv.sub.txt
 Venue: biorxiv
-AI checks: off. Run with --ai (and an ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY), or let an agent do them with the paperpush-validate skill (--ai-tasks / --ai-results).
+AI checks: off. Run with --ai (and an ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY), or … (--ai-tasks / --ai-results).
 
 Not ready: 1 error(s) must be fixed before submitting.
 ✔ 19 passed  ·  ✖ 1 failed  ·  ▲ 5 with warnings  ·  ? 15 could not run  ·  ? 16 need AI  ·  – 0 not implemented
@@ -352,8 +352,8 @@ paperpush requirements nature --article-type "Matters Arising"
 paperpush requirements nature --json
 ```
 
-The summary names the guideline pages it was read from, the date a human read them, and the
-publication stamp of the venue-rule data the installed release carries, then lists
+The summary names the guideline pages it was read from, the date a human read them, and a
+`venue data:` line saying which copy of the venue rules this run used, then lists
 the manuscript, figure and supplementary rules — accepted formats, size caps, word and
 display-item limits, required section headings and declarations, and free-text notes for
 everything that does not reduce to a number. Where a venue runs different rules for other
@@ -370,10 +370,26 @@ with a `*` and says so in its header — for a Springer Nature journal, a rule t
 guidelines never state. `validate` reports what those catch as warnings, because a journal
 may depart from its publisher's rules.
 
-Two things about it are worth holding onto. It is **a recorded snapshot, not a live fetch** —
-the header's date is when a human last read those pages, and a venue can change its
-guidelines the day after. Treat a rule that matters as something to confirm on the venue's
-own page, which the header links. And the guideline checks are **advisory only**: every
+Three things about it are worth holding onto. The rules are **a dated reading of the
+venue's pages, not a live check of them** — the header's date is when a human last read those
+pages, and a venue can change its guidelines the day after. Treat a rule that matters as
+something to confirm on the venue's own page, which the header links.
+
+The venue data is **not fixed by the version you installed.** paperpush ships a copy inside
+the package, but by default (`PAPERPUSH_VENUE_DATA=auto`, and `remote` behaves the same) it
+also downloads a separately published copy and refreshes it at most once a day, so the
+templates, field lists and rules can change between two runs of the same release. With no
+network and no cached copy it falls back to the bundled one. The `venue data:` line tells you
+which you got — `published <timestamp> (<id>)` for a downloaded copy, `bundled with paperpush
+<version>` for the packaged one. Two consequences:
+
+- Record that line alongside any result you report, the way you would a version number.
+- For a run someone else can reproduce, pin to the packaged copy with
+  `PAPERPUSH_VENUE_DATA=bundled`. `PAPERPUSH_OFFLINE=1` is **not** the same thing: it stops
+  the download but still reads whatever copy is already cached, so two machines with
+  different caches still disagree.
+
+And the guideline checks are **advisory only**: every
 finding is a warning, so a submission that breaks a stated word limit still exits `0`. Those
 warnings are for the author to weigh, not for you to clear on their behalf — and a heading
 the tool cannot find in a PDF is as likely to be an extraction miss as a missing section.
@@ -500,7 +516,7 @@ so a confident proposal is still refused. Do not "fix" it.
   deliberately: pointed at `biorxiv.sub` it fails with `No such file or directory`, while
   `autofill` and `validate` given the same stale name resolve it and carry on.
 
-*Observed values — paperpush 0.5.4, venue data 7af06f9, checked 2026-11-11. A mismatch is
+*Observed values — paperpush 0.5.4, venue data ddc5a27, checked 2026-11-14. A mismatch is
 drift to investigate, not a bug: bioRxiv changes its form, and the template tracks it.*
 
 - `paperpush subfile biorxiv` reports `19 fields (11 required)`.
@@ -513,17 +529,25 @@ drift to investigate, not a bug: bioRxiv changes its form, and the template trac
   the release, and the gap between `autofill`'s six warnings and `validate`'s five is the
   missing-`[validate]`-extra notice, which `validate` reports as a skipped check rather than
   as a check warning.
-- `paperpush requirements biorxiv` reports guidelines read from the author guidelines on a
-  dated snapshot and a `venue data: published …` stamp. Both are properties of the installed
-  release, so they move with the release, not with today.
+- `paperpush requirements biorxiv` reports the date the author guidelines were read and a
+  `venue data:` line. Neither is tied to the release: the downloaded venue data is
+  republished as often as daily, so the same paperpush version can print a different stamp
+  — and different counts above — from one day to the next. This run printed
+  `venue data: published 2026-11-14T14:14:12-08:00 (ddc5a27)` and guidelines read on
+  2026-11-01; with `PAPERPUSH_VENUE_DATA=bundled` the line reads
+  `venue data: bundled with paperpush 0.5.4`.
 - The report header states `AI checks: off` and names the two ways to run them. Nothing in
   this block calls a model.
 
-No network beyond the install: the generated manuscript cites no URLs and carries no
-references, so `validate`'s link check has nothing to fetch, its DOI checks have nothing to
-resolve, and the sensitive-information and guideline checks read local files only. That is
-what makes this block runnable on a restricted host — and also why it does not exercise the
-checks that need the network. Checking those needs a manuscript with real URLs and a real
+Network use beyond the install is limited to the daily venue-data refresh described under
+*What the venue actually requires*, which runs at most once every 24 hours and falls
+back to a cached or bundled copy when the host is offline. The checks themselves fetch
+nothing: the generated manuscript cites no URLs and carries no references, so `validate`'s
+link check has nothing to fetch, its DOI checks have nothing to resolve, and the
+sensitive-information and guideline checks read local files only. That is what makes this
+block runnable on a restricted host — set `PAPERPUSH_VENUE_DATA=bundled` first if you want
+it to skip the refresh too — and also why it does not exercise the checks that need the
+network. Checking those needs a manuscript with real URLs and a real
 bibliography, on a host that can reach them.
 
 ## Troubleshooting
@@ -545,16 +569,18 @@ bibliography, on a host that can reach them.
 
 ## What this does not do
 
-It does not submit. It does not choose a venue, a licence, or a set of suggested
-reviewers. And it does not relieve the author of reading the filled form before they press
-submit — say so when you hand it back.
+This workflow does not submit, and it does not pick a venue, a licence, or a set of
+suggested reviewers on the author's behalf. And it does not relieve the author of reading
+the filled form before they press submit — say so when you hand it back.
 
 It *does* check the manuscript itself against the venue's recorded author guidelines and
 the bibliography against the DOI registry, and both are advisory. Neither is a substitute
-for the venue's own page: the guidelines are a dated snapshot carried by the installed
-release, and a registry lookup that could not run tells you only that it could not run.
+for the venue's own page: the guidelines are a dated human reading, delivered in venue data
+that can change from day to day, and a registry lookup that could not run tells you only
+that it could not run.
 
-Nor does it do the parts of the current CLI this page leaves undocumented — reformatting or
-converting a manuscript, choosing a venue, finding reviewers, recording a new venue's
-wizard, or the browser-based editor. They exist; they are not described here, so read their
-`--help` before driving them.
+The CLI also has commands this page does not document: `format` and `convert` for
+reformatting or converting a manuscript, `pick-venue` and `find-reviewers` for suggestions,
+`codegen` for recording a new venue's wizard, and `web` for a browser-based editor. The tool
+does these things; this skill does not cover them, so read their `--help` before driving
+them.
