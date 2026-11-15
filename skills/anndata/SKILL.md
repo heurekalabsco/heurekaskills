@@ -12,7 +12,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-14
   against: anndata 0.13.4 / scanpy 1.12.4 / Python 3.12.8 / numpy 2.5.4 / pandas 3.1.1 / pip 26.3 / uv 0.11.32 and 0.9.24
-  executed: 8
+  executed: 9
   unverified: 1
   unverified_reason: The AnnLoader block needs torch, which the validating environment does not have. Without torch the class falls back to a plain object and construction fails with a TypeError that names nothing relevant, so the block is counted unverified rather than failing. It runs once torch is installed; the API it shows is deprecated upstream in favour of the annbatch loader either way. The scanpy clustering block was unverified in the previous pass and is now executed, with the leiden extra installed. The Muon block stays excluded from the denominator rather than counted unverified, because it references variables this page never creates and so cannot run standalone whether or not muon is present.
 ---
@@ -286,19 +286,42 @@ Follow recommended patterns for memory efficiency, performance, and reproducibil
 
 Key recommendations:
 ```python
-# Use sparse matrices for sparse data
+import anndata as ad
+import numpy as np
+import pandas as pd
 from scipy.sparse import csr_matrix
+
+# A small stand-in for a real dataset: mostly-zero counts, string metadata
+rng = np.random.default_rng(0)
+counts = rng.poisson(0.3, size=(200, 50)).astype(np.float32)
+adata = ad.AnnData(
+    X=counts,
+    obs=pd.DataFrame({"sample": ["A", "B"] * 100},
+                     index=[f"cell_{i}" for i in range(200)]),
+    var=pd.DataFrame({"highly_variable": rng.random(50) > 0.5},
+                     index=[f"gene_{j}" for j in range(50)]),
+)
+
+# Use sparse matrices for sparse data
 adata.X = csr_matrix(adata.X)
 
 # Convert strings to categoricals
 adata.strings_to_categoricals()
+adata.write_h5ad("large.h5ad")
 
-# Use backed mode for large files
-adata = ad.read_h5ad('large.h5ad', backed='r')
+# Use backed mode for large files: metadata is in memory, X stays on disk
+backed = ad.read_h5ad("large.h5ad", backed="r")
+subset = backed[backed.obs["sample"] == "A"]   # select on metadata without loading X
+
+# A backed object cannot be copied in place (.copy() needs a filename),
+# so bring the part you need into memory before storing raw
+adata = subset.to_memory()
+backed.file.close()
 
 # Store raw before filtering
 adata.raw = adata.copy()
-adata = adata[:, adata.var['highly_variable']]
+adata = adata[:, adata.var["highly_variable"]].copy()
+print(adata.shape, "| raw keeps", adata.raw.shape[1], "genes")
 ```
 
 ## Integration with Scverse Ecosystem
