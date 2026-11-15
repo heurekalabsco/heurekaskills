@@ -12,11 +12,10 @@ access: [open]
 datasets: [https://raw.githubusercontent.com/hanktang-research/TrialDesignBench/master/data/reference_standard.csv, https://raw.githubusercontent.com/hanktang-research/TrialDesignBench/master/data/structured_fields.csv]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-11-12
-  against: TrialDesignBench master commit e587b1f / Python 3.11.18 / standard library only
-  executed: 6
-  unverified: 1
-  unverified_reason: The protocol-excerpt retrieval block needs the public trial registry API, which the validating environment had no route to — its error path fired and was checked, its success path was not. Everything else runs against the two shipped tables. Re-run that one block from a host that can reach the registry.
+  date: 2026-11-14
+  against: TrialDesignBench master commit e587b1f / ClinicalTrials.gov API v2 / Python 3.12.8 / standard library only
+  executed: 7
+  unverified: 0
 ---
 # TrialDesignBench
 
@@ -25,10 +24,10 @@ design label that a panel validated** — plus the admissible design set, the ra
 and the decision-tree path that produced the label.
 
 It was built to score language models on design-method selection, and that is one use. The other
-is simpler and needs no model at all: it is the only public table of real Phase-I trials paired
-with a defensible answer to *which dose-finding design this trial should have used*. This skill
-reads it, scores a proposed design against it, and tells you where the table's own columns
-disagree with each other — which they do, on 94 of the 617 trials, for reasons that matter.
+is simpler and needs no model at all: it is a public table of real Phase-I trials paired with a
+defensible answer to *which dose-finding design this trial should have used*. This skill reads it,
+scores a proposed design against it, and tells you where the table's own columns disagree with
+each other — which they do, on 94 of the 617 trials, for reasons that matter.
 
 **Nothing here needs an account, a key or a licence click.** The two tables and the prompt
 templates are CC BY 4.0 and the code is MIT, served from a public repository. Only the full
@@ -43,6 +42,11 @@ A match therefore tells you a proposal agrees with that workflow. It does not te
 is right for the trial, and the benchmark's own authors disclaim any clinical reading of their
 labels. Treat a label as a graded exam answer rather than a recommendation — nothing this skill
 produces belongs in a protocol that a qualified biostatistician has not reviewed.
+
+It is also an evaluation set. The authors identify every trial to a model by an opaque case id,
+never by its registry number, and their system prompt tells the model not to try to identify the
+trial. Keep it that way in anything you build from this page: the code below never prints a
+trial's label next to its registry number, and the prompt builder refuses to emit one.
 
 ## Get the files
 
@@ -64,7 +68,7 @@ wc -c tdb/data/*.csv && ls tdb/prompts
 ```
 
 ```
- 279608 tdb/data/reference_standard.csv
+279608 tdb/data/reference_standard.csv
 611088 tdb/data/structured_fields.csv
 890696 total
 00_shared_blocks.md
@@ -130,6 +134,28 @@ The distribution is lopsided on purpose — it reflects what contemporary Phase-
 practice should be under this workflow, not a balanced test set. Report balanced accuracy or
 macro-F1 alongside plain accuracy, or a model that answers `BOIN` to everything scores 77%.
 
+## How upstream scores a model
+
+The authors' aggregation script (`code/full_report_v10.py`) fixes what a reported number means:
+
+- **Only labelled rows count.** For each model and configuration, a response contributes when it
+  parsed, declared the trial in scope, and named a top-1 method (name-normalised). The
+  `out_of_scope` rows never enter the accuracy figures — and nor does a labelled trial the model
+  wrongly called out of scope; it drops out of the scored count rather than counting as wrong.
+  Report the scored count beside every figure, or a model that abstains often looks better than it is.
+- **In D and E, the node walk gates the answer.** The response's node answers are walked
+  mechanically through the decision tree; only if the walk reaches a leaf is the top-1 method scored.
+- **Top-1 only.** The response schema asks for a top-3 list as well, and none of the reported
+  metrics reads it.
+- **Two families of metric**, both against `label_primary` with `BOIN` as the majority baseline:
+  exact — accuracy, balanced accuracy, macro-F1, Cohen's kappa, MCC — and the same five
+  **class-credited**, where a prediction in the same decision-tree class as the label counts as
+  the label. The method-to-class map lives in that script as `CLASS_MAP` and covers the 25 methods
+  the tree's leaves contain.
+
+Class credit is generous where the classes are wide: Class 1 holds seven methods, among them
+`BOIN` and `3+3`.
+
 ## The trap — score against `label_primary`, nothing else
 
 `label_primary` and `status` are the reference standard. `tree_path`, `admissible_set` and
@@ -146,72 +172,85 @@ only ever moved the label. So those columns can contradict the answer, and on 94
   in-scope walk to a Class-1 leaf.
 
 The three groups are disjoint. Reading the `Primary` tier as the answer — the obvious shortcut,
-since it is `Primary` on 385 of 475 rows — silently mis-scores every one of them.
+since it is `Primary` on 385 of 475 rows — mis-scores every one of them. The block below grades
+that shortcut both ways, reading the class map from the upstream scorer rather than restating it.
 
 ```python
-import csv, urllib.request
+import ast, collections, csv, urllib.request
 
-BASE = "https://raw.githubusercontent.com/hanktang-research/TrialDesignBench/master/data"
-def table(name):
-    with urllib.request.urlopen(f"{BASE}/{name}", timeout=120) as fh:
-        return list(csv.DictReader(fh.read().decode("utf-8").splitlines()))
+RAW = "https://raw.githubusercontent.com/hanktang-research/TrialDesignBench/master"
+def fetch(path):
+    with urllib.request.urlopen(f"{RAW}/{path}", timeout=120) as fh:
+        return fh.read().decode("utf-8")
 
-ref = {r["nct_id"]: r for r in table("reference_standard.csv")}
+def module_constant(path, name):
+    """Read one literal constant out of an upstream module without executing it."""
+    for node in ast.parse(fetch(path)).body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise KeyError(f"{name} not found in {path} — upstream scorer changed")
+
+ref = list(csv.DictReader(fetch("data/reference_standard.csv").splitlines()))
+CLASS_MAP = module_constant("code/full_report_v10.py", "CLASS_MAP")   # method -> class 1..10
+
+def tiers_of(row):
+    return dict(e.partition(":")[::2] for e in row["ranked_tiers"].split("|")) if row["ranked_tiers"] else {}
 
 def primary_tier(row):
     """The method the rule walk ranked Primary. NOT the reference standard."""
-    for entry in row["ranked_tiers"].split("|"):
-        method, _, tier = entry.partition(":")
-        if tier == "Primary":
-            return method
-    return None
+    return next((m for m, t in tiers_of(row).items() if t == "Primary"), None)
 
-def score(nct_id, proposed):
-    """Grade one proposal. Returns (verdict, tier) with tier None when not admissible."""
-    row = ref[nct_id]
-    if row["status"] == "out_of_scope":
-        return ("correct" if proposed == "OUT_OF_SCOPE" else "wrong-scope"), None
-    if proposed == "OUT_OF_SCOPE":
-        return "wrong-scope", None
-    tiers = dict(e.partition(":")[::2] for e in row["ranked_tiers"].split("|"))
-    verdict = "correct" if proposed == row["label_primary"] else "wrong"
-    return verdict, tiers.get(proposed)
+def score(row, proposed):
+    """Grade one top-1 proposal on a labelled row, as upstream does: exact, then class-credited."""
+    label = row["label_primary"]
+    exact = proposed == label
+    same_class = CLASS_MAP.get(label) is not None and CLASS_MAP.get(proposed) == CLASS_MAP[label]
+    return {"exact": exact, "class_credit": exact or same_class, "tier": tiers_of(row).get(proposed)}
 
-# A corrected row: the label is 3+3, the walk still ranks BOIN Primary.
-nct = "NCT00514046"
-print(f"{nct} label      : {ref[nct]['label_primary']}")
-print(f"{nct} Primary    : {primary_tier(ref[nct])}")
-print("  proposing 3+3  :", score(nct, "3+3"))
-print("  proposing BOIN :", score(nct, "BOIN"))
+labelled = [r for r in ref if r["status"] == "leaf"]
+diverged = [r for r in labelled if primary_tier(r) != r["label_primary"]]
+reaudit = [r for r in ref if r["status"] == "out_of_scope" and not r["tree_path"].endswith("Out of scope")]
 
-divergent = sum(
-    1 for r in ref.values()
-    if (r["status"] == "leaf" and primary_tier(r) != r["label_primary"])
-    or (r["status"] == "out_of_scope" and not r["tree_path"].endswith("Out of scope"))
-)
-print(f"rows where the walk disagrees with the label: {divergent}")
+print(f"methods in the upstream class map                 : {len(CLASS_MAP)}")
+print(f"labelled rows whose Primary tier is not the label : {len(diverged)}")
+print(f"out-of-scope rows whose walk still reaches a leaf : {len(reaudit)}")
+print(f"walk disagrees with the label, in total           : {len(diverged) + len(reaudit)}")
+graded = [score(r, primary_tier(r)) for r in diverged]
+print(f"answering the Primary tier on the {len(diverged)} labelled rows:")
+print(f"  exact matches            : {sum(g['exact'] for g in graded)}")
+print(f"  class-credited matches   : {sum(g['class_credit'] for g in graded)}")
+print("  where the label sits     :",
+      dict(collections.Counter(tiers_of(r).get(r["label_primary"], "outside the set") for r in diverged)))
 ```
 
 ```
-NCT00514046 label      : 3+3
-NCT00514046 Primary    : BOIN
-  proposing 3+3  : ('correct', 'Acceptable')
-  proposing BOIN : ('wrong', 'Primary')
-rows where the walk disagrees with the label: 94
+methods in the upstream class map                 : 25
+labelled rows whose Primary tier is not the label : 90
+out-of-scope rows whose walk still reaches a leaf : 4
+walk disagrees with the label, in total           : 94
+answering the Primary tier on the 90 labelled rows:
+  exact matches            : 0
+  class-credited matches   : 59
+  where the label sits     : {'Acceptable': 59, 'outside the set': 31}
 ```
 
-Note what the tier adds on that row: the correct answer sits at `Acceptable` and the wrong one at
-`Primary`. The tier is a statement about the rule walk's ranking, and it is worth reporting — but
-it is not partial credit toward the label, and nothing reads it as agreement.
+Read the two lines together. On the 59 relabelled rows the shortcut scores zero exact and full
+class credit, because `BOIN` and `3+3` share Class 1 — so class-credited accuracy cannot see this
+correction, and exact accuracy can. On the 31 combination rows the shortcut lands in a different
+class and fails both ways. The tier the proposal sits at is worth reporting, but it is a statement
+about the rule walk's ranking, not about agreement with the label.
 
-## Tiers, and partial credit that means something
+## Tiers, and a partial-credit scheme of your own
 
-For the 385 trials where the walk and the label agree, the tiers are a graded scale: how far from
-the standard a near-miss fell. Use them for top-3 credit and for a deviation measure, and exclude
-the 90 corrected rows from any tier-based statistic rather than letting them score strangely.
+For the 385 trials where the walk and the label agree, the tiers form a graded scale: how far from
+the standard a near-miss fell. Upstream does not use them in any metric. If you want a
+deviation measure or credit for a top-3 list, the weights below — 1.0 for the label, 0.5 for a
+`Secondary` method, 0.25 for an `Acceptable` one — are **this page's choice, not the benchmark's**.
+Say so when you report them, and exclude the 90 corrected rows rather than letting them score
+strangely.
 
 ```python
-import collections, csv, urllib.request
+import collections, csv, statistics, urllib.request
 
 URL = ("https://raw.githubusercontent.com/hanktang-research/TrialDesignBench"
        "/master/data/reference_standard.csv")
@@ -232,148 +271,236 @@ print("admissible-set sizes       :",
 print("tier counts                :",
       dict(collections.Counter(t for r in labelled for t in tiers_of(r).values())))
 
-# Top-3 credit, worked on the tier-consistent rows only.
+# This page's own weighting, not the benchmark's: upstream scores top-1 only.
+WEIGHT = {0: 1.0, 1: 0.5, 2: 0.25}
 def top3_credit(row, proposals):
     tiers = tiers_of(row)
-    hits = [p for p in proposals if p == row["label_primary"]]
-    if hits:
+    if row["label_primary"] in proposals:
         return 1.0
     best = min((RANK[tiers[p]] for p in proposals if p in tiers), default=None)
-    return {1: 0.5, 2: 0.25}.get(best, 0.0)
+    return WEIGHT.get(best, 0.0)
 
-row = clean[0]
-print(f"worked row                 : {row['nct_id']} -> {row['label_primary']}")
-print("  exact                    :", top3_credit(row, [row["label_primary"]]))
-print("  secondary near-miss      :",
-      top3_credit(row, [p for p, t in tiers_of(row).items() if t == "Secondary"][:1]))
-print("  off-set guess            :", top3_credit(row, ["Waterfall"]))
+def first_with(row, tier):
+    return [p for p, t in tiers_of(row).items() if t == tier][:1]
+
+with_secondary = [r for r in clean if first_with(r, "Secondary")]
+print(f"mean credit over {len(clean)} tier-consistent rows:")
+print("  the label itself         :", statistics.mean(top3_credit(r, [r["label_primary"]]) for r in clean))
+print(f"  a Secondary method ({len(with_secondary)} rows):",
+      statistics.mean(top3_credit(r, first_with(r, "Secondary")) for r in with_secondary))
+print("  an off-set guess         :", statistics.mean(top3_credit(r, ["OTHER"]) for r in clean))
 ```
 
 ```
 labelled / tier-consistent : 475 / 385
 admissible-set sizes       : {1: 1, 2: 56, 3: 23, 7: 395}
 tier counts                : {'Primary': 475, 'Secondary': 1287, 'Acceptable': 1185}
-worked row                 : NCT00002663 -> BOIN
-  exact                    : 1.0
-  secondary near-miss      : 0.5
-  off-set guess            : 0.0
+mean credit over 385 tier-consistent rows:
+  the label itself         : 1.0
+  a Secondary method (384 rows): 0.5
+  an off-set guess         : 0.0
 ```
 
-## The structured fields, and the five input configurations
+## The structured fields, and the input configurations
 
 `structured_fields.csv` carries 25 columns per trial — the same 617 `nct_id` keys, no more and no
-fewer. The prompt templates assemble their user block from exactly two groups of them:
+fewer. The prompt templates assemble their user block from two groups of them:
 
 - **`B_FIELD_KEYS`** (14): `brief_title`, `phase`, `conditions`, `interventions`, `enrollment`,
   `start_date`, `B1.phase_i_goal`, `B1.endpoint_nature`, `B3.dlt_definition_text`,
   `B3.ctcae_version`, `B3.dlt_assessment_window_days`, `B3.interpatient_interval_days`,
   `B3.interpatient_interval_basis`, `B3.interpatient_safety_floor_days`.
-- **`C_LATENT_KEYS`** (7): `B1.primary_endpoint_type`, `B1.multiple_or_continuous_toxicity`,
-  `B1.prior_information_available`, `B1.regimen_modality`, `B1.comb_target`, `B1.obd_basis`,
-  `B1.mtd_as_secondary` — the judgements that would otherwise require reading the full protocol,
-  handed to the model already resolved.
+- **`C_LATENT_KEYS`** / **`E_LATENT_KEYS`** (the same 7): `B1.primary_endpoint_type`,
+  `B1.multiple_or_continuous_toxicity`, `B1.prior_information_available`, `B1.regimen_modality`,
+  `B1.comb_target`, `B1.obd_basis`, `B1.mtd_as_secondary` — the judgements that would otherwise
+  require reading the full protocol, handed to the model already resolved.
 
-The five configurations are a ladder of how much is given:
+The configurations are a ladder of how much is given. The run script iterates seven: A.1, A.2,
+A.3, B, C, D, E.
 
 | config | user block | system block |
 |---|---|---|
-| A | protocol excerpt only | flat 32-method vocabulary |
-| B | A + the 14 structured fields | flat vocabulary |
-| C | B + the 7 resolved latents, plus `final_ai_ratio`, `m2_gate`, `interval_basis` | flat vocabulary |
-| D | same user block as B | 11-class taxonomy + decision tree + node-answer schema |
-| E | same user block as C | same as D |
+| A.1 | four structured fields only — intervention, condition, phase, primary objective | flat 32-method vocabulary |
+| A.2 | the registry brief summary, under its own `Registry brief summary:` header | flat vocabulary |
+| A.3 | the protocol excerpt only | flat vocabulary |
+| B | the 14 structured fields + the protocol excerpt | flat vocabulary |
+| C | B + a paragraph introducing the 7 resolved latents, plus `final_ai_ratio`, `m2_gate`, `interval_basis` | flat vocabulary |
+| D | B + a **dose-level escalation schedule** extracted from the full protocol | 11-class taxonomy + decision tree + node-answer schema |
+| E | B + the latents under a one-line header (not C's paragraph) + the dose-level schedule | same as D |
 
-C and E read `final_ai_ratio` and `interval_basis` from the **reference-standard** row
-(`ai_ratio`, `interval_basis`), not from the fields table. That join is easy to miss and silently
-produces a C prompt that is really a B prompt.
+Three details that the templates in `prompts/` alone will not tell you, all read from
+`code/build_prompt.py`'s `build_prompt_v11`, the version the run script uses:
+
+- **D and E append a dose-level schedule** after the template's text. The template files for D
+  and E do not show it, and the per-trial schedule file it is read from is not in the release.
+  Run upstream's builder without that file and it does not fail: every D and E prompt silently
+  gets a fixed "no explicit dose-level table" line instead.
+- **`final_ai_ratio`, `m2_gate` and `interval_basis` come from the reference-standard row.**
+  The fields table also carries `final_ai_ratio` and `interval_basis` with identical values on all
+  617 rows, but `m2_gate` exists only in the reference standard.
+- **Those three are left blank when the cell is blank** (195 rows), while the 21 field keys print
+  `(not populated)`. The C template's note says a missing `m2_gate` reads `(not populated)`; the
+  code is what produced the results.
+
+Every model-visible prompt names the trial by an opaque case id, `CASE_0001` to `CASE_0617`,
+numbered over the sorted registry ids. Use the same mapping and the same rule: the registry id
+must not appear anywhere a model reads it, because the system prompt forbids identifying the trial
+and an id is the one thing that makes identification trivial. The builder below fills the
+upstream template files rather than restating them, and refuses any block that contains the
+registry id — which matters most when the excerpt is your own registry text.
 
 ```python
-import csv, urllib.request
+import csv, re, urllib.request
 
-BASE = "https://raw.githubusercontent.com/hanktang-research/TrialDesignBench/master/data"
+RAW = "https://raw.githubusercontent.com/hanktang-research/TrialDesignBench/master"
+def fetch(path):
+    with urllib.request.urlopen(f"{RAW}/{path}", timeout=120) as fh:
+        return fh.read().decode("utf-8")
 def table(name):
-    with urllib.request.urlopen(f"{BASE}/{name}", timeout=120) as fh:
-        return {r["nct_id"]: r for r in csv.DictReader(fh.read().decode("utf-8").splitlines())}
+    return {r["nct_id"]: r for r in csv.DictReader(fetch(f"data/{name}").splitlines())}
 
 fields, ref = table("structured_fields.csv"), table("reference_standard.csv")
 assert set(fields) == set(ref), "the two tables no longer key the same trials"
+
+# Opaque case ids, derived exactly as upstream does: sorted NCT ids, numbered from 1.
+CASE_ID = {nct: f"CASE_{i:04d}" for i, nct in enumerate(sorted(ref), start=1)}
 
 B_KEYS = ["brief_title", "phase", "conditions", "interventions", "enrollment", "start_date",
           "B1.phase_i_goal", "B1.endpoint_nature", "B3.dlt_definition_text", "B3.ctcae_version",
           "B3.dlt_assessment_window_days", "B3.interpatient_interval_days",
           "B3.interpatient_interval_basis", "B3.interpatient_safety_floor_days"]
-C_KEYS = ["B1.primary_endpoint_type", "B1.multiple_or_continuous_toxicity",
-          "B1.prior_information_available", "B1.regimen_modality", "B1.comb_target",
-          "B1.obd_basis", "B1.mtd_as_secondary"]
+LATENT_KEYS = ["B1.primary_endpoint_type", "B1.multiple_or_continuous_toxicity",
+               "B1.prior_information_available", "B1.regimen_modality", "B1.comb_target",
+               "B1.obd_basis", "B1.mtd_as_secondary"]
+TEMPLATE_FILE = {"A.3": "A_protocol_narrative", "B": "B_structured_fields",
+                 "C": "C_resolved_latents", "D": "D_workflow", "E": "E_workflow_plus_latents"}
+TEMPLATE = {c: re.search(r"```\n(.*?)\n```", fetch(f"prompts/{f}.md"), re.S).group(1)
+            for c, f in TEMPLATE_FILE.items()}
 
 def lines(row, keys):
     return "\n".join(f"- {k}: {row[k] or '(not populated)'}" for k in keys)
 
-def user_block(nct_id, config, protocol_excerpt):
-    """Build the user half of a configuration prompt. `protocol_excerpt` is yours to supply."""
+def user_block(nct_id, config, excerpt, dose_schedule=None):
+    """The user half of one configuration's prompt. `excerpt` (and, for D/E, `dose_schedule`)
+    are yours to supply; the release ships neither."""
     row, rs = fields[nct_id], ref[nct_id]
-    parts = [f"Case ID: {nct_id}", ""]
-    if config != "A":
-        parts += ["Trial characteristics:", lines(row, B_KEYS), ""]
-    parts += ["Protocol excerpt (background, rationale, objectives):", protocol_excerpt]
-    if config in ("C", "E"):
-        parts += ["", "Latent trial characteristics (resolved for you):", lines(row, C_KEYS),
-                  f"- final_ai_ratio: {rs['ai_ratio'] or '(not populated)'}",
-                  f"- m2_gate: {rs['m2_gate'] or '(not populated)'}",
-                  f"- interval_basis: {rs['interval_basis'] or '(not populated)'}"]
-    return "\n".join(parts)
+    if config == "A.2":                       # the registry brief summary, under its own header
+        text = f"Case ID: {CASE_ID[nct_id]}\n\nRegistry brief summary:\n{excerpt}"
+    else:
+        out = []
+        for line in TEMPLATE[config].split("\n"):
+            if line.startswith("{B_FIELD_KEYS"):
+                out.append(lines(row, B_KEYS))
+            elif line.startswith(("{C_LATENT_KEYS", "{E_LATENT_KEYS")):
+                out.append(lines(row, LATENT_KEYS))
+            else:
+                out.append(line)
+        # Upstream reads these three from the reference-standard row and leaves a blank cell blank.
+        text = ("\n".join(out).replace("{pseudo_id}", CASE_ID[nct_id])
+                .replace("{final_ai_ratio}", rs["ai_ratio"])
+                .replace("{m2_gate}", rs["m2_gate"])
+                .replace("{interval_basis}", rs["interval_basis"])
+                .replace("{protocol_excerpt}", excerpt))
+        if config in ("D", "E"):
+            if dose_schedule is None:
+                raise ValueError("D and E need the dose-level schedule; the release does not ship it")
+            text += ("\n\nDose-level escalation schedule (extracted from the full trial protocol):\n"
+                     + dose_schedule)
+    if nct_id in text:
+        raise ValueError(f"the registry id leaked into a model-visible string for {CASE_ID[nct_id]}")
+    return text
 
-nct = "NCT00002663"
-print(f"columns in fields table : {len(fields[nct])}")
-print(f"B keys present          : {sum(k in fields[nct] for k in B_KEYS)}/14")
-print(f"C keys present          : {sum(k in fields[nct] for k in C_KEYS)}/7")
-block = user_block(nct, "C", "<protocol excerpt not redistributed — see below>")
-print(f"config C block lines    : {len(block.splitlines())}")
-print(block.splitlines()[-3])
+nct = sorted(ref)[0]
+print(f"case ids                : {len(CASE_ID)} ({min(CASE_ID.values())} .. {max(CASE_ID.values())})")
+print(f"B / latent keys present : {sum(k in fields[nct] for k in B_KEYS)}/14, "
+      f"{sum(k in fields[nct] for k in LATENT_KEYS)}/7")
+for config in ("A.2", "A.3", "B", "C", "D", "E"):
+    block = user_block(nct, config, "EXCERPT", dose_schedule="SCHEDULE")
+    print(f"config {config:<3} lines       : {len(block.splitlines())}")
+print(user_block(nct, "C", "EXCERPT").splitlines()[0])
 ```
 
 ```
-columns in fields table : 25
-B keys present          : 14/14
-C keys present          : 7/7
-config C block lines    : 32
-- final_ai_ratio: 0.45-0.45
+case ids                : 617 (CASE_0001 .. CASE_0617)
+B / latent keys present : 14/14, 7/7
+config A.2 lines       : 4
+config A.3 lines       : 4
+config B   lines       : 20
+config C   lines       : 32
+config D   lines       : 23
+config E   lines       : 35
+Case ID: CASE_0001
 ```
 
-## The one thing the release does not contain
+This builder was checked against a transcription of upstream's own `build_prompt_v11` user
+strings across all 617 trials and the six configurations it covers, with placeholder excerpt and
+schedule text: 3,702 blocks, no differences.
 
-Every configuration substitutes a **protocol excerpt** — background, rationale and objectives
-drawn from each trial's own posted protocol, registry summary or linked publication. That text is **not
-redistributed**. It is prose lifted out of documents the authors did not own, rather than a value
-they extracted, so it was never theirs to pass on.
+## What the release does not contain
 
-This is not a gap you can shrug off. Without it, configurations A through E cannot be reproduced
-from this release alone — the templates tell you exactly where the text goes, and the text is
-not there. It is retrievable per trial from the public registry using the `nct_id`, which every
+Two inputs are drawn from documents the authors did not own and are **not redistributed**:
+
+- **The protocol excerpt** — background, rationale and objectives from each trial's posted
+  protocol or linked publication — used by A.3 and B through E. The A.2 brief summary is not
+  shipped either.
+- **The dose-level schedule** that D and E append, extracted from the full protocol.
+
+This is not a gap you can shrug off. Without them, no configuration that uses them can be
+reproduced from this release alone — the templates tell you exactly where the text goes, and the
+text is not there. The registry record is retrievable per trial using the `nct_id`, which every
 row carries, and the `clinicaltrials-gov` skill covers that API in full. The block below fetches
-the three narrative sections the excerpt is drawn from for one trial.
+the three registry sections closest to what the excerpt covers — brief summary, detailed
+description, primary outcome measures — and assembles both an A.2 input and a registry stand-in
+for the excerpt.
 
 ```python
 import json, urllib.request
 
 NCT = "NCT00002663"
-FIELDS = "BriefSummary,DetailedDescription,PrimaryOutcomes"
+FIELDS = "BriefSummary,DetailedDescription,PrimaryOutcome"
 url = f"https://clinicaltrials.gov/api/v2/studies/{NCT}?fields={FIELDS}"
 try:
     with urllib.request.urlopen(url, timeout=60) as fh:
         study = json.load(fh)
-except Exception as exc:                      # no registry route, or the record moved
-    raise SystemExit(f"registry unreachable or record absent for {NCT}: {exc}")
+except urllib.error.HTTPError as exc:          # 400 = a bad field name; 404 = no such record
+    raise SystemExit(f"registry refused the request for {NCT}: HTTP {exc.code} {exc.read()[:200]!r}")
+except urllib.error.URLError as exc:           # DNS, proxy or firewall: no route at all
+    raise SystemExit(f"registry unreachable from this host: {exc.reason}")
 
-desc = study.get("protocolSection", {}).get("descriptionModule", {})
-excerpt = "\n\n".join(p for p in (desc.get("briefSummary"), desc.get("detailedDescription")) if p)
-print(f"{NCT} excerpt characters: {len(excerpt)}")
-print(excerpt[:300] if excerpt else "no narrative text posted for this record")
+proto = study.get("protocolSection", {})
+desc = proto.get("descriptionModule", {})
+brief = desc.get("briefSummary", "")
+detailed = desc.get("detailedDescription", "")
+outcomes = "\n".join(f"- {o.get('measure', '')}" for o in
+                     proto.get("outcomesModule", {}).get("primaryOutcomes", []))
+
+a2_text = brief                                 # configuration A.2: the brief summary, alone
+stand_in = "\n\n".join(p for p in (brief, detailed,
+                                   outcomes and f"Primary outcome measures:\n{outcomes}") if p)
+print(f"brief summary characters    : {len(brief)}")
+print(f"detailed description chars  : {len(detailed)}")
+print(f"primary outcome measures    : {len(proto.get('outcomesModule', {}).get('primaryOutcomes', []))}")
+print(f"A.2 text / stand-in chars   : {len(a2_text)} / {len(stand_in)}")
+print(f"registry id inside the text : {NCT in stand_in}")
 ```
 
-What comes back is the registry's own summary, which is not identical to the protocol-document
-excerpt the authors used. Treat a reconstruction as configuration A.2 — a registry-summary
-variant — and say so when you report numbers, rather than claiming A.3.
+```
+brief summary characters    : 211
+detailed description chars  : 0
+primary outcome measures    : 1
+A.2 text / stand-in chars   : 211 / 270
+registry id inside the text : False
+```
+
+Observed 2026-11-14; registry records are edited, so the counts can move. Keep the two error
+paths apart: an HTTP status means the registry answered and refused the request — a mistyped
+field name returns 400, not an outage — while a URL error means there is no route from your host.
+
+The brief summary is exactly what A.2 uses. The stand-in is not the authors' protocol excerpt —
+many records, like this one, carry no detailed description at all — so numbers produced with it are
+a registry-text variant of A.3 through E. Say so when you report them, rather than presenting them
+as the benchmark's configurations. Pass either text through `user_block`, which rejects it if the
+registry id appears inside.
 
 ## Running the full evaluation matrix
 
@@ -381,37 +508,51 @@ variant — and say so when you report numbers, rather than claiming A.3.
 credentials, for whichever models you are scoring. There is no hosted endpoint here and the
 authors do not provide one. Everything above this section needs nothing.
 
-The upstream repository ships the harness for it under MIT, and the division is worth knowing
-before you plan an afternoon around it. Three modules are self-contained against the shipped
-data — the decision-tree walker, the method-name normaliser, and the model roster. Two call a
-serving layer and need your credentials. The remaining five construction scripts are published
-for algorithmic transparency and **reference intermediate working files that are not in the
-release**, so they do not run standalone. Their outputs are the two CSVs you already have.
+The upstream repository ships the harness under MIT, eleven Python modules in `code/`, and the
+division is worth knowing before you plan an afternoon around it:
 
-So the honest plan is: take the templates, substitute your own excerpt text, call your own
-models, and score with the rules on this page. The walker is worth reading before you
-re-implement the tree.
+- **Self-contained against the shipped data (3):** `tree_walker.py` (the decision tree and the
+  mechanical walker), `normalize.py` (method-name normalisation), `model_config.py` (the model roster).
+- **Call a model-serving layer and need your credentials (2):** `runner.py` and
+  `run_full_matrix.py`, which drives every model × configuration × trial.
+- **Aggregation (1):** `full_report_v10.py` turns the run's outputs into the metrics above. It needs
+  the outputs of a run you have made, and scikit-learn.
+- **Construction, for transparency (5):** `reroute_v9.py`, `late_onset_rule_v9.py`,
+  `apply_combination_node_correction.py`, `build_reference_standard.py` and `build_prompt.py`.
+  They reference intermediate working files that are not in the release, so they do not run
+  standalone. Together their outputs are `reference_standard.csv` and the `prompts/` templates;
+  `structured_fields.csv` is an input to them, not an output.
+
+So the honest plan is: take the templates, supply your own excerpt and schedule text, call your
+own models, and score the way upstream does. The walker is worth reading before you re-implement
+the tree.
 
 ### A discrepancy in the D/E taxonomy, worth knowing before you score classes
 
 The class taxonomy given to models in configurations D and E lists **eleven** classes and states
-that it corresponds exactly to the leaves of the decision tree. It does not. The tree has ten
-nodes and reaches ten numbered classes plus `OUT_OF_SCOPE`; **Class 11** — "other Phase I designs
-not covered above", holding TPI, mTPI, mTPI-2, TEQR, Rolling-6, Storer two-stage and accelerated
-titration — is in the taxonomy but is **not reachable as a leaf**. Those same seven methods are
-the exact difference between the 32-method flat vocabulary used in A/B/C and the 25 methods the
-tree's leaves contain.
+that it matches the tree's leaves exactly. It does not. The tree has ten nodes and ten leaves, one
+per numbered class from 1 to 10, plus an out-of-scope exit. **Class 11** — a catch-all for seven
+Phase-I designs the tree never routes to (TPI, mTPI, mTPI-2, TEQR, Rolling-6, Storer two-stage and
+accelerated titration) — is in the taxonomy and in no leaf. Those seven methods are exactly the
+difference between the 32-method flat vocabulary of A to C and the 25 methods the leaves contain.
 
-Nothing in the shipped reference standard is labelled Class 11, so it does not affect scoring
-against `label_primary`. It does affect you if you score a model's *class* answer by walking its
-node answers: a model that answers Class 11 has given an answer the tree cannot produce, and your
-scorer needs a branch for it rather than an exception.
+What that means in practice:
+
+- **No D or E class can be Class 11.** The D/E response schema has no class field — the class is
+  whatever leaf the node answers reach, so the walk cannot produce Class 11. The taxonomy text
+  still asks the model for top classes, which the schema then gives it nowhere to put.
+- **A Class-11 method can still be a top-1 answer** — freely in A to C, from the flat vocabulary,
+  and in D or E whenever a model ignores the instruction to choose among its leaf's methods. It
+  scores wrong on exact match, and it never gets class credit, because `CLASS_MAP` has no entry
+  for any of the seven.
+- **Nothing in the reference standard is labelled with a Class-11 method**, so the discrepancy
+  never changes what the right answer is — only how a wrong one is counted.
 
 ## Try it
 
 **Data.** `reference_standard.csv` and `structured_fields.csv` from TrialDesignBench
 (`hanktang-research/TrialDesignBench`, branch `master`), CC BY 4.0, no authentication. Last
-confirmed reachable 2026-11-12.
+confirmed reachable 2026-11-14.
 
 **Run.**
 
@@ -491,7 +632,7 @@ rather than that upstream moved:
   dose levels. These are the whole reason to score on `label_primary`; if one empties, re-derive
   the guidance rather than deleting the assertion.
 
-Observed 2026-11-12 against `master` at commit `e587b1f` — these move if the benchmark is
+Observed 2026-11-14 against `master` at commit `e587b1f` — these move if the benchmark is
 revised, so treat a mismatch as drift to investigate:
 
 ```
