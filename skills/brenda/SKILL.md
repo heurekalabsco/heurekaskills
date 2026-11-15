@@ -4,7 +4,7 @@ description: Retrieve BRENDA enzyme kinetic constants — Km, kcat, kcat/Km, Ki 
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [public-data, enzyme-kinetics, metabolic-modeling]
 covers: [brenda, enzyme kinetics, km, michaelis constant, kcat, turnover number, catalytic efficiency, kcat/km, ki, inhibition constant, ec number, enzyme commission, substrate, inhibitor, kinetic parameters, kinetic model, enzyme-constrained model, metabolic modeling, mutant enzyme, wild-type, inchikey, ncbi taxonomy, uniprot, sparql, soap, dsmz, human, yeast, e. coli]
 papers: [PMID:41206471, PMID:33211880]
@@ -12,11 +12,10 @@ access: [open, registered]
 datasets: ['https://www.brenda-enzymes.org/result_download.php?a=12&W[1]=1.1.1.27&T[1]=1&nolimit=1', https://www.brenda-enzymes.org/soap/brenda_zeep.wsdl, https://www.brenda-enzymes.org/schemas/2.0.0/enzyme.schema.json]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-11-12
-  against: BRENDA release 2026.1 (March 2026) / SOAP WSDL brenda_zeep.wsdl with 171 operations / DSMZ SPARQL endpoint for BRENDA (QLever) / JSON schema 2.0.0 / Python 3.12.8 / zeep 4.3.3 / lxml 6.1.3 / every block run in page order in one fresh directory and Try it run again alone in a fresh mktemp directory
-  executed: 12
-  unverified: 2
-  unverified_reason: Two blocks need what the validating session did not have. The credentialed SOAP call needs a BRENDA account (free registration with an email address); a bad-credential call was run and its fault is documented. Reading the bulk JSON file needs the archive, which a person downloads after ticking the licence box on the download page; the session did not accept the licence on anyone's behalf. Re-run both with a registered account and a downloaded release 2026.1 archive.
+  date: 2026-11-15
+  against: BRENDA release 2026.1 (March 2026) / SOAP WSDL brenda_zeep.wsdl with 171 operations, called with a registered account / brenda_2026_1.json.tar.gz (83,199,492 bytes), downloaded after accepting the licence with the account holder's consent / DSMZ SPARQL endpoint for BRENDA (QLever) / JSON schema 2.0.0 / Python 3.12.8 / zeep 4.3.3 / lxml 6.1.3 / every block run in page order in one fresh directory and Try it run again alone in a fresh mktemp directory
+  executed: 16
+  unverified: 0
 ---
 # BRENDA — enzyme kinetic constants
 
@@ -53,7 +52,7 @@ Four surfaces, and what each needs:
 | Enzyme page `enzyme.php?ecno=…` | All four constants for one EC, with NCBI taxid, UniProt, ligand structure id, commentary | Nothing |
 | SPARQL endpoint `sparql.dsmz.de/api/brenda` | Identifiers — compounds with InChIKey, organisms with taxid, EC classes, references. **No kinetic values** | Nothing |
 | SOAP web service | Every field, queryable by EC and organism | A free BRENDA account (email + password) from the site's `register.php` |
-| Bulk download (text or JSON, ~75 MB) | The whole release | A person ticking "I accept the license agreement" on the download page |
+| Bulk download (text or JSON, ~75 MB) | The whole release | Accepting the licence on the download page; no account |
 
 The enzyme page is the default route below: no account, one request per EC number, and it is
 the only surface that attaches a taxid to every row. The site's `robots.txt` sets
@@ -611,22 +610,38 @@ if not soap_rows:
 What the WSDL says each record holds, read from its type definitions: `ecNumber`,
 `organism`, the value and its `…Maximum`, `substrate` (or `inhibitor` for Ki), `commentary`,
 `ligandStructureId` and `literature` (an array of BRENDA reference ids). Every value field
-is typed `xsd:string`, so cast it. There is **no taxid and no UniProt accession** in a SOAP
+is typed `xsd:string`, so cast it. `literature` comes back as zeep's `ArrayOfIntegers`, a
+`list` subclass of integer reference ids that `json.dumps` accepts as it is. There is **no taxid and no UniProt accession** in a SOAP
 kinetic record — the organism is the free-text name, and the `ligandStructureId` is the same
 structure id the SPARQL join above uses. Cross-check the counts against the enzyme page
-before trusting a SOAP result: for LDH in *Homo sapiens* the page has 9 Km rows, 1 kcat, 0
-kcat/Km and 35 Ki. Two things this block assumes and the validating session could not test
-without an account: that a misspelt organism returns an empty result rather than a fault,
-and the exact Python shape zeep gives `literature`.
+before trusting a SOAP result. For LDH in *Homo sapiens* SOAP returned 8 Km rows, 1 kcat, 0
+kcat/Km and 35 Ki. The page shows 9 Km rows because it repeats a row once per linked
+protein, as with the export above. Two of the 8 are `-999` / `more`, which `soap_number`
+turns into `None`.
+
+**A misspelt organism is not an error.** `organism="Homo sapeins"` returns `[]` with no
+fault, exactly what a correctly spelt organism with no data returns. An empty SOAP result is
+a fact about the string you sent, so check the spelling against the enzyme page's organism
+column before reading it as "no measurements".
 
 ## Bulk download
 
 The download page offers the whole release as a text file (`brenda_2026_1.txt.tar.gz`,
 71.6 MB) or JSON (`brenda_2026_1.json.tar.gz`, 79.4 MB), plus a README for the text format.
-The buttons stay disabled until the "I accept the license agreement" box is ticked. **A
-person ticks it, in a browser.** An agent posting the acceptance on someone's behalf is
-agreeing to terms for them; do not script it. Whether a login is also required was not
-tested for that reason.
+The buttons stay disabled until the "I accept the license agreement" box is ticked. Ticking
+it agrees to the terms, so it is the reader's act: an agent accepts only with the person's
+explicit go-ahead. No login is needed. A request without the acceptance still answers `200`,
+but with the HTML download page (about 15 kB) instead of the archive. A script that saves
+the response under the archive's name has then saved a web page, so check the file before
+opening it:
+
+```python
+import tarfile
+
+archive = "brenda_2026_1.json.tar.gz"  # saved from the download page after accepting the licence
+if not tarfile.is_tarfile(archive):
+    raise SystemExit(f"{archive} is not a tar archive; the licence was probably not accepted")
+```
 
 The JSON's schema is public. It states the units and little else about the numbers:
 
@@ -647,9 +662,6 @@ proves nothing about the fields you will parse.** Look at a real record before w
 parser:
 
 ```python
-import tarfile
-
-archive = "brenda_2026_1.json.tar.gz"  # saved from the download page after accepting the licence
 with tarfile.open(archive) as tar:
     member = next(m for m in tar.getmembers() if m.isfile() and m.name.endswith(".json"))
     dump = json.load(tar.extractfile(member))
@@ -660,10 +672,43 @@ print(sorted(first), first)
 print(entry["protein"][first["proteins"][0]])
 ```
 
-The uncompressed size was not measured here; `json.load` holds the whole release in memory,
-so check free memory before running it. Per the schema, a value's `proteins` list points into the entry's `protein`
-map, which carries the organism and, where known, UniProt or GenBank accessions — the bulk
-equivalent of the page's taxid and UniProt columns.
+The release unpacks to one 710 MB JSON file (`brenda_2026_1.json`, 8,129 EC entries), and
+`json.load` held it at a peak of about 1.9 GB resident, in 17 seconds. A value's `proteins`
+list points into the entry's `protein` map, which carries the organism name and, where
+known, UniProt or GenBank accessions. Human LDH's protein `143`, for example, is
+`{'organism': 'Homo sapiens', 'source': 'uniprot', 'accessions': ['P07195'], …}`. There is
+no taxid, so filter on the accession or the exact organism string.
+
+**`value` is not a number.** In all 356,162 Km, kcat, kcat/Km and Ki entries of release 2026.1
+it is a string with the ligand attached: `'0.0142 {NADH}'`, or a range such as
+`'2-3 {benzaldehyde}'` (2,976 entries). There is no separate substrate field. A `float()`
+on it fails, and a regex that takes the leading number silently drops the upper bound of
+every range. Split it:
+
+```python
+import re
+
+VALUE = re.compile(r"(-?[\d.]+(?:e-?\d+)?)(?:-([\d.]+(?:e-?\d+)?))? \{(.*)\}")
+
+
+def bulk_value(s):
+    # '2-3 {benzaldehyde}' -> (2.0, 3.0, 'benzaldehyde'); a single value has max None
+    m = VALUE.fullmatch(s)
+    if not m:
+        raise ValueError(f"unrecognised BRENDA value {s!r}")
+    low, high, ligand = m.groups()
+    return float(low), float(high) if high else None, ligand
+
+
+human = {pid for pid, p in entry["protein"].items() if p.get("organism") == "Homo sapiens"}
+human_km = [(*bulk_value(r["value"]), r["references"]) for r in entry["km_value"]
+            if set(r["proteins"]) & human]
+print(len(human_km), "human Km rows;", human_km[:3])
+```
+
+That gives 8 human Km rows for LDH, the same as SOAP and the export. The function raises on
+any value it cannot read rather than skipping it, so a format change in a later release
+stops the parse instead of thinning the table.
 
 ## What does not work
 
@@ -677,10 +722,13 @@ equivalent of the page's taxid and UniProt columns.
 | SPARQL on an IRI lacking a predicate | Sometimes `"status": "ERROR"`, an engine assertion, not an empty result | Check `status`; query from the class side |
 | SPARQL JSON | Once during testing a response came back truncated (unparseable JSON); the rerun was fine | Retry once on a decode error |
 | Help-page SOAP snippets | Parameter order differs from the WSDL for several methods | Read the WSDL; pass by name |
+| `Client(WSDL)` right after a burst of page requests | Once, `RemoteDisconnected`; the same call a minute later was fine | Space requests as asked; retry once after a pause |
 | SOAP with a clear-text password | Same 401 fault as a wrong one | SHA-256 hex digest |
 | Validating the JSON dump against schema 2.0.0 | Passes regardless of the numeric fields | Inspect a record |
 | The `-999` sentinel | `-999`/`more` in search results, "additional information" on pages and in the export | Treat all three as no number |
-| Scripting the download page | Requires a licence acceptance | A person downloads it |
+| Downloading without accepting the licence | `200` with the HTML page saved under the archive's name | Accept (with the person's go-ahead); check `tarfile.is_tarfile` |
+| `float()` on a bulk `value` | Fails: the value is `'0.05 {benzyl alcohol}'` or `'2-3 {…}'` | `bulk_value` above |
+| SOAP with a misspelt organism | `[]`, no fault; the same as no data | Check the string against the enzyme page |
 
 ## Try it
 
