@@ -5,13 +5,13 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.2.1
+version: 1.2.2
 tags: [power-analysis, sample-size, effect-size, study-planning]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-02
-  against: statsmodels 0.15.0 / scipy 1.17.1 / numpy 2.4.6 / pingouin 0.6.1 / lifelines 0.30.3 / Python 3.11.15
+  date: 2026-11-05
+  against: statsmodels 0.15.0 / scipy 1.17.1 / numpy 2.4.6 / pingouin 0.7.0 / lifelines 0.30.3 / Python 3.11.18. All 16 runnable blocks re-run in document order - 14 Python blocks executed clean, the other 2 are the package-install commands and were exercised by installing exactly those packages. Every documented figure reproduced exactly - t-test 63.7656 so enrol 64, ANOVA k=2 total 127.5312, ANOVA k=4 total 178.3971, closed-form power 0.8015, seeded Monte Carlo 0.807 with Wilson CI 0.790 to 0.824, correlation 84.93 so enrol 85. The pingouin cross-check still returns 84.07 against the formula's 84.93, so that comparison now holds across pingouin 0.6.1 and 0.7.0.
   executed: 16
   unverified: 0
 ---

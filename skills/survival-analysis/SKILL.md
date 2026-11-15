@@ -4,13 +4,13 @@ description: Time-to-event analysis with lifelines — Kaplan-Meier curves, log-
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [survival-analysis, kaplan-meier, cox-regression, censoring, time-to-event]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-04
-  against: lifelines 0.30.3 / Python 3.11.15 / pandas 2.3.3 / numpy 2.4.6 / scipy 1.17.1
+  date: 2026-11-06
+  against: lifelines 0.30.3 / Python 3.11.18 / pandas 2.3.3 / numpy 2.4.6 / scipy 1.17.1. All 12 runnable blocks re-run in document order in one working directory - the install line plus 11 Python blocks, every one clean - and all 10 blocks that record an output reproduced it identically, including the naive-average comparison, the Kaplan-Meier and log-rank figures, the undefined median, the Cox summary, the proportional-hazards test, the stratified and RMST fallbacks, the error paths and the Try it. Every library version is unchanged from the 2026-09-04 run; only the Python patch level moved.
   executed: 12
   unverified: 0
 ---

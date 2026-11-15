@@ -4,15 +4,16 @@ description: Unsupervised multi-omics integration with GAUDI — two-stage UMAP,
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.3.0
+version: 1.3.1
 tags: [multi-omics, umap, hdbscan, clustering, shap]
 allowed-tools: Read, Write, Edit, Bash
 datasets: []
 verified:
-  date: 2026-08-29
-  against: Python route — umap-learn 0.5.12 / hdbscan 0.8.44 / xgboost 3.2.0 / shap 0.51.0 / scikit-learn 1.9.0 / NumPy 2.4.6 / pandas 3.0.5 / Python 3.11.15. R route — R 4.4.1 / gaudi 0.1.18 installed from GitHub / xgboost 3.2.1.1. Parameter defaults additionally cross-read against the gaudi 0.1.18 sources.
-  executed: 6
-  unverified: 0
+  date: 2026-11-07
+  against: Python route re-run and every documented figure reproduced exactly, the Try it cold in an empty directory — umap-learn 0.5.12 / hdbscan 0.8.44 / xgboost 3.2.0 / shap 0.51.0 / scikit-learn 1.9.1 / NumPy 2.4.6 / pandas 3.1.1 / Python 3.11.18, so the table also holds across scikit-learn 1.9.0 to 1.9.1 and pandas 3.0.5 to 3.1.1. The metagene path was additionally driven with compute_features on and ranked the planted signal features first. R route not re-exercised this run, no R toolchain available, so its blocks and the Sharp edges stay source-confirmed from the 2026-08-29 run against R 4.4.1 and gaudi 0.1.18.
+  executed: 3
+  unverified: 3
+  unverified_reason: this pass re-ran the Python route only — the install step, the implementation block and the Try it, all green. The rest drive the R package, which needs an R 4.4.1 toolchain and gaudi built from source; the validating environment ships no R, so they stay source-confirmed rather than executed. An R toolchain in the validating environment would close the gap.
 ---
 
 # GAUDI: multi-omics integration via UMAP + HDBSCAN

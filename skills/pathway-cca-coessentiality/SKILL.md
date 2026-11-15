@@ -4,12 +4,12 @@ description: Score pathway-pathway association by PCA to k components then first
 category: analysis
 tags: [cca, pathway-coessentiality]
 author: Pol Castellano-Escuder
-version: 1.3.0
+version: 1.3.1
 license: CC-BY-4.0
 datasets: []
 verified:
-  date: 2026-08-19
-  against: NumPy 2.4.6 / Python 3.11.15
+  date: 2026-10-26
+  against: NumPy 2.4.6 / Python 3.11.17
   executed: 1
   unverified: 0
 ---

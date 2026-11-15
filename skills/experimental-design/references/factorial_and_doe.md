@@ -33,9 +33,10 @@ A **2^k** design runs every combination of k factors at two levels (low/high, co
 - Runs = 2^k: 8 for 3 factors, 16 for 4, 32 for 5. Practical to ~5 factors.
 - Use when you have a handful of factors and want a full picture including
   interactions.
-- `two_level_factorial({"temp": (20,60), "conc": (1,10), "pH": (6,8)})` → 8 runs.
-- For factors with more than two levels, use `full_factorial` with explicit level
-  lists (runs = product of level counts — grows fast).
+- `ff2n(3)` → 8 runs. It takes the *number* of factors and returns the coded matrix;
+  `to_real` in SKILL.md maps those columns onto real factor ranges.
+- For factors with more than two levels, use `fullfact` with a list of level counts —
+  `fullfact([3, 2, 2])` → 12 runs (the product of the counts, which grows fast).
 
 Add **center points** (all factors at their midpoint) to a two-level design to get a
 cheap check for curvature: if the center response departs from the factorial average,
@@ -48,9 +49,10 @@ negligible (the *sparsity-of-effects* principle). A **2^(k−p)** fractional fac
 runs a carefully chosen fraction (1/2, 1/4, ...) of the full design, trading the
 ability to estimate some interactions for far fewer runs.
 
-- `fractional_factorial(factors, generator="a b c abc")` builds a half-fraction of 4
-  factors in 8 runs. The generator string (Yates notation) assigns each factor to a
-  column; a multi-letter token aliases that factor with an interaction.
+- `fracfact("a b c abc")` builds a half-fraction of 4 factors in 8 runs. The generator
+  string (Yates notation) is the only argument — there is no factor dictionary, and the
+  keyword is `gen`, not `generator`. Each token assigns a factor to a column; a
+  multi-letter token aliases that factor with an interaction.
 - The price is **aliasing**: some effects become indistinguishable. You must know
   which.
 
@@ -75,7 +77,7 @@ generator (more runs) or add runs to **de-alias** (fold-over / augment the desig
 
 When the goal is to **find the vital few** factors out of many (5, 10, 20+), use a
 screening design that estimates main effects only, as cheaply as possible:
-- **Plackett-Burman** (`plackett_burman`): runs = the next multiple of 4 above k
+- **Plackett-Burman** (`pbdesign(k)`): runs = the next multiple of 4 above k
   (e.g. 12 runs for up to 11 factors). Resolution III — two-factor interactions are
   heavily confounded with main effects. Perfect for triage: run it, keep the few
   factors with large effects, then study those with a full or higher-resolution
@@ -91,12 +93,12 @@ Two-level designs fit only a flat (linear + interaction) model; they cannot loca
 interior optimum or describe **curvature**. To fit a quadratic and optimize, use a
 response-surface methodology (RSM) design over continuous factors:
 
-- **Central composite design (CCD)** (`central_composite`): a 2^k factorial + center
+- **Central composite design (CCD)** (`ccdesign`): a 2^k factorial + center
   points + axial ("star") points. The axial points add the levels needed to estimate
   quadratic terms. With `face="circumscribed"` (default) the axial points sit
   *outside* the factorial box (so actual factor levels exceed your stated low/high);
   use `face="inscribed"` or `"faced"` to keep everything within the original range.
-- **Box-Behnken** (`box_behnken`, needs ≥3 factors): a quadratic design that avoids
+- **Box-Behnken** (`bbdesign`, needs ≥3 factors): a quadratic design that avoids
   the extreme all-low/all-high corners — useful when those corners are unsafe,
   expensive, or infeasible. More economical than a CCD for 3–5 factors.
 
@@ -109,22 +111,24 @@ between steps (path of steepest ascent).
 For **computer experiments / simulations** (deterministic or expensive models) where
 classical replication and blocking don't apply, you want even coverage of a
 high-dimensional input space:
-- **Latin hypercube** (`latin_hypercube`): each factor's range is divided into
-  n_samples equal bins, sampled once each, arranged to spread points apart
-  (`criterion="maximin"`). Gives good coverage with relatively few points and is the
-  standard input design for surrogate/emulator modeling and sensitivity analysis.
+- **Latin hypercube** (`lhs(k, samples=n)`): each factor's range is divided into
+  `samples` equal bins, sampled once each, arranged to spread points apart. The
+  spacing is not automatic — `criterion` defaults to `None`, so pass
+  `criterion="maximin"` to get it. Gives good coverage with relatively few points and
+  is the standard input design for surrogate/emulator modeling and sensitivity
+  analysis.
 
 ## Choosing a design
 
-| Goal | Factors | Design | Script function |
-|------|---------|--------|-----------------|
-| Screen many factors | 5–20+ | Plackett-Burman / Res III | `plackett_burman` |
-| Main effects, some interactions, few runs | 4–8 | Res IV/V fractional | `fractional_factorial` |
-| All effects + interactions | 2–5 | Full 2^k factorial | `two_level_factorial` |
-| Multi-level categorical | few | Full factorial | `full_factorial` |
-| Optimize a response (curvature) | 2–5 | Central composite / Box-Behnken | `central_composite`, `box_behnken` |
-| Cover a simulation input space | any | Latin hypercube | `latin_hypercube` |
+| Goal | Factors | Design | `pydoe` function |
+|------|---------|--------|------------------|
+| Screen many factors | 5–20+ | Plackett-Burman / Res III | `pbdesign` |
+| Main effects, some interactions, few runs | 4–8 | Res IV/V fractional | `fracfact` |
+| All effects + interactions | 2–5 | Full 2^k factorial | `ff2n` |
+| Multi-level categorical | few | Full factorial | `fullfact` |
+| Optimize a response (curvature) | 2–5 | Central composite / Box-Behnken | `ccdesign`, `bbdesign` |
+| Cover a simulation input space | any | Latin hypercube | `lhs` |
 
-In all cases, **randomize run order** (the scripts do by default) so factors aren't
+In all cases, **randomize run order** (`to_real` in SKILL.md does) so factors aren't
 confounded with time-related drift, and add center points to two-level designs as a
 curvature check.
