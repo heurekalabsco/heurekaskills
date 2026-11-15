@@ -1,6 +1,6 @@
 ---
 name: pyrite
-description: Load Pyrite, a 1,500-pair protein-ligand pose-ranking benchmark where the task is picking which of two docked poses sits closer to the crystal pose. Both 750-pair sets, the 113-column schema, the 34 label-leaking columns, and per-structure scoring.
+description: Load Pyrite, a 1,500-pair protein-ligand pose-ranking benchmark where the task is picking which of two docked poses sits closer to the crystal pose. Both 750-pair sets, the 113-column schema, the 34 label-leaking columns, and why the paper's per-pair scoring and the repository's per-structure convention disagree.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
@@ -13,8 +13,8 @@ platform: github
 datasets: [https://raw.githubusercontent.com/genesistherapeutics/pyrite/main/data/pyrite_v6.1_curated.csv, https://raw.githubusercontent.com/genesistherapeutics/pyrite/main/data/pyrite_v6.1_random.csv]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-11-13
-  against: Pyrite v6.1 (curated + random, 750 pairs x 113 columns each) / pandas 3.0.5 on Python 3.13 and pandas 3.1.1 on Python 3.11, identical figures on both / numpy 2.5.3
+  date: 2026-11-14
+  against: Pyrite v6.1 (curated + random, 750 pairs x 113 columns each) / pandas 3.1.1 and numpy 2.5.4 on Python 3.12.8 / paper figures checked against arXiv 2611.14511v1 Table 1
   executed: 9
   unverified: 0
   unverified_reason: none — all nine runnable blocks executed against the released CSVs
@@ -28,8 +28,10 @@ fingerprint, and physics and geometry descriptors.
 
 What makes it worth a skill is that the obvious way to score it is worse than guessing. The
 MM-GBSA binding energy ships in the file, and ranking by it — lower energy wins, the direction
-everyone reaches for — lands at **26%** mean per-structure accuracy on the curated set. Not near
-chance. Well below it. Everything below is organised around getting that right.
+everyone reaches for — lands at **33%** pairwise accuracy on the curated set: 0.32 on the
+pre-AF3 half and 0.34 on the post-AF3 half, which are the paper's own Table 1 figures. Not near
+chance. Well below it. Everything below is organised around getting that right, starting with
+which accuracy you are computing — the repository and the paper do not use the same one.
 
 ## What is in the public release, and what is not
 
@@ -39,7 +41,7 @@ viewer — there is no package to install and no Python module to import.
 
 The paper also describes **PyriteRep** (a structured pose representation) and two agents built on
 it, **PyriteReasoner** and **PyriteFeaturizer**, reported at up to 67% and 74% accuracy. Those are
-**not in the public repository** as of 2026-11-13. If you came looking for the agents, you will
+**not in the public repository** as of 2026-11-14. If you came looking for the agents, you will
 find the benchmark they were measured on and nothing else; the numbers above are the paper's,
 not something this skill can reproduce.
 
@@ -66,8 +68,11 @@ ls -l pyrite/
 ```
 
 Parquet is available at the same paths with a `.parquet` extension and is the better choice if
-you are going to read these repeatedly — the CSV carries multi-kilobyte text blobs in `pose_A`
-and `pose_B`, which is most of its size.
+you are going to read these repeatedly — 3.1 MB against 15.7 MB for the curated set. What the
+CSV spends its bytes on is text blobs: the two
+`metriclog_mogul_unusual_torsions_details_*` log columns are about 30% of the file each, so
+roughly 60% between them, and the `pose_A` / `pose_B` coordinate blocks a further 24%. If you
+only need the numeric descriptors, dropping those four columns on read is the cheaper win.
 
 `pandas` will also read them straight from the URL, which is enough for a first look:
 
@@ -82,7 +87,7 @@ for name, df in [("curated", cur), ("random", rnd)]:
     print(name, df.shape, "structures", df.structure_id.nunique(), "proteins", df.uniprot_id.nunique())
 ```
 
-Observed 2026-11-13, v6.1: `curated (750, 113) structures 177 proteins 120` and
+Observed 2026-11-14, v6.1: `curated (750, 113) structures 177 proteins 120` and
 `random (750, 113) structures 197 proteins 138`. The two sets share one schema and are built the
 same way; `curated` is hand-selected for difficulty, `random` is sampled.
 
@@ -121,33 +126,53 @@ from the pose alone, so they are legitimate inputs — and the whole point of th
 they are weak ones. `MM_correct` is a convenience flag derived from them *and* the label, so it
 leaks; the energies do not.
 
-## Score it per structure, not per pair
+## Score it per pair, the way the paper does
 
-The paper's convention is **mean per-structure accuracy**: average correctness within each
-`structure_id`, then average those averages, so every structure counts once.
+**Report plain per-pair accuracy, split by `released_after_af3_cutoff`.** That is what the paper
+reports and the only number comparable to its published baselines. Table 1 of arXiv:2611.14511v1
+is captioned *"No method achieves pairwise accuracy significantly above chance"* and gives MM-GBSA
+as 0.32 (pre-AF3 curated), 0.34 (post-AF3 curated) and 0.35 (post-AF3 full); the methods section
+says only *"Because Pyrite is a balanced binary-classification task, we focus on comparing the
+accuracy of various pose-ranking methods"* — one accuracy, over pairs, with abstentions counted
+wrong.
 
-That is not a formality. Structures contribute between 1 and 37 pairs each (median 2), so pair-level
-accuracy silently weights the benchmark toward whichever handful of complexes happen to be
-over-represented. On the curated set the MM-GBSA baseline reads 0.327 per pair and 0.261 per
-structure — a six-point gap from the weighting alone.
+**The repository's README states a different convention** — "mean per-structure accuracy", where
+correctness is averaged within each `structure_id` and those averages are then averaged, so every
+structure counts once. **It disagrees with the paper, and the paper does not use it**: nothing in
+the preprint defines per-structure averaging. Treat per-structure as a secondary, README-defined
+view, and never read it against Table 1.
+
+Both are worth computing, because the gap between them tells you how much of a result is
+weighting. Structures contribute between 1 and 37 pairs each on the curated set (median 2), so a
+per-pair number leans on whichever complexes are over-represented, and the per-structure number
+removes that lean along with any comparability to the paper:
 
 ```python
 import pandas as pd, numpy as np
 
 df = pd.read_csv("pyrite/pyrite_v6.1_curated.csv", low_memory=False)
 
+def per_pair(df, pred):
+    """pred: array of 'A'/'B' aligned to df.index. The paper's metric."""
+    return (np.asarray(pred) == df.correct.to_numpy()).mean()
+
 def mean_per_structure(df, pred):
-    """pred: array of 'A'/'B' aligned to df.index. Returns mean per-structure accuracy."""
+    """The README's metric. Not comparable to the paper's Table 1."""
     hit = (np.asarray(pred) == df.correct.to_numpy()).astype(float)
     return pd.Series(hit, index=df.index).groupby(df.structure_id).mean().mean()
 
 mm = np.where(df.mm_step1_binding_energy_A < df.mm_step1_binding_energy_B, "A", "B")
-print("MM-GBSA  per-structure:", round(mean_per_structure(df, mm), 4))
-print("MM-GBSA  per-pair     :", round((mm == df.correct).mean(), 4))
-print("always-A per-structure:", round(mean_per_structure(df, np.array(["A"] * len(df))), 4))
+print("MM-GBSA  per-pair      :", round(per_pair(df, mm), 4))
+for flag, g in df.groupby("released_after_af3_cutoff"):
+    low = np.where(g.mm_step1_binding_energy_A < g.mm_step1_binding_energy_B, "A", "B")
+    print(f"MM-GBSA  per-pair post-AF3={flag}:", round(per_pair(g, low), 4))
+print("MM-GBSA  per-structure :", round(mean_per_structure(df, mm), 4))
+print("always-A per-pair      :", round(per_pair(df, np.array(["A"] * len(df))), 4))
 ```
 
-Observed 2026-11-13: `0.2612`, `0.3267`, `0.5007`. The always-A line is the one to keep in view —
+Observed 2026-11-14, v6.1: per-pair `0.3267` overall, `0.3196` pre-AF3 and `0.3396` post-AF3 —
+those last two are the paper's 0.32 and 0.34 reproduced to the digits it printed. Per-structure
+reads `0.2612`, six points lower, and matches nothing published. The always-A line reads `0.488`:
 the label is balanced, so **0.5 is chance**, and any real baseline has to be read against that.
 
 ## The physics baseline is below chance, on both sets
@@ -161,19 +186,24 @@ import pandas as pd, numpy as np
 for name in ["curated", "random"]:
     df = pd.read_csv(f"pyrite/pyrite_v6.1_{name}.csv", low_memory=False)
     lower = np.where(df.mm_step1_binding_energy_A < df.mm_step1_binding_energy_B, "A", "B")
+    acc = (lower == df.correct).mean()
     hit = pd.Series((lower == df.correct).astype(float).to_numpy(), index=df.index)
-    acc = hit.groupby(df.structure_id).mean().mean()
-    print(f"{name:8s} lower-energy-wins {acc:.4f}   higher-energy-wins {1 - acc:.4f}")
+    per_struct = hit.groupby(df.structure_id).mean().mean()
+    print(f"{name:8s} per-pair {acc:.4f}  (inverted {1 - acc:.4f})"
+          f"   per-structure {per_struct:.4f}")
 ```
 
-Observed 2026-11-13: curated `0.2612` / `0.7388`, random `0.3500` / `0.6500`.
+Observed 2026-11-14: curated per-pair `0.3267`, random per-pair `0.3347`; per-structure `0.2612`
+and `0.3500`. Below chance on both sets and on either metric.
 
-**Do not read the second column as a scoring function.** Inverting a baseline because its
+**Do not read the inverted figure as a scoring function.** Inverting a baseline because its
 complement looks good on the same 1,500 pairs is fitting the benchmark, and the inversion has no
 physical reading — a pose being *less* favourable by MM-GBSA is not evidence it is right. What the
 numbers say is narrower and more useful: on pairs built this way the energy term carries real
-signal about the label and carries it with the wrong sign, which is why the paper finds expert
-chemists holding these same scores performing near chance. Treat MM-GBSA as one input to a learned
+signal about the label and carries it with the wrong sign. The paper reports the same trap for
+people: five expert chemists shown these scores scored 0.42 pre-AF3 and 0.45 post-AF3 counting
+abstentions as wrong, 0.51 and 0.57 on decisive calls only, and were least accurate on the pairs
+where their stated reasoning leaned on MM-GBSA. Treat MM-GBSA as one input to a learned
 combination, not as a ranker.
 
 ## Eleven columns cannot discriminate anything
@@ -210,15 +240,22 @@ things you may be conditioning on:
 ```python
 import pandas as pd
 
+frames = {}
 for name in ["curated", "random"]:
     df = pd.read_csv(f"pyrite/pyrite_v6.1_{name}.csv", low_memory=False)
+    frames[name] = df
     print(name,
           "| pair_kind", dict(df.pair_kind.value_counts()),
           "| post-AF3", int(df.released_after_af3_cutoff.sum()),
           "| water", dict(df.water_class.value_counts()))
+
+cur, rnd = frames["curated"], frames["random"]
+print("shared pair_id:", len(set(cur.pair_id) & set(rnd.pair_id)),
+      "| shared structure_id:", len(set(cur.structure_id) & set(rnd.structure_id)),
+      "| union structures:", len(set(cur.structure_id) | set(rnd.structure_id)))
 ```
 
-Observed 2026-11-13:
+Observed 2026-11-14:
 
 - **curated** — `good_maybe` 649 / `good_bad` 101; 265 of 750 post-AF3; water `no_water` 600,
   `protein_ligand_water` 150.
@@ -229,21 +266,35 @@ The water split is the one that surprises: 20% of curated pairs have a crystallo
 bridging protein and ligand, against 97% of random pairs. Report the two sets separately unless
 you have a reason not to.
 
+**The pairs are disjoint; the structures are not.** No `pair_id` appears in both files, and the
+union is exactly the paper's 1,500 pairs over 285 structures — but **89 of those 285 structures
+appear in both sets**, because `curated` is the annotated half of one pool and `random` is the
+rest. So concatenating the two frames and grouping by `structure_id` silently merges a structure's
+curated pairs with its random ones, averaging across two very differently composed sets — 20%
+versus 97% bridging water — inside what looks like one structure's score. Keep the sets apart, or
+group by `(set, structure_id)` if you must pool.
+
 `released_after_af3_cutoff` is the temporal split — `True` means the entry was released after the
 AlphaFold3 training cutoff, so it is the held-out half for anything that may have seen PDB
-entries in training. On the curated set the MM-GBSA baseline reads 0.2254 pre-cutoff and 0.3385
-post-cutoff; on random, 0.3167 and 0.4242. Both halves are below chance either way, but the gap
-is large enough that a single pooled number hides it.
+entries in training. On the curated set the MM-GBSA baseline reads **0.3196 per pair pre-cutoff
+and 0.3396 post-cutoff** (the paper's 0.32 and 0.34); on random, 0.3202 and 0.3699. The
+README-convention per-structure figures for the same splits are 0.2254 and 0.3385 on curated,
+0.3167 and 0.4242 on random — the curated post-cutoff 0.3385 lands a hair under the paper's 0.34
+by coincidence and is **not** a reproduction of it. Every half is below chance on either metric,
+but a single pooled number hides the gap:
 
 ```python
 import pandas as pd, numpy as np
 
-df = pd.read_csv("pyrite/pyrite_v6.1_curated.csv", low_memory=False)
-for held_out, g in df.groupby("released_after_af3_cutoff"):
-    lower = np.where(g.mm_step1_binding_energy_A < g.mm_step1_binding_energy_B, "A", "B")
-    hit = pd.Series((lower == g.correct).astype(float).to_numpy(), index=g.index)
-    print(f"post-AF3={held_out}  pairs={len(g):4d}  structures={g.structure_id.nunique():3d}"
-          f"  MM per-structure={hit.groupby(g.structure_id).mean().mean():.4f}")
+for name in ["curated", "random"]:
+    df = pd.read_csv(f"pyrite/pyrite_v6.1_{name}.csv", low_memory=False)
+    for held_out, g in df.groupby("released_after_af3_cutoff"):
+        lower = np.where(g.mm_step1_binding_energy_A < g.mm_step1_binding_energy_B, "A", "B")
+        hit = pd.Series((lower == g.correct).astype(float).to_numpy(), index=g.index)
+        print(f"{name:8s} post-AF3={held_out}  pairs={len(g):4d}"
+              f"  structures={g.structure_id.nunique():3d}"
+              f"  per-pair={(lower == g.correct).mean():.4f}"
+              f"  per-structure={hit.groupby(g.structure_id).mean().mean():.4f}")
 ```
 
 ## What this skill will not do
@@ -258,21 +309,23 @@ for held_out, g in df.groupby("released_after_af3_cutoff"):
 
 ## Try it
 
-**Data** — the curated set, 750 pairs, CC BY 4.0, fetched from the project repository
-(`raw.githubusercontent.com/genesistherapeutics/pyrite`, confirmed reachable 2026-11-13).
+**Data** — both released sets, 750 pairs each, CC BY 4.0, fetched from the project repository
+(`raw.githubusercontent.com/genesistherapeutics/pyrite`, confirmed reachable 2026-11-14).
 
 **Run** — in an empty directory:
 
 ```bash
 python3 -m pip install --quiet "pandas>=2.0"
 
-curl -sSL -o pyrite_curated.csv \
-  https://raw.githubusercontent.com/genesistherapeutics/pyrite/main/data/pyrite_v6.1_curated.csv
+base=https://raw.githubusercontent.com/genesistherapeutics/pyrite/main/data
+curl -sSL -o pyrite_curated.csv "$base/pyrite_v6.1_curated.csv"
+curl -sSL -o pyrite_random.csv  "$base/pyrite_v6.1_random.csv"
 
 python3 - <<'PY'
 import pandas as pd, numpy as np
 
-df = pd.read_csv("pyrite_curated.csv", low_memory=False)
+df  = pd.read_csv("pyrite_curated.csv", low_memory=False)
+rnd = pd.read_csv("pyrite_random.csv", low_memory=False)
 print("shape", df.shape, "structures", df.structure_id.nunique())
 
 # INVARIANT: `correct` names whichever pose has the smaller RMSD to the crystal pose.
@@ -281,12 +334,24 @@ agree = (implied == df.correct).mean()
 print("label == closer-pose:", agree)
 assert agree == 1.0, "label no longer agrees with the RMSD columns"
 
-# INVARIANT: chance is 0.5 — the label is balanced across the pair.
-always_a = pd.Series((df.correct == "A").astype(float).to_numpy(), index=df.index)
-print("always-A per-structure:", round(always_a.groupby(df.structure_id).mean().mean(), 4))
+# INVARIANT: the sets share no pair but do share structures, so a pooled frame
+# grouped by structure_id merges two differently composed sets per structure.
+shared_pairs = len(set(df.pair_id) & set(rnd.pair_id))
+shared_structures = len(set(df.structure_id) & set(rnd.structure_id))
+print("shared pairs:", shared_pairs, "| shared structures:", shared_structures)
+assert shared_pairs == 0, "the sets are no longer disjoint at the pair level"
+assert shared_structures > 0, "the sets no longer share structures"
 
-# OBSERVED (v6.1, 2026-11-13): the MM-GBSA baseline sits far below chance.
+# INVARIANT: chance is 0.5 — the label is balanced across the pair.
+print("always-A per-pair:", round((df.correct == "A").mean(), 4))
+
+# OBSERVED (v6.1, 2026-11-14): the MM-GBSA baseline sits far below chance.
+# Per-pair is the paper's metric; per-structure is the README's and is not comparable to it.
 lower = np.where(df.mm_step1_binding_energy_A < df.mm_step1_binding_energy_B, "A", "B")
+print("MM-GBSA per-pair:", round((lower == df.correct).mean(), 4))
+for flag, g in df.groupby("released_after_af3_cutoff"):
+    low = np.where(g.mm_step1_binding_energy_A < g.mm_step1_binding_energy_B, "A", "B")
+    print(f"MM-GBSA per-pair post-AF3={flag}:", round((low == g.correct).mean(), 4))
 hit = pd.Series((lower == df.correct).astype(float).to_numpy(), index=df.index)
 print("MM-GBSA per-structure:", round(hit.groupby(df.structure_id).mean().mean(), 4))
 PY
@@ -298,15 +363,30 @@ PY
 - `label == closer-pose: 1.0` — **invariant**. This is the benchmark's definition, and the assert
   is there because a failure means the label and the RMSD columns have come apart, which would
   invalidate anything built on either.
-- `always-A per-structure: 0.5007` — **observed**, v6.1. Near 0.5 by construction; drift of a point
-  or two across a revision is composition, not breakage.
-- `MM-GBSA per-structure: 0.2612` — **observed**, v6.1; identical under pandas 3.0.5 and 3.1.1. A different number is
-  drift to investigate, not a bug. The thing that would be a bug is this rising above 0.5 while
-  the invariants hold, because the whole finding above rests on it being below.
+- `shared pairs: 0 | shared structures: 89` — the zero is an **invariant**: the two files partition
+  the 1,500 pairs. The 89 is **observed**, v6.1, and is why the asserts are separate — a structure
+  in both sets is pooled across two compositions if you group a concatenated frame by
+  `structure_id`.
+- `always-A per-pair: 0.488` — **observed**, v6.1. Near 0.5 by construction; drift of a point or
+  two across a revision is composition, not breakage.
+- `MM-GBSA per-pair: 0.3267`, with `post-AF3=False: 0.3196` and `post-AF3=True: 0.3396` —
+  **observed**, v6.1. These are the paper's metric, and the two split figures reproduce Table 1's
+  0.32 and 0.34.
+- `MM-GBSA per-structure: 0.2612` — **observed**, v6.1, under the README's per-structure
+  convention. It is six points below the per-pair figure and matches nothing in the paper, so do
+  not compare it to Table 1.
+- A different number anywhere in the observed lines is drift to investigate, not a bug. The thing
+  that would be a bug is the MM-GBSA figures rising above 0.5 while the invariants hold, because
+  the whole finding above rests on them being below.
 
 ## Sources
 
 - Benchmark repository, data and viewer: https://github.com/genesistherapeutics/pyrite
+- Repository README, source of the per-structure convention and the column reference:
+  https://raw.githubusercontent.com/genesistherapeutics/pyrite/main/README.md
+- Licence, CC BY 4.0, "including commercially":
+  https://raw.githubusercontent.com/genesistherapeutics/pyrite/main/LICENSE
 - Srivastava, M. et al. *Pyrite: Building and Benchmarking Protein-Ligand Pose Ranking Agents.*
-  arXiv:2611.14511 — https://arxiv.org/abs/2611.14511
+  arXiv:2611.14511 — https://arxiv.org/abs/2611.14511. Table 1 is the source of the per-pair
+  baselines quoted above; the v1 PDF is at https://arxiv.org/pdf/2611.14511v1
 - Structures: RCSB PDB entries named in `pdb_id`.
