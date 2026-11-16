@@ -207,7 +207,9 @@ universe = gene_universe(test)
 print("candidate pool:", len(universe), "genes")
 assert len(universe) == 21147
 
-# EF exactly as defined: |G∩H| / ((N_L + N_hallucinated + N_unfilled) * |H|/|L|)
+# EF exactly as defined: |G∩H| / ((N_L + N_hallucinated + N_unfilled) * |H|/|L|).
+# This checks the division; the four counts come from the package's own classifier, so it
+# does not independently check how picks are classified.
 s = test[0]
 picked = [g for b in run_policy(random_policy, s, universe, seed=0) for g in b]
 hits = [g for g, h in zip(s.genes, s.hits) if h]
@@ -272,8 +274,11 @@ curl -s "https://huggingface.co/api/datasets/Genentech/assaybench/tree/fa2ed4195
   | python3 -c "import json,sys; [print(f['path'], f['size'], f.get('lfs', {}).get('oid', '')) for f in json.load(sys.stdin) if f['path'].endswith('.parquet')]"
 ```
 
-**What changed in the last revision.** Commit `fa2ed41` (2026-09-29) followed the AssayLoop
-preprint (2026-09-10). Against the preceding revision `bc37bf8` it renames one screen
+**What changed in the last revisions.** Two commits on 2026-09-29 followed the AssayLoop
+preprint (2026-09-10): `52d733d` ("fix hit alignment, add unmasked scores") changed the data,
+and `fa2ed41`, the pinned revision, fixed only the feature metadata; its BioGRID parquet has
+the same SHA-256 as `52d733d`'s. Against `bc37bf8`, the revision before both, the data change
+renames one screen
 (`U_1513_inc` became `U_1513_dec`, validation fold), changes the hit set of eight
 bidirectional entries (six training, two validation: `U_1389`, `U_1633`, `U_1636` `_inc` and
 `_merged`, and `U_1718_inc`/`_merged`), and adds the `unmasked_scores` column. No gene list,
@@ -395,7 +400,9 @@ rest; it carries no labels), `history` is every `(gene, label)` revealed so far,
 is `True`, `False`, or `None` for a gene the screen did not measure.
 
 Two baselines, run in the Try it directory. The first ranks genes by how many training
-screens called them a hit and ignores feedback. The second is adaptive: it weights each
+entries called them a hit and ignores feedback. It counts entries, not screens: a
+bidirectional screen appears as `_inc`, `_dec` and `_merged`, so a hit in one direction is
+counted twice (that half plus `_merged`). The second is adaptive: it weights each
 training screen by how many of the labels seen so far it reproduces, then ranks genes by
 weighted training hits — so it starts as the first baseline and moves toward screens that
 behave like this one.
@@ -417,7 +424,7 @@ for t, (genes, hits) in enumerate(zip(train["relevance_genes"].to_pylist(), trai
     for g, h in zip(genes, hits):
         if g in col:
             M[t, col[g]], H[t, col[g]] = 1.0, float(h)
-print("training screens:", train.num_rows)
+print("training entries:", train.num_rows)
 
 freq = H.sum(axis=0)
 def prior_hit_policy(context, history, candidates, k, rng):
@@ -451,8 +458,8 @@ re-run here, except where marked):
 | best LLM handoff to AssayFormer | 5.67 | 0.217 | 0.277 | 0.076 | paper |
 
 The prior-hit row here is close to the paper's but not identical; the paper's baseline may
-break ties or count frequency differently, and its training data is the revision before
-`fa2ed41`. The AssayFormer row was reproduced by running the released checkpoint through
+break ties or count frequency differently, and its training data is `bc37bf8`, the revision
+before the 2026-09-29 data change (`52d733d`). The AssayFormer row was reproduced by running the released checkpoint through
 this same `evaluate()` harness: per-screen EF matches the upstream loop on all 20 screens.
 
 ## Loading through the package instead
