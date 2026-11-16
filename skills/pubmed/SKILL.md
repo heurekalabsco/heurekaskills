@@ -13,14 +13,14 @@ datasets: ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-15
-  against: NCBI E-utilities (esearch JSON 0.3, PubMed build 2026.11.05, pubmed_250101 DTD) / PMC ID Converter API v1 / PMC Article Datasets S3 bucket pmc-oa-opendata (restructured, now including author manuscripts) / PubMed baseline pubmed26 / Python 3.12.9 stdlib / curl 8.7.1
+  against: NCBI E-utilities (esearch JSON 0.3, PubMed build 2026.11.15, pubmed_250101 DTD) / PMC ID Converter API v1 / PMC Article Datasets S3 bucket pmc-oa-opendata (restructured, now including author manuscripts) / PubMed baseline pubmed26 / Python 3.12.9 stdlib / curl 8.7.1
   executed: 11
   unverified: 0
 ---
 # PubMed
 
-PubMed is NLM's index of the biomedical literature: **41,397,408 records** in build
-`2026.11.05`, from MEDLINE-indexed journals, PubMed Central deposits, NCBI Bookshelf chapters
+PubMed is NLM's index of the biomedical literature: **41,443,679 records** in build
+`2026.11.15`, from MEDLINE-indexed journals, PubMed Central deposits, NCBI Bookshelf chapters
 and preprints. Search, metadata and abstracts are free over HTTPS with no account. Open-access
 full text sits next to it in PubMed Central (PMC).
 
@@ -357,21 +357,30 @@ no requester-pays setting. NLM's legacy distributions are gone: the OA web servi
 (`/pmc/utils/oa/oa.fcgi`) and the `/pub/pmc/oa_bulk/` FTP tree both returned 404 on
 2026-11-15. The bucket is now the bulk route. Every article version has
 `metadata/PMC<id>.<version>.json` with `license_code`, `is_pmc_openaccess`, `is_manuscript`,
-`is_retracted`, and links to `.xml` (JATS), `.txt` and `.pdf`, each with an md5. The bucket's
-own `README.txt` documents the fields.
+`is_retracted`, and links to `.xml` (JATS) and `.txt`, each with an md5. A `.pdf` link is
+present only where the licence allows it: the `TDM` manuscript PMC3000714.2 has
+`pdf_url: null`. The bucket's own `README.txt` documents the fields.
 
 **Being in the bucket does not make an article open access.** The bucket holds the Open Access
 subset *and* author manuscripts. A manuscript carries `license_code: "TDM"` and
-`is_pmc_openaccess: false`, which licenses text mining and fair use, not redistribution. In a
-160-record sample on 2026-11-15, 22 were `TDM` manuscripts. Gate on both fields:
-`is_pmc_openaccess` true and a `license_code` you can honour.
+`is_pmc_openaccess: false`, which licenses text mining and fair use, not redistribution.
+Commercial text mining is allowed: PMC's AWS FAQ (<https://pmc.ncbi.nlm.nih.gov/tools/pmcaws/>)
+says distributed author manuscripts "are available for commercial reuse regardless of
+license". In a sample of 160 records (the first 40 metadata keys under each of the prefixes
+`PMC100`, `PMC50`, `PMC70` and `PMC90`, on 2026-11-15), 22 were `TDM` manuscripts. Gate on
+both fields: `is_pmc_openaccess` true and a `license_code` you can honour.
 
-Two traps in reaching it:
+Three traps in reaching it:
 
 - **The version is not always 1.** PMC2001268 is in the bucket only as `PMC2001268.2`, so a
   hard-coded `.1` returns `NoSuchKey`. The ID Converter, asked with `versions=yes`, lists a
-  `.1` as well: an NIH author manuscript, no longer current and absent from the bucket. List
-  the bucket's keys and take the highest version.
+  `.1` as well: an NIH author manuscript, no longer current and absent from the bucket.
+  **And the highest version is not necessarily the one to use.** PMC's FAQ: "A higher version
+  number does not mean the version is more recent or should be preferred over a lower-numbered
+  version", except where the journal itself versions its articles. When PMC holds a
+  manuscript and a published version (PMC3000685 has the manuscript as `.1`, the published
+  CC BY article as `.2`), choose by `is_manuscript`, not by number. `pmc_oa_meta` below
+  prefers a published version and falls back to a manuscript only when that is all there is.
 - **List with a trailing dot.** `prefix=metadata/PMC1182329` also matches `PMC11823290` through
   `PMC11823299`, because PMC ids now run to eight digits. `prefix=metadata/PMC1182329.` does not.
 - **Count `<Key>` elements, not lines.** The listing is one line of XML, so `grep -c "<Key>"`
@@ -397,25 +406,42 @@ import hashlib
 
 S3 = "https://pmc-oa-opendata.s3.amazonaws.com/"
 
+def s3_get(url, tries=3):
+    """The bucket occasionally resets a connection; retry before giving up."""
+    for i in range(tries):
+        try:
+            return urllib.request.urlopen(url, timeout=120).read()
+        except (urllib.error.URLError, ConnectionError) as e:
+            if i == tries - 1:
+                raise
+            time.sleep(2 ** i)
+
 def pmc_oa_meta(pmcid):
-    """Latest-version metadata from the PMC bucket, or None if the article is not in it."""
-    listing = urllib.request.urlopen(f"{S3}?list-type=2&prefix=metadata/{pmcid}.", timeout=60).read().decode()
+    """Metadata for the version to use, or None if the article is not in the bucket.
+
+    Published versions beat author manuscripts; among published versions (journal-versioned
+    articles) the highest number is the newest. Version number alone decides nothing else.
+    """
+    listing = s3_get(f"{S3}?list-type=2&prefix=metadata/{pmcid}.").decode()
     versions = [int(v) for p, v in re.findall(r"<Key>metadata/(PMC\d+)\.(\d+)\.json</Key>", listing) if p == pmcid]
     if not versions:
         return None
-    return json.loads(urllib.request.urlopen(f"{S3}metadata/{pmcid}.{max(versions)}.json", timeout=60).read())
+    metas = [json.loads(s3_get(f"{S3}metadata/{pmcid}.{v}.json")) for v in versions]
+    return max(metas, key=lambda m: (not m["is_manuscript"], m["version"]))
 
 def pmc_download(meta, kind, dest):
     """kind is 'xml', 'text' or 'pdf'. Verifies the md5 the bucket publishes."""
+    if not meta.get(f"{kind}_url"):
+        raise LookupError(f"{meta['pmcid']}.{meta['version']} has no {kind} file in the bucket")
     url, md5 = meta[f"{kind}_url"].replace("s3://pmc-oa-opendata/", S3).split("?md5=")
-    data = urllib.request.urlopen(url, timeout=120).read()
+    data = s3_get(url)
     if hashlib.md5(data).hexdigest() != md5:
         raise IOError(f"{url}: md5 mismatch")
     with open(dest, "wb") as f:
         f.write(data)
     return len(data)
 
-for pmcid in ["PMC2001268", "PMC3000000", "PMC6286148"]:
+for pmcid in ["PMC2001268", "PMC3000685", "PMC3000000", "PMC6286148"]:
     m = pmc_oa_meta(pmcid)
     print(pmcid, "not in the bucket" if m is None else
           (m["version"], m["is_pmc_openaccess"], m["license_code"], m["is_retracted"], m["title"][:45]))
