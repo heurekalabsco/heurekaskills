@@ -1,26 +1,26 @@
 ---
 name: pubmed
-description: Search PubMed's 41 million biomedical citations through NCBI E-utilities and save complete, checked result sets to disk — titles, structured abstracts, authors, MeSH, DOIs, PMC ids and retraction status — past the 9,999-record cap, then pull open-access full text with its licence from the PMC Open Access bucket.
+description: Search PubMed's 41 million biomedical citations through NCBI E-utilities and save complete, checked result sets to disk — titles, structured abstracts, authors, MeSH, DOIs, PMC ids and retraction status — past the 9,999-record cap, then pull PMC full text with its licence from NLM's public PMC bucket.
 category: data
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.1.0
 tags: [pubmed, entrez, literature-mining, bibliometrics, public-data]
 covers: [pubmed, medline, pmc, pubmed central, pmid, pmcid, doi, mesh, abstracts, full text, open access, jats xml, citations, cited by, retractions, retracted publication, expression of concern, systematic review, literature search, literature review, bibliography, author search, journal articles, preprints, genereviews, e-utilities, esearch, efetch, id converter, text mining]
 papers: [PMID:41385079, PMID:39526373]
 access: [open]
-datasets: ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=22745249%2C9500320%2C15016483%2C20301425%2C16060722%2C99999999&retmode=xml', https://pmc-oa-opendata.s3.amazonaws.com/metadata/PMC1182327.2.json]
+datasets: ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=22745249%2C9500320%2C15016483%2C20301425%2C17367888%2C99999999&retmode=xml', https://pmc-oa-opendata.s3.amazonaws.com/metadata/PMC2001268.2.json]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-11-06
-  against: NCBI E-utilities (esearch JSON 0.3, PubMed build 2026.11.05, pubmed_250101 DTD) / PMC ID Converter API v1 / PMC Open Access S3 bucket pmc-oa-opendata / PubMed baseline pubmed26 / Python 3.12.9 stdlib / curl 8.7.1
+  date: 2026-11-15
+  against: NCBI E-utilities (esearch JSON 0.3, PubMed build 2026.11.15, pubmed_250101 DTD) / PMC ID Converter API v1 / PMC Article Datasets S3 bucket pmc-oa-opendata (restructured, now including author manuscripts) / PubMed baseline pubmed26 / Python 3.12.9 stdlib / curl 8.7.1
   executed: 11
   unverified: 0
 ---
 # PubMed
 
-PubMed is NLM's index of the biomedical literature: **41,397,408 records** in build
-`2026.11.05`, from MEDLINE-indexed journals, PubMed Central deposits, NCBI Bookshelf chapters
+PubMed is NLM's index of the biomedical literature: **41,443,679 records** in build
+`2026.11.15`, from MEDLINE-indexed journals, PubMed Central deposits, NCBI Bookshelf chapters
 and preprints. Search, metadata and abstracts are free over HTTPS with no account. Open-access
 full text sits next to it in PubMed Central (PMC).
 
@@ -348,61 +348,111 @@ a PMID to text you may lawfully keep takes three steps.
 to **200 ids of a single type**. Mixing `PMC…` and PMIDs, or sending 201, returns 400.
 
 ```bash
-curl -s "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/?ids=22745249,9500320,16060722&format=json&tool=pubmed-skill"
+curl -s "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/?ids=22745249,9500320,17367888&format=json&tool=pubmed-skill"
 ```
 
-**2. Read the PMC Open Access bucket's metadata.** `s3://pmc-oa-opendata` is a public AWS Open
-Data bucket, readable over plain HTTPS with no account and no requester-pays setting. Every
-article has `metadata/PMC<id>.<version>.json` with its licence (`license_code`: `CC BY`,
-`CC BY-NC`, `CC0`, … or `null`), `is_retracted`, `is_manuscript`, and links to `.xml` (JATS),
-`.txt` and `.pdf`, each with an md5.
+**2. Read the PMC bucket's metadata.** `s3://pmc-oa-opendata` holds NLM's PMC Article
+Datasets. It is a public AWS Open Data bucket, readable over plain HTTPS with no account and
+no requester-pays setting. NLM's legacy distributions are gone: the OA web service
+(`/pmc/utils/oa/oa.fcgi`) and the `/pub/pmc/oa_bulk/` FTP tree both returned 404 on
+2026-11-15. The bucket is now the bulk route. Every article version has
+`metadata/PMC<id>.<version>.json` with `license_code`, `is_pmc_openaccess`, `is_manuscript`,
+`is_retracted`, and links to `.xml` (JATS) and `.txt`, each with an md5. A `.pdf` link is
+present only where the licence allows it: the `TDM` manuscript PMC3000714.2 has
+`pdf_url: null`. The bucket's own `README.txt` documents the fields.
 
-Two traps in reaching it:
+**Being in the bucket does not make an article open access.** The bucket holds the Open Access
+subset *and* author manuscripts. A manuscript carries `license_code: "TDM"` and
+`is_pmc_openaccess: false`, which licenses text mining and fair use, not redistribution.
+Commercial text mining is allowed: PMC's AWS FAQ (<https://pmc.ncbi.nlm.nih.gov/tools/pmcaws/>)
+says distributed author manuscripts "are available for commercial reuse regardless of
+license". In a sample of 160 records (the first 40 metadata keys under each of the prefixes
+`PMC100`, `PMC50`, `PMC70` and `PMC90`, on 2026-11-15), 22 were `TDM` manuscripts. Gate on
+both fields: `is_pmc_openaccess` true and a `license_code` you can honour.
 
-- **The version is not always 1.** PMC1182327 exists only as `PMC1182327.2`, so a hard-coded
-  `.1` returns `NoSuchKey`. List the versions and take the highest.
-- **List with a trailing dot.** `prefix=metadata/PMC1182327` also matches `PMC11823271` through
-  `PMC11823279`. `prefix=metadata/PMC1182327.` does not.
+Three traps in reaching it:
 
-**Not in the bucket means not redistributable here.** PMC6286148, the author manuscript of PMID
-22745249, has no keys in the bucket. The BioC full-text API says "No result can be found".
-`efetch db=pmc` returns **HTTP 200 with 8 kB of front matter and no `<body>`**. The only
-sign is an XML comment: "The publisher of this article does not allow downloading of the full
-text in XML form." Check for `<body` before treating an `efetch db=pmc` response as full text.
+- **The version is not always 1.** PMC2001268 is in the bucket only as `PMC2001268.2`, so a
+  hard-coded `.1` returns `NoSuchKey`. The ID Converter, asked with `versions=yes`, lists a
+  `.1` as well: an NIH author manuscript, no longer current and absent from the bucket.
+  **And the highest version is not necessarily the one to use.** PMC's FAQ: "A higher version
+  number does not mean the version is more recent or should be preferred over a lower-numbered
+  version", except where the journal itself versions its articles. When PMC holds a
+  manuscript and a published version (PMC3000685 has the manuscript as `.1`, the published
+  CC BY article as `.2`), choose by `is_manuscript`, not by number. `pmc_oa_meta` below
+  prefers a published version and falls back to a manuscript only when that is all there is.
+- **List with a trailing dot.** `prefix=metadata/PMC1182329` also matches `PMC11823290` through
+  `PMC11823299`, because PMC ids now run to eight digits. `prefix=metadata/PMC1182329.` does not.
+- **Count `<Key>` elements, not lines.** The listing is one line of XML, so `grep -c "<Key>"`
+  reports 1 however many versions exist. Parse the keys, as `pmc_oa_meta` below does.
+
+**Not in the bucket is not a licence verdict.** An article can be missing for opposite
+reasons:
+
+- PMC6286148, the author manuscript of PMID 22745249, has no keys in the bucket. The BioC
+  full-text API says "No result can be found". `efetch db=pmc` returns **HTTP 200 with 8 kB of
+  front matter and no `<body>`**. The only sign is an XML comment: "The publisher of this
+  article does not allow downloading of the full text in XML form."
+- PMC1182327 (PMID 16060722, *PLoS Med* 2005, CC BY) had `metadata/PMC1182327.2.json` on
+  2026-11-06. By 2026-11-15 it had no keys at all, as had its neighbour PMC1182328. The ID
+  Converter still lists `PMC1182327.2` as current, and `efetch db=pmc` returns its full
+  `<body>`. Other version-2 articles are still present, so this is not a systematic drop.
+
+When an article is absent, check `efetch db=pmc` for `<body` and read the JATS `<license>`
+before deciding anything.
 
 ```python
 import hashlib
 
 S3 = "https://pmc-oa-opendata.s3.amazonaws.com/"
 
+def s3_get(url, tries=3):
+    """The bucket occasionally resets a connection; retry before giving up."""
+    for i in range(tries):
+        try:
+            return urllib.request.urlopen(url, timeout=120).read()
+        except (urllib.error.URLError, ConnectionError) as e:
+            if i == tries - 1:
+                raise
+            time.sleep(2 ** i)
+
 def pmc_oa_meta(pmcid):
-    """Latest-version metadata from the PMC OA bucket, or None if the article is not in it."""
-    listing = urllib.request.urlopen(f"{S3}?list-type=2&prefix=metadata/{pmcid}.", timeout=60).read().decode()
+    """Metadata for the version to use, or None if the article is not in the bucket.
+
+    Published versions beat author manuscripts; among published versions (journal-versioned
+    articles) the highest number is the newest. Version number alone decides nothing else.
+    """
+    listing = s3_get(f"{S3}?list-type=2&prefix=metadata/{pmcid}.").decode()
     versions = [int(v) for p, v in re.findall(r"<Key>metadata/(PMC\d+)\.(\d+)\.json</Key>", listing) if p == pmcid]
     if not versions:
         return None
-    return json.loads(urllib.request.urlopen(f"{S3}metadata/{pmcid}.{max(versions)}.json", timeout=60).read())
+    metas = [json.loads(s3_get(f"{S3}metadata/{pmcid}.{v}.json")) for v in versions]
+    return max(metas, key=lambda m: (not m["is_manuscript"], m["version"]))
 
 def pmc_download(meta, kind, dest):
     """kind is 'xml', 'text' or 'pdf'. Verifies the md5 the bucket publishes."""
+    if not meta.get(f"{kind}_url"):
+        raise LookupError(f"{meta['pmcid']}.{meta['version']} has no {kind} file in the bucket")
     url, md5 = meta[f"{kind}_url"].replace("s3://pmc-oa-opendata/", S3).split("?md5=")
-    data = urllib.request.urlopen(url, timeout=120).read()
+    data = s3_get(url)
     if hashlib.md5(data).hexdigest() != md5:
         raise IOError(f"{url}: md5 mismatch")
     with open(dest, "wb") as f:
         f.write(data)
     return len(data)
 
-for pmcid in ["PMC1182327", "PMC3000000", "PMC6286148"]:
+for pmcid in ["PMC2001268", "PMC3000685", "PMC3000000", "PMC6286148"]:
     m = pmc_oa_meta(pmcid)
-    print(pmcid, "not in the OA bucket" if m is None else
-          (m["version"], m["license_code"], m["is_retracted"], m["title"][:45]))
+    print(pmcid, "not in the bucket" if m is None else
+          (m["version"], m["is_pmc_openaccess"], m["license_code"], m["is_retracted"], m["title"][:45]))
 ```
 
 `license_code` is what governs reuse. `CC BY` and `CC0` allow text mining and redistribution
-with attribution. `CC BY-NC` and `CC BY-NC-ND` forbid commercial reuse. `null` (PMC3000000 is
-one) means PMC holds no machine-readable licence, so read the `<license>` element in the JATS
-before redistributing. Record the licence beside every file you save.
+with attribution. `CC BY-NC` and `CC BY-NC-ND` forbid commercial reuse. `TDM` (author
+manuscripts) allows text mining and fair use only. `null` (PMC3000000 is one, an open-access
+article) means PMC holds no machine-readable licence, so read the `<license>` element in the
+JATS before redistributing. Record the licence and `is_pmc_openaccess` beside every file you
+save.
 
 ## Get the files
 
@@ -411,7 +461,7 @@ This writes a self-describing result set to one directory:
 - `query.json` — the term, PubMed's translation, the count, the PubMed build and the date.
 - `pmids.txt` — every PMID, one per line.
 - `records.jsonl` — one parsed record per line, from the `parse()` above.
-- `fulltext/` — the JATS XML of every hit in the PMC Open Access bucket.
+- `fulltext/` — the JATS XML of every hit in the PMC bucket (open-access and `TDM` alike, labelled in the manifest).
 - `fulltext/manifest.tsv` — one row per PMID, with its licence, or the reason no full text was saved.
 
 ```python
@@ -435,22 +485,25 @@ def save_pubmed(term, outdir, fulltext=True):
     if fulltext:
         with open(out / "fulltext" / "manifest.tsv", "w", newline="") as f:
             w = csv.writer(f, delimiter="\t")
-            w.writerow(["pmid", "pmcid", "version", "license", "retracted", "file", "note"])
+            w.writerow(["pmid", "pmcid", "version", "open_access", "license", "retracted", "file", "note"])
             for r in recs:
                 if not r["pmcid"]:
-                    w.writerow([r["pmid"], "", "", "", r["retracted"], "", "no PMC copy"])
+                    w.writerow([r["pmid"], "", "", "", "", r["retracted"], "", "no PMC copy"])
                     continue
                 m = pmc_oa_meta(r["pmcid"])
                 if m is None:
-                    w.writerow([r["pmid"], r["pmcid"], "", "", r["retracted"], "", "not in PMC OA bucket"])
+                    w.writerow([r["pmid"], r["pmcid"], "", "", "", r["retracted"], "",
+                                "not in the PMC bucket; absence is not a licence verdict"])
                     continue
                 name = f"{r['pmcid']}.{m['version']}.xml"
                 pmc_download(m, "xml", out / "fulltext" / name)
-                w.writerow([r["pmid"], r["pmcid"], m["version"], m["license_code"] or "",
-                            r["retracted"] or m["is_retracted"], name, ""])
+                w.writerow([r["pmid"], r["pmcid"], m["version"], m["is_pmc_openaccess"],
+                            m["license_code"] or "", r["retracted"] or m["is_retracted"], name, ""])
     return out, len(recs), missing
 
-path, n, missing = save_pubmed('"Ioannidis JP"[au] AND "PLoS Med"[ta] AND 2005[dp]', "pubmed_ioannidis_2005")
+# One of each outcome: open access, a TDM manuscript, publisher-restricted, CC BY but absent
+path, n, missing = save_pubmed("17367888[pmid] OR 20299657[pmid] OR 22745249[pmid] OR 16060722[pmid]",
+                               "pubmed_fulltext_demo")
 print(path, n, "records; missing", missing)
 print((path / "fulltext" / "manifest.tsv").read_text())
 ```
@@ -479,7 +532,8 @@ unchanged.
 ## What PubMed will not give you
 
 - **Full text of most articles.** Only the PMC Open Access subset is redistributable. Author
-  manuscripts and publisher-restricted PMC articles can be read on the website but not
+  manuscripts are in the bucket under `TDM`, for text mining and fair use but not
+  redistribution. Publisher-restricted PMC articles can be read on the website but not
   bulk-retrieved.
 - **A citation count.** `pmcrefcount` and `pubmed_pubmed_citedin` count citations from PMC
   articles only.
@@ -492,8 +546,8 @@ unchanged.
 
 ## Try it
 
-**Data.** Six PMIDs, each chosen to exercise one trap, plus two PMC Open Access records. All
-are public, need no account, and were confirmed reachable on 2026-11-06.
+**Data.** Six PMIDs, each chosen to exercise one trap, plus three PMC bucket records. All are
+public, need no account, and were confirmed reachable on 2026-11-15.
 
 | id | why it is here |
 |---|---|
@@ -501,7 +555,7 @@ are public, need no account, and were confirmed reachable on 2026-11-06.
 | 9500320 | Wakefield et al. 1998, *Lancet* — retracted twice, no `ELocationID` |
 | 15016483 | the 2004 retraction notice for 9500320 |
 | 20301425 | GeneReviews BRCA1/2 chapter — a `PubmedBookArticle` whose title starts with `<i>` |
-| 16060722 | Ioannidis 2005, *PLoS Med* — CC BY, OA version 2 only (PMC1182327) |
+| 17367888 | *Virus Res* 2007 — open access with no machine-readable licence; the bucket holds only version 2 (PMC2001268), while the ID Converter also lists a non-current manuscript `.1` |
 | 99999999 | does not exist |
 
 **Run.** Self-contained: standard library only, no key, about 45 requests, taking under a minute.
@@ -521,7 +575,7 @@ def get(url, data=None):
             time.sleep(2 * (attempt + 1))
 
 EU = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-want = ["22745249", "9500320", "15016483", "20301425", "16060722", "99999999"]
+want = ["22745249", "9500320", "15016483", "20301425", "17367888", "99999999"]
 root = ET.fromstring(get(EU + "efetch.fcgi", urllib.parse.urlencode(
     {"db": "pubmed", "id": ",".join(want), "retmode": "xml"}).encode()))
 nodes = {n.find("*/PMID").text: n for n in root}
@@ -574,14 +628,19 @@ by_pdat = sum(int(es(term, datetype="pdat", mindate=f"{y}/01/01", maxdate=f"{y}/
 print("total", total, "| edat slices", by_edat, "| pdat slices", by_pdat)
 assert by_edat == total and by_pdat > total
 
-# PMC OA: version 2 only, and a trailing dot on the prefix
+# PMC bucket: a trailing dot on the prefix, version 2 only, and in-bucket is not open access
 S3 = "https://pmc-oa-opendata.s3.amazonaws.com/"
-loose = re.findall(r"<Key>([^<]+)</Key>", get(S3 + "?list-type=2&prefix=metadata/PMC1182327").decode())
-tight = re.findall(r"<Key>([^<]+)</Key>", get(S3 + "?list-type=2&prefix=metadata/PMC1182327.").decode())
-meta = json.loads(get(S3 + tight[-1]))
-print("PMC1182327 keys:", len(loose), "loose /", tight, "| licence", meta["license_code"], "| pmid", meta["pmid"])
-assert tight == ["metadata/PMC1182327.2.json"] and len(loose) > 1
-assert meta["pmid"] == 16060722 and meta["license_code"] == "CC BY"
+keys = lambda prefix: re.findall(r"<Key>([^<]+)</Key>", get(S3 + "?list-type=2&prefix=" + prefix).decode())
+loose, tight = keys("metadata/PMC1182329"), keys("metadata/PMC1182329.")
+print("PMC1182329 keys:", len(loose), "loose /", tight)
+assert tight == ["metadata/PMC1182329.1.json"] and len(loose) > 1
+v2 = keys("metadata/PMC2001268.")
+meta = json.loads(get(S3 + v2[-1]))
+conv = json.loads(get("https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/?ids=PMC2001268&format=json&versions=yes&tool=pubmed-skill"))
+listed = [v["pmcid"] for v in conv["records"][0]["versions"]]
+print("PMC2001268 bucket:", v2, "| ID Converter:", listed, "| licence", meta["license_code"], "| open access", meta["is_pmc_openaccess"])
+assert v2 == ["metadata/PMC2001268.2.json"] and "PMC2001268.1" in listed
+assert meta["pmid"] == 17367888 and meta["license_code"] is None and meta["is_pmc_openaccess"] is True
 manuscript = get(S3 + "?list-type=2&prefix=metadata/PMC6286148.").decode()
 assert "<KeyCount>0</KeyCount>" in manuscript
 pmc = get(EU + "efetch.fcgi?db=pmc&id=PMC6286148").decode()
@@ -603,10 +662,11 @@ Invariants. These hold whatever the build, so a failure means the skill is wrong
 - A typo in a field tag widens the search to all fields and leaves `fieldsnotfound` empty.
 - `retstart=10000` is refused with an `ERROR` in a 200 response.
 - Entrez-date slices sum to the total, and publication-date slices exceed it.
-- PMC1182327 has only version 2, and the unanchored prefix matches other articles.
-- PMC6286148 is absent from the OA bucket, and `efetch db=pmc` returns it without a `<body>`.
+- The unanchored prefix `PMC1182329` matches other articles; the trailing dot does not.
+- PMC2001268 is in the bucket only as version 2, though the ID Converter lists a version 1.
+- PMC6286148 is absent from the bucket, and `efetch db=pmc` returns it without a `<body>`.
 
-Observed 2026-11-06 (PubMed build 2026.11.05). These move as PubMed grows, so a mismatch is drift
+Observed 2026-11-15 (PubMed build 2026.11.15). These move as PubMed grows, so a mismatch is drift
 to investigate, not a failure:
 
 ```
@@ -614,9 +674,10 @@ returned 5 of 6 - missing ['99999999']
 Jinek anchored 22745249 PMC6286148 | naive 21828278 PMC3176093 | references: 38
 Wakefield ['Journal Article', "Research Support, Non-U.S. Gov't", 'Retracted Publication'] RetractionIn ['15016483', '20137807'] ELocationID None
 GeneReviews .text = None | itertext = BRCA1- and BRCA2-Associated Hereditary Breast and Ovarian Ca
-crispr[tiab] 66375 | crispr[tiabb] 72438 fieldsnotfound []
+crispr[tiab] 66655 | crispr[tiabb] 72743 fieldsnotfound []
 total 8864 | edat slices 8864 | pdat slices 10128
-PMC1182327 keys: 10 loose / ['metadata/PMC1182327.2.json'] | licence CC BY | pmid 16060722
+PMC1182329 keys: 11 loose / ['metadata/PMC1182329.1.json']
+PMC2001268 bucket: ['metadata/PMC2001268.2.json'] | ID Converter: ['PMC2001268.1', 'PMC2001268.2'] | licence None | open access True
 PMC6286148 efetch: 8364 bytes, has <body>: False
 ```
 
