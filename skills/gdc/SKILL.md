@@ -22,9 +22,13 @@ verified:
 
 The GDC is the National Cancer Institute's home for harmonised cancer genomics: TCGA's 33
 tumour types, the paediatric TARGET projects, CPTAC, and about sixty smaller programmes —
-93 projects and 1,337,360 files in Data Release 46.0. Everything is re-aligned to GRCh38
-and re-processed through one set of GDC pipelines, so a STAR count table from TCGA-BRCA and
-one from CPTAC-3 come out of the same workflow.
+93 projects and 1,337,360 files in Data Release 46.0. Sequencing reads are re-aligned to
+GRCh38 and re-processed through one set of GDC pipelines, so a STAR count table from TCGA-BRCA
+and one from CPTAC-3 come out of the same workflow. Not every file went through that: the
+23,135 `Simple Germline Variation` files are SNP-array genotype calls from the `Birdseed`
+workflow, the `ABSOLUTE LiftOver` gene-level copy number is, as its workflow name says, lifted
+over rather than re-derived, and clinical, biospecimen and slide files are not aligned to
+anything. Read `analysis.workflow_type` before assuming a file came from reads.
 
 It holds two tiers, and they must never be confused:
 
@@ -34,8 +38,8 @@ It holds two tiers, and they must never be confused:
 | **controlled** | BAMs, raw and annotated VCFs, the **unmasked** aggregated MAF, splice-junction counts, germline variants, fusion and structural-variant calls | a researcher whose dbGaP request for that study has been approved |
 
 This skill retrieves the open tier. It describes the controlled tier — what is there and what
-getting it takes — and never fetches it. Nothing here needs an account or a key; every block is
-Python standard library or `curl`.
+getting it takes — and never fetches it. Nothing here needs an account or a key; every block except the
+`gdc-client` one in Step 4 is Python standard library or `curl`.
 
 **Terms of use, read 2026-11-15** from
 [gdc.cancer.gov/access-data/data-access-policies](https://gdc.cancer.gov/access-data/data-access-policies).
@@ -78,9 +82,9 @@ HTTP 410
   *Data releases move files* below shows what changes between releases.
 - **The Legacy Archive answers `410 Gone`**, at `/legacy/...` and at `/v0/legacy/...`. Older
   tutorials route hg19 TCGA data (the pre-harmonisation level-3 files, HTSeq counts, the
-  original MC3 calls) through it. None of that is reachable from the GDC any more; everything
-  is GRCh38 and from the current pipelines. Code that still calls `/legacy` needs rewriting,
-  not retrying.
+  original MC3 calls) through it. None of that is reachable from the GDC any more; the
+  sequencing-derived files it serves are GRCh38 from the current pipelines. Code that still
+  calls `/legacy` needs rewriting, not retrying.
 
 ## Filters are JSON, and a wrong field name fails silently
 
@@ -225,7 +229,7 @@ tiers = {a: facet(all_of(PROJECT, field_in("access", [a])), "data_type")
          for a in ("open", "controlled")}
 print(f"{'data_type':38} {'open':>6} {'controlled':>10}")
 for dt in sorted(set(tiers["open"]) | set(tiers["controlled"]),
-                 key=lambda k: -(tiers["open"].get(k, 0) + tiers["controlled"].get(k, 0))):
+                 key=lambda k: (-(tiers["open"].get(k, 0) + tiers["controlled"].get(k, 0)), k)):
     print(f"{dt:38} {tiers['open'].get(dt, 0):>6} {tiers['controlled'].get(dt, 0):>10}")
 
 # A workflow name does not pick a tier. Both of these workflows emit one open
@@ -254,21 +258,21 @@ Gene Level Copy Number                   3314          0
 Copy Number Segment                      3256          0
 Slide Image                              3112          0
 Masked Intensities                       2476          0
-Simple Germline Variation                   0       2263
 Raw Intensities                             0       2263
+Simple Germline Variation                   0       2263
 Allele-specific Copy Number Segment      2257          0
 Masked Copy Number Segment               2229          0
 Biospecimen Supplement                   2205          0
 Methylation Beta Value                   1238          0
-Splice Junction Quantification              0       1231
 Gene Expression Quantification           1231          0
-miRNA Expression Quantification          1207          0
+Splice Junction Quantification              0       1231
 Isoform Expression Quantification        1207          0
+miRNA Expression Quantification          1207          0
 Clinical Supplement                      1183          0
 Pathology Report                         1105          0
 Intermediate Analysis Archive               0       1027
-Masked Somatic Mutation                   992          0
 Aggregated Somatic Mutation                 0        992
+Masked Somatic Mutation                   992          0
 Protein Expression Quantification         919          0
 
 workflow 'STAR - Counts'
@@ -290,8 +294,9 @@ data types that are open in some projects and controlled in others:
 What this means for a query:
 
 - **"Masked" means germline-filtered, not "open".** In TCGA the masked MAF is open, but 2,268
-  masked MAFs are controlled elsewhere — 846 in TARGET, 497 in MATCH, 435 in BEATAML1.0, 70 in
-  CPTAC (counts by programme, DR 46.0). Gene expression is controlled for all 472 MATCH files.
+  masked MAFs are controlled elsewhere — 846 in TARGET, 497 in MATCH, 435 in BEATAML1.0, 207 in
+  CGCI, 148 in OHSU, 70 in CPTAC, 51 in ORGANOID, 7 in HCMI and 7 in VAREPOP (counts by
+  programme, DR 46.0). Gene expression is controlled for all 472 MATCH files.
 - **Filtering on a workflow alone pulls in controlled files.** `STAR - Counts` emits the open
   gene-count table *and* the controlled splice-junction table; the MAF workflow emits the open
   masked MAF *and* the controlled unmasked one, with the same filename prefix
@@ -340,9 +345,11 @@ def all_of(*clauses):
 
 
 def samples(project):
-    hits = post("cases", {"filters": field_in("project.project_id", [project]), "size": 5000,
-                          "fields": "submitter_id,samples.submitter_id,samples.sample_type"})["hits"]
-    for case in hits:
+    data = post("cases", {"filters": field_in("project.project_id", [project]), "size": 5000,
+                          "fields": "submitter_id,samples.submitter_id,samples.sample_type"})
+    if len(data["hits"]) < data["pagination"]["total"]:
+        raise RuntimeError(f"{project}: {data['pagination']['total']} cases; raise size or page")
+    for case in data["hits"]:
         for s in case.get("samples", []):
             yield s["submitter_id"], s.get("sample_type", "<field absent>")
 
@@ -424,9 +431,12 @@ have samples with no `sample_type` key — so use `.get()`.
 
 **And a filter on a sample field is "any linked sample".** A masked MAF is a tumour–normal pair
 and is linked to both, so every one of the 992 TCGA-BRCA masked MAFs matches a filter for
-normal samples. Copy number files are linked to both samples of the pair the same way, and
-DNAcopy segments exist *for the normal samples themselves* (`…-10A`, `…-11A`). Filter broadly,
-then decide per file from its own `cases.samples` list — or, inside a MAF, from
+normal samples. Copy number depends on the workflow. Every TCGA-BRCA DNAcopy file — all 2,229
+`Masked Copy Number Segment` and the 2,229 DNAcopy `Copy Number Segment` — links exactly one
+sample, and DNAcopy segments exist *for the normal samples themselves* (`…-10A`, `…-11A`), so a
+normal-sample filter there returns the normals' own segmentations. The `GATK4 CNV` segments
+(1,027) and the ASCAT2, ASCAT3 and AscatNGS allele-specific and gene-level files link two
+samples, tumour and normal, like a MAF. Filter broadly, then decide per file from its own `cases.samples` list — or, inside a MAF, from
 `Tumor_Sample_Barcode`. The same applies to `format=TSV` output, which flattens samples into
 `cases.0.samples.0.sample_type`, `cases.0.samples.1.sample_type` with the normal frequently in
 position 0.
@@ -643,7 +653,7 @@ WANTED = [  # (data_type, workflow) -- both, because one workflow can emit two t
 ]
 FIELDS = ("file_id,file_name,md5sum,file_size,state,access,data_type,analysis.workflow_type,"
           "cases.case_id,cases.submitter_id,cases.project.project_id,"
-          "cases.samples.submitter_id,cases.samples.sample_type")
+          "cases.samples.submitter_id,cases.samples.sample_type,cases.samples.tissue_type")
 
 
 def call(endpoint, body=None, tries=4):
@@ -704,17 +714,17 @@ with open(manifest, "w", newline="") as fh:
     for h in hits:
         w.writerow([h["file_id"], h["file_name"], h["md5sum"], h["file_size"], h["state"]])
 
-# One row per (file, sample) -- a MAF or CN file can carry a tumour and its normal.
+# One row per (file, sample) -- a MAF links a tumour and its normal; a DNAcopy segment one sample.
 with open(f"{OUT}/{tag}/samples.tsv", "w", newline="") as fh:
     w = csv.writer(fh, delimiter="\t", lineterminator="\n")
     w.writerow(["file_id", "data_type", "project_id", "case_id", "case_submitter_id",
-                "sample_submitter_id", "sample_type"])
+                "sample_submitter_id", "sample_type", "tissue_type"])
     for h in hits:
         for c in h["cases"]:
             for s in c.get("samples", []):
                 w.writerow([h["file_id"], h["data_type"], c["project"]["project_id"],
                             c["case_id"], c["submitter_id"], s["submitter_id"],
-                            s.get("sample_type", "")])
+                            s.get("sample_type", ""), s.get("tissue_type", "")])
 
 for h in hits:
     dest = f"{OUT}/{tag}/{h['file_id']}/{h['file_name']}"
@@ -733,31 +743,45 @@ with open(f"{OUT}/{tag}/provenance.json", "w") as fh:
                "terms": "NIH Genomic Data Sharing Policy, open-access tier"}, fh, indent=2)
 
 print(f"{tag}: {len(hits)} files, {sum(h['file_size'] for h in hits):,} B, md5 verified")
-have = {(c["submitter_id"], h["data_type"]) for h in hits for c in h["cases"]}
+# Coverage = files linked to a TUMOUR sample of the case. Keying on the case alone
+# would count a case whose only file of a type is its normal's.
+tumour = {}
+for h in hits:
+    for c in h["cases"]:
+        if any(s.get("tissue_type", "").lower() == "tumor" for s in c.get("samples", [])):
+            key = (c["submitter_id"], h["data_type"])
+            tumour[key] = tumour.get(key, 0) + 1
+print("tumour-sample files per case:")
 for case in CASES:
-    row = ["yes" if (case, dt) in have else "--" for dt, _ in WANTED]
-    print(f"   {case:17} counts {row[0]:3}  masked MAF {row[1]:3}  masked CN {row[2]}")
+    row = [str(tumour.get((case, dt), "--")) for dt, _ in WANTED]
+    print(f"   {case:17} counts {row[0]:2}  masked MAF {row[1]:2}  masked CN {row[2]}")
 ```
 
 ```
 DR46.0: 16 files, 25,872,827 B, md5 verified
-   TCGA-A7-A0CE      counts yes  masked MAF yes  masked CN yes
-   TCGA-AB-2826      counts yes  masked MAF yes  masked CN yes
-   TARGET-30-PARBAJ  counts yes  masked MAF --   masked CN --
-   C3L-01032         counts yes  masked MAF yes  masked CN --
+tumour-sample files per case:
+   TCGA-A7-A0CE      counts 1   masked MAF 1   masked CN 1
+   TCGA-AB-2826      counts 1   masked MAF 1   masked CN 1
+   TARGET-30-PARBAJ  counts 2   masked MAF --  masked CN --
+   C3L-01032         counts 1   masked MAF 3   masked CN --
 ```
 
 Read the coverage grid before the files. `TARGET-30-PARBAJ` has RNA-seq and no exome in the
 GDC at all — a case with expression is not a case with mutations. CPTAC-3 has no DNAcopy
 (SNP6 array) segments; its copy number is `GATK4 CNV` and `AscatNGS` output, so a masked-segment
-filter finds nothing there. And sixteen files for four
-cases is not four-per-case: `TCGA-A7-A0CE` brings a tumour *and* a normal STAR table and
-three masked segment files (tumour, blood normal, tissue normal), and `C3L-01032` three MAFs.
-`samples.tsv` is the table that says which file is which sample — use it, not the filename.
+filter finds nothing there. The grid counts files linked to a **tumour** sample
+(`tissue_type` `Tumor`), so a case whose only file of a type belonged to its normal would show
+`--`. The sixteen files are more than the grid: `TCGA-A7-A0CE` also brings a normal STAR table
+and two normal segment files (blood and tissue), `TCGA-AB-2826` a normal segment file — each
+DNAcopy segment file is one sample — while `TARGET-30-PARBAJ`'s two STAR tables are its primary
+and its recurrence, and `C3L-01032` has three MAFs. `samples.tsv` is the table that says which
+file is which sample — use it, not the filename.
 
 The output tree is `Data/gdc/DR46.0/<file_id>/<file_name>`, the layout `gdc-client` uses, beside
 `gdc_manifest.txt`, `samples.tsv` and `provenance.json`. Name the release directory from
-`/status` at fetch time, as the block does, rather than hardcoding it.
+`/status` at fetch time, as the block does, rather than hardcoding it, and point later steps
+at the directory that run wrote — not at a fresh `/status` read, which names a different
+directory once the GDC moves to the next release.
 
 **Step 2 — clinical, from `/cases`.** The per-case clinical fields come straight from the API,
 which is easier to join than the BCR XML supplements:
@@ -860,11 +884,11 @@ curl -sS -w ' HTTP %{http_code}\n' -X POST -H 'Content-Type: application/json' \
 
 ```
 MANIFEST.txt
-04e03ae1-b2f3-446d-862d-172fea6320de/58b399a0-3070-44aa-9a40-f0e2c0fea0fc.rna_seq.augmented_star_gene_counts.tsv
 528628e5-34b8-41c7-a275-623b2bd05c2e/affeafc3-20c4-47df-8d28-063e04a07437.wxs.aliquot_ensemble_masked.maf.gz
+04e03ae1-b2f3-446d-862d-172fea6320de/58b399a0-3070-44aa-9a40-f0e2c0fea0fc.rna_seq.augmented_star_gene_counts.tsv
 id	filename	md5	size	state
-04e03ae1-b2f3-446d-862d-172fea6320de	58b399a0-3070-44aa-9a40-f0e2c0fea0fc.rna_seq.augmented_star_gene_counts.tsv	595a4c3f329ee1612c746f09ed07e137	4245525	validated
 528628e5-34b8-41c7-a275-623b2bd05c2e	affeafc3-20c4-47df-8d28-063e04a07437.wxs.aliquot_ensemble_masked.maf.gz	a6c9f2c3ad9a40b918e934dc86113c37	39292	validated
+04e03ae1-b2f3-446d-862d-172fea6320de	58b399a0-3070-44aa-9a40-f0e2c0fea0fc.rna_seq.augmented_star_gene_counts.tsv	595a4c3f329ee1612c746f09ed07e137	4245525	validated
 {"message":"Not authorized to download: 67c05840-b651-445f-99b9-12142b566acf."}
  HTTP 403
 ```
@@ -874,6 +898,8 @@ id	filename	md5	size	state
 - **`/manifest` does not filter by tier.** It wrote a line for the controlled
   `…aliquot_ensemble_raw.maf.gz` when asked; the 403 only arrives at download. Build manifests
   from an `access=open` search, as Step 1 does.
+- **Neither the tarball nor the manifest keeps a fixed order** — two runs on 2026-11-15
+  listed the same two files in opposite orders. Match members by UUID, not position.
 - **The tarball is not md5-checked for you.** Extract it into its own empty directory and
   verify each member against the manifest's `md5` column.
 
@@ -885,7 +911,9 @@ gdc.cancer.gov/access-data/gdc-data-transfer-tool offered 2.3 zips for macOS, Ub
 on 2026-11-15. It is not on PyPI. Given the manifest from Step 1:
 
 ```bash
-gdc-client download -m Data/gdc/DR46.0/gdc_manifest.txt -d Data/gdc/DR46.0
+# The manifest Step 1 wrote most recently -- not hardcoded, not re-read from /status.
+MANIFEST=$(ls -t Data/gdc/DR*/gdc_manifest.txt | head -1)
+gdc-client download -m "$MANIFEST" -d "$(dirname "$MANIFEST")"
 ```
 
 For controlled files the same command takes `-t <token file>`, the token downloaded from the
@@ -944,7 +972,10 @@ which is a legal commitment by the institution under a named investigator.
   `{"message": "Not authorized to download: <uuid>."}`. A batch containing one such id fails
   entirely.
 - **`/data` on a superseded UUID — `203`, the old bytes.** Not an error, which is the problem.
-- **`HEAD` on `/data/{uuid}` and `/history/{uuid}` — `400`.** A `GET` with a `Range` header works.
+- **`HEAD` on `/data/{uuid}` and `/history/{uuid}` without `Content-Type: application/json`
+  — `400`.** `curl -I` and Python's `Request(method="HEAD")` send no content type, so both get
+  it. With the header, `HEAD` answers like the `GET` minus the body: `200` with
+  `Content-Length`, `203` for a superseded file. A `GET` with a `Range` header returns `206`.
 - **A TCGA barcode rule applied to CPTAC or TARGET ids** — wrong sample types, no error.
 
 ## Try it
