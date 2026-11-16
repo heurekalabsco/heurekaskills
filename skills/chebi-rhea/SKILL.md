@@ -9,7 +9,7 @@ tags: [public-data, metabolites, metabolic-modeling, cheminformatics, uniprot]
 covers: [chebi, rhea, chemical entities of biological interest, reaction knowledgebase, metabolite, small molecule, inchikey, inchi, smiles, ontology, conjugate acid, conjugate base, major microspecies, ph 7.3, protonation state, charge, zwitterion, cross-references, hmdb, kegg, metacyc, biochemical reaction, reaction direction, balanced equation, stoichiometry, ec number, enzyme, uniprot, sparql, identifier mapping]
 papers: [PMID:41312627, PMID:34755880, PMID:26467479]
 access: [open]
-datasets: [https://www.ebi.ac.uk/chebi/backend/api/public/compound/CHEBI:15361/, 'https://www.ebi.ac.uk/chebi/backend/api/public/es_search/?term=QNAYBMKLOCPYGJ-REOHCLBHSA-N', https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/README, https://ftp.expasy.org/databases/rhea/rhea-release.properties, https://ftp.expasy.org/databases/rhea/tsv/chebi_pH7_3_mapping.tsv, https://ftp.expasy.org/databases/rhea/tsv/rhea-directions.tsv, https://ftp.expasy.org/databases/rhea/tsv/rhea2uniprot_sprot.tsv, 'https://www.rhea-db.org/rhea/?query=uniprot:P14618&columns=rhea-id,equation&format=tsv', https://sparql.rhea-db.org/sparql]
+datasets: [https://www.ebi.ac.uk/chebi/backend/api/public/compound/CHEBI:15361/, 'https://www.ebi.ac.uk/chebi/backend/api/public/es_search/?term=QNAYBMKLOCPYGJ-REOHCLBHSA-N', https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/README, https://ftp.expasy.org/databases/rhea/rhea-release.properties, https://ftp.expasy.org/databases/rhea/tsv/chebi_pH7_3_mapping.tsv, https://ftp.expasy.org/databases/rhea/tsv/rhea-directions.tsv, https://ftp.expasy.org/databases/rhea/tsv/rhea2uniprot_sprot.tsv, 'https://www.rhea-db.org/rhea/?query=uniprot:P14618&columns=rhea-id,equation&format=tsv', 'https://sparql.rhea-db.org/sparql?query=SELECT%20%3Fr%20WHERE%20%7B%3Fr%20%3Fp%20%3Fo%7D%20LIMIT%201&format=json']
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-15
@@ -21,8 +21,9 @@ verified:
 
 **ChEBI** (EMBL-EBI) is the dictionary of small molecules of biological interest: one id per
 chemical entity, with a structure, a charge, an ontology and cross-references. **Rhea** (SIB) is
-the curated reaction knowledgebase built on it: every participant in every Rhea reaction is a
-ChEBI id, and UniProt uses Rhea ids to say what an enzyme does.
+the curated reaction knowledgebase built on it: every participant in every Rhea reaction
+resolves to a ChEBI id (small molecules directly, macromolecules through their reactive part
+or underlying ChEBI entity), and UniProt uses Rhea ids to say what an enzyme does.
 
 Together they are the identifier backbone under the metabolic skills in this registry —
 `human-gem`, `vmh`, `brenda`, `metabolights`, `pubchem` and `uniprot` all carry ChEBI ids or EC
@@ -600,8 +601,8 @@ Each was tried on 2026-11-15.
 | Rhea REST for a directed id, `query=RHEA:18158` | header only — search returns masters. Use `rhea-directions.tsv` or SPARQL |
 | Rhea REST `uniprot` column | a count of enzymes, not accessions (36,345 for `RHEA:18157`) |
 | SPARQL `?side rh:curatedOrder 1` | zero rows, no error — the literal is `xsd:long`. `FILTER(?o = 1)` |
-| SPARQL for every reaction of water (`CHEBI:15377`) unpaged | the response stream is cut off mid-body (`IncompleteRead`). Page with `LIMIT`/`OFFSET`, as the helper does |
-| SPARQL for reactions of a UniProt accession | Rhea's graph holds no UniProt data; use the REST search or `rhea2uniprot_*.tsv` |
+| SPARQL for every reaction of water (`CHEBI:15377`) unpaged | the full grouped query's response was cut off mid-body once (`IncompleteRead`); a simpler unpaged query has returned whole. Page with `LIMIT`/`OFFSET`, as the helper does |
+| SPARQL for reactions of a UniProt accession, on Rhea's graph alone | Rhea's graph holds no UniProt data. Use the REST search, `rhea2uniprot_*.tsv`, or a federated `SERVICE` query to sparql.uniprot.org (shown in Rhea's SPARQL help; not run here) |
 | `rhea2ec.tsv` for directed ids | every row is `UN`; EC is assigned on the master only |
 
 ## Try it
