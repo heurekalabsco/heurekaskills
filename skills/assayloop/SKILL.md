@@ -82,7 +82,7 @@ licence on its card. If you host AssayLLM, use the first.
 
 **Data** — the released checkpoint `Genentech/assayformer` at Hub revision
 `4927703e5903984ae0254a9fe8e93ec0b29c27e4` (MIT, ungated), checked against the SHA-256
-upstream publishes for it; and the AssayBench-Loop test screens from `Genentech/assaybench`
+the Hub records for the file (its LFS object id); and the AssayBench-Loop test screens from `Genentech/assaybench`
 at revision `fa2ed4195d2eea1e5ed570d1a67c21e47650962d` (MIT, ungated), also checked by
 SHA-256. Both were reachable on 2026-11-15.
 
@@ -174,20 +174,26 @@ mean = np.mean(list(rows.values()), axis=0)
 print(f"U_1733_merged EF {rows['U_1733_merged'][0]:.2f}")
 print("mean over 20: EF {:.3f}  nAUC {:.3f}  FH {:.3f}  SF {:.3f}".format(*mean))
 print(f"{time.time() - start:.1f} s for 20 screens x 10 rounds")
-assert abs(rows["U_1733_merged"][0] - 7.61) < 0.005 and abs(mean[0] - 4.83) < 0.005
+# the paper prints EF to 0.01 and the three fractions to 0.1%; allow half a unit of each
+assert abs(rows["U_1733_merged"][0] - 7.61) < 0.005
+for got, paper, tol in zip(mean, (4.83, 0.172, 0.232, 0.100), (0.005, 0.0005, 0.0005, 0.0005)):
+    assert abs(got - paper) < tol, (got, paper)
 EOF
 
 python run_assayformer.py
 ```
 
-**Expect** — invariants; a failure means the reproduction is broken, not that upstream moved,
-because every input is pinned by hash:
+**Expect** — invariants. The checkpoint, the benchmark file and the AssayLoop commit are
+pinned, so upstream moving those cannot break the run; the dependencies are not (no lock file,
+see above), so a failure means either this reproduction is broken or a newer release of a
+dependency changed a result:
 
 - the checkpoint and the benchmark file pass their SHA-256 checks;
 - 20 screens, a pool of 21,147 genes, and every pool gene in AssayFormer's vocabulary;
 - every run acquires 1,000 distinct genes;
 - EF 7.61 on `U_1733_merged`, the figure upstream's README and model card print for it;
-- mean EF 4.83 over the 20 screens, AssayFormer's row in Table 1 of the AssayLoop paper.
+- mean EF 4.83, nAUC 0.172, FH 0.232 and SF 0.100 over the 20 screens, AssayFormer's row in
+  Table 1 of the AssayLoop paper, each to half a unit of the paper's last printed digit.
 
 Observed on 2026-11-15:
 
@@ -240,21 +246,27 @@ model = load_model()
 screens, universe = load_test_screens()
 screen = next(s for s in screens if s.dataset_name == example["screen_id"])
 
-genes = [row["gene"] for row in feedback]
-if len(set(genes)) != len(genes):
-    raise SystemExit("a gene appears twice in the feedback")
-if {row["hit"] for row in feedback} - {"0", "1"}:
-    raise SystemExit("hit must be 0 or 1")
-unknown = [g for g in genes if model.vocab.to_idx(g) == 0]
-if unknown:      # the model would read every one of these as the same <unk> token
-    raise SystemExit(f"not in AssayFormer's vocabulary: {unknown[:10]}")
-observed = [Observation(candidate=r["gene"], label={"hit": r["hit"] == "1"}) for r in feedback]
-print(f"{screen.dataset_name}: {len(observed)} genes assayed, {sum(r['hit'] == '1' for r in feedback)} hits")
+def next_batch(feedback, n=100):
+    if {row["hit"] for row in feedback} - {"0", "1"}:
+        raise SystemExit("hit must be 0 or 1")
+    ids = [model.vocab.to_idx(row["gene"]) for row in feedback]      # to_idx also tries upper case
+    unknown = [row["gene"] for row, i in zip(feedback, ids) if i == 0]
+    if unknown:      # the model would read every one of these as the same <unk> token
+        raise SystemExit(f"not in AssayFormer's vocabulary: {unknown[:10]}")
+    if len(set(ids)) != len(ids):
+        raise SystemExit("a gene appears twice in the feedback (case variants count as one gene)")
+    # compare by vocabulary id, never by the string typed: "actb" and "ACTB" are one gene
+    observed = [Observation(candidate=model.vocab.itos[i], label={"hit": row["hit"] == "1"})
+                for row, i in zip(feedback, ids)]
+    assayed = set(ids)
+    candidates = [g for g in universe if model.vocab.to_idx(g) not in assayed]
+    scores = model.predict(observed, candidates, task_context=screen.context()).scores
+    batch = sorted(candidates, key=lambda g: (-scores[g], g))[:n]
+    assert not {model.vocab.to_idx(g) for g in batch} & assayed, "an assayed gene came back"
+    return batch, scores
 
-assayed = set(genes)
-candidates = [g for g in universe if g not in assayed]
-scores = model.predict(observed, candidates, task_context=screen.context()).scores
-batch = sorted(candidates, key=lambda g: (-scores[g], g))[:100]
+batch, scores = next_batch(feedback)
+print(f"{screen.dataset_name}: {len(feedback)} genes assayed, {sum(r['hit'] == '1' for r in feedback)} hits")
 
 with open("next_batch.tsv", "w") as f:
     f.write("rank\tgene\tscore\n")
@@ -264,6 +276,9 @@ print("next batch:", ", ".join(batch[:10]), "...")
 truth = dict(zip(screen.genes, screen.hits))      # only possible because this screen is historical
 print("hits in the next batch:", sum(bool(truth.get(g)) for g in batch), "| upstream recorded:", example["expected_next_hits"])
 assert set(batch) == set(example["next_batch_labels"])
+
+lower = [dict(r, gene=r["gene"].lower()) for r in feedback]      # the same results, typed in lower case
+assert next_batch(lower)[0] == batch
 ```
 
 Observed:
@@ -275,15 +290,23 @@ hits in the next batch: 7 | upstream recorded: 7
 ```
 
 The batch is the same 100 genes upstream recorded for this state, 7 of them hits, written to
-`next_batch.tsv` with their scores. The scores rank genes against each other; they are not
+`next_batch.tsv` with their scores; none of them is in the feedback, and the same feedback
+typed in lower case returns the same batch in the same order. The scores rank genes against each other; they are not
 probabilities of being a hit.
 
-Three things about feeding it your own results:
+Four things about feeding it your own results:
 
 - **Unknown symbols are silent in the model, so the block refuses them.** The vocabulary maps
   any symbol it does not know to one shared `<unk>` id, so a misspelled or outdated symbol
   would be read as information about a different, shared token. Check symbols against current
   HGNC names before blaming the model.
+- **Case variants are one gene, so the block compares vocabulary ids.** The vocabulary accepts
+  `actb` for `ACTB` (it retries in upper case), so a lower- or mixed-case symbol passes the
+  unknown-symbol check. Comparing the typed strings instead would miss that the gene was
+  already assayed: with the example's feedback lower-cased, a string comparison returned a
+  "next batch" of 100 genes that were all already in the feedback. The block normalises each
+  symbol to the vocabulary's spelling, checks duplicates and excludes assayed genes by id, and
+  asserts that no assayed gene comes back.
 - **A gene your screen could not measure has no clean encoding.** The model has two labels,
   hit and not-hit. The benchmark's own loop reports an unmeasured pick to the model as
   not-hit; do the same, or leave the gene out of the feedback and out of the candidates.
@@ -329,9 +352,21 @@ labels as context. Reported on the same 20 test screens (inherited from the pape
 not reproduced here): EF 5.67, nAUC 21.7% and 27.7% of hits recovered for the best handoffs,
 against AssayFormer alone at 4.83; with AssayLLM as the warm-start model, 5.05.
 
-Upstream's commands are `assayloop run --model null --acq llm_single --lm-config <config>` to collect the
-LLM rounds and `assayloop eval-ranker-handoff --ckpt-file model_last.pt --warm-dir ... --n 3`
-to hand off. Collecting the LLM rounds needs the LLM endpoint described under *Licence and
+Upstream's README gives two commands: one collects the LLM rounds,
+
+```
+assayloop run --model null --acq llm_single --screen-set paper_test --full-genome \
+    --lm-config <config>
+```
+
+and the other hands them to AssayFormer, replaying the first `--n` rounds from that sweep:
+
+```
+assayloop eval-ranker-handoff --checkpoint <rl-ckpt-dir> --ckpt-file model_last.pt \
+    --warm-dir output/runs --warm-prefix sweep-<id>- --n 3
+```
+
+These were not run here. Collecting the LLM rounds needs the LLM endpoint described under *Licence and
 access*.
 
 **Replaying the published LLM rounds instead does not work today.** Upstream's
