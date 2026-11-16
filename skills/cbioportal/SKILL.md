@@ -9,7 +9,7 @@ tags: [cbioportal, cancer, multi-omics, entrez, public-data]
 covers: [cbioportal, tcga, pancancer atlas, firehose legacy, msk-impact, targeted panel, gene panel, somatic mutation, maf, copy number, gistic, amplification, deep deletion, mrna expression, z-score, rppa, clinical data, survival, tumour, tumor, oncotree, alteration frequency, lung adenocarcinoma, breast, glioblastoma, cancer cell line, ccle, datahub, odbl, human]
 papers: [PMID:22588877, PMID:23550210, PMID:37668528, PMID:28481359, PMID:29625048]
 access: [open]
-datasets: [https://www.cbioportal.org/api/studies/luad_tcga_pan_can_atlas_2018, https://www.cbioportal.org/api/studies/luad_tcga, https://www.cbioportal.org/api/studies/msk_impact_2017, https://www.cbioportal.org/api/gene-panels/IMPACT410, https://raw.githubusercontent.com/cBioPortal/datahub/582e2862e963f6f13840625dfbdaa09e7dcca560/public/msk_impact_2017/LICENSE, https://raw.githubusercontent.com/cBioPortal/datahub/582e2862e963f6f13840625dfbdaa09e7dcca560/public/msk_impact_2017/data_gene_panel_matrix.txt]
+datasets: [https://www.cbioportal.org/api/studies/luad_tcga_pan_can_atlas_2018, https://www.cbioportal.org/api/studies/luad_tcga, https://www.cbioportal.org/api/studies/msk_impact_2017, https://www.cbioportal.org/api/gene-panels/IMPACT410, https://raw.githubusercontent.com/cBioPortal/datahub/582e2862e963f6f13840625dfbdaa09e7dcca560/public/msk_impact_2017/LICENSE, https://raw.githubusercontent.com/cBioPortal/datahub/582e2862e963f6f13840625dfbdaa09e7dcca560/public/msk_impact_2017/data_gene_panel_matrix.txt, https://raw.githubusercontent.com/cBioPortal/datahub/582e2862e963f6f13840625dfbdaa09e7dcca560/public/msk_met_2021/LICENSE, https://www.cbioportal.org/api/studies/gbm_tcga_pub/molecular-profiles, https://www.cbioportal.org/api/studies/msk_met_2021, https://www.cbioportal.org/api/studies/crc_msk_2026]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-15
@@ -240,11 +240,16 @@ def study_terms(study_id, commit=None):
             "verdict": verdict}
 
 
+DEEP_DEL = (-2, -1.5)   # both are deep deletion in the portal's own counts
+
+
 def alteration_frequency(entrez_ids, mut_profile, cna_profile=None):
     """Per gene: altered / profiled, never altered / all samples. A gene with no
     profiled sample gets None, not 0.0 -- 0 of 0 is not a frequency.
-    CNA counts deep deletion (-2) and amplification (+2) only. 'any' is over
-    samples profiled by BOTH profiles for that gene."""
+    CNA counts amplification (+2) and deep deletion, which is -2 OR -1.5: the
+    importer stores 'partial deletion' as -1.5 and the portal counts it as -2.
+    'any' is mutations plus those CNAs, over samples profiled by BOTH profiles;
+    structural variants (fusions) are not counted."""
     ids = list(entrez_ids)
     mprof, _, _ = profiled_samples(mut_profile, ids)
     muts = api("/mutations/fetch", {"molecularProfileIds": [mut_profile], "entrezGeneIds": ids})
@@ -258,7 +263,7 @@ def alteration_frequency(entrez_ids, mut_profile, cna_profile=None):
     for e in ids:
         mut = {m["sampleId"] for m in muts if m["entrezGeneId"] == e} & mprof[e]
         amp = {c["sampleId"] for c in cna if c["entrezGeneId"] == e and c["value"] == 2} & cprof[e]
-        dele = {c["sampleId"] for c in cna if c["entrezGeneId"] == e and c["value"] == -2} & cprof[e]
+        dele = {c["sampleId"] for c in cna if c["entrezGeneId"] == e and c["value"] in DEEP_DEL} & cprof[e]
         both = mprof[e] & cprof[e]
         out.append({"entrezGeneId": e,
                     "mutated": len(mut), "mut_profiled": len(mprof[e]),
@@ -419,13 +424,26 @@ Both refusals are the point:
   their union. Taking the first match silently picks one of three answers.
 
 Discrete copy number is GISTIC-style: `-2` deep deletion, `-1` shallow loss, `0` diploid, `1`
-gain, `2` amplification. Alteration counts conventionally use `±2` only — which is also the
-default of `/molecular-profiles/{id}/discrete-copy-number/fetch` (`HOMDEL_AND_AMP`); pass
-`discreteCopyNumberEventType=ALL` to get the rest. `/molecular-data/fetch` returns every value.
+gain, `2` amplification — **plus `-1.5`**, which the file-format docs do not list. The importer
+(`cbioportal-core`, `ImportTabDelimData.java`) names it a *partial deletion* and files it as a deep
+deletion (`-2`) in the portal's alteration tables, so the portal's counts treat it as one.
+`/molecular-data/fetch` returns the raw `-1.5`; `/molecular-profiles/{id}/discrete-copy-number/fetch`
+(default `HOMDEL_AND_AMP`; pass `discreteCopyNumberEventType=ALL` for the rest) returns it already
+mapped to `-2`. A filter on `value == -2` therefore undercounts deep deletion. In `crc_msk_2026`, TP53
+on 2026-11-15 read `{0: 2855, -2: 26, -1.5: 7, 2: 1}` from `/molecular-data/fetch`; the portal
+says 33 deep deletions. `-1.5` also appears in `msk_chord_2024`, `breast_msk_2026`, `mycf_msk_2026`,
+`biliary_tract_msk_2026`, `lms_msk_2026` and `prad_idhmut_msk_2025`, all recent MSK-IMPACT imports.
+Count deep deletion as `value in (-2, -1.5)`.
+
+The same endpoint can also omit samples: for TP53 in `crc_msk_2026` it
+returned rows for 2,889 of the 7,237 samples `/gene-panel-data/fetch` marks profiled. A missing
+row is not altered, which is how `alteration_frequency` and the portal both count it — but a CNA
+TSV built from this endpoint is not a full sample-by-gene matrix.
 
 Clinical data come back in long form — one row per sample (or patient) per attribute, values
 always strings — from `/studies/{id}/clinical-data?clinicalDataType=SAMPLE` or `=PATIENT`.
-`AGE`, `SEX` and `OS_MONTHS` are patient attributes; join them to samples through `patientId`. A
+`AGE`, `SEX` and `OS_MONTHS` are patient attributes; join them to samples through `patientId`
+(every sample row carries it). A
 sample with no row for an attribute has no value; there is no explicit NA.
 
 ## One tumour type, several studies
@@ -465,6 +483,13 @@ fewer than the samples in the study:
   IMPACT341 sample. The portal counts it in `numberOfAlteredCases` (212) and excludes it from
   `numberOfAlteredCasesOnPanel` (211). `alteration_frequency` uses the on-panel count, so numerator
   and denominator describe the same samples.
+- **"any" is mutations plus ±2 copy number, nothing else.** `alteration_frequency` does not read
+  the `…_structural_variants` profile, so fusions are not in `any_freq`, and a fusion-driven gene
+  reads lower than the portal's "altered", which counts structural variants. In `msk_impact_2017`
+  on 2026-11-15, 48 ALK, 40 ROS1 and 31 RET samples carried a structural variant and no mutation
+  in that gene (`/structural-variant/fetch`, matched on `site1EntrezGeneId`/`site2EntrezGeneId`).
+  For those genes, fetch the structural variants and add them yourself, with the same
+  profiled-sample denominator rule.
 
 `/gene-panel-data/fetch` says which panel each sample was run on (`genePanelId`, or none for
 whole-exome) and whether it was profiled at all; `/gene-panels/{id}` lists the panel's genes. The
@@ -485,6 +510,13 @@ for study, genes in [("msk_impact_2017", {7852: "CXCR4", 7157: "TP53", 29123: "A
         print(f"{study:16} {genes[r['entrezGeneId']]:8} {r['mutated']:5} / {r['mut_profiled']:5}"
               f" = {r['mut_freq']:.2%}   (÷ all {n_all}: {r['mutated'] / n_all:.2%})")
 
+# Deep deletion includes -1.5: TP53 in crc_msk_2026 against the portal's own CNA count.
+cna_srv = {(g["entrezGeneId"], g["alteration"]): g["numberOfAlteredCasesOnPanel"]
+           for g in api("/cna-genes/fetch", {"studyIds": ["crc_msk_2026"]})}
+tp53 = alteration_frequency([7157], "crc_msk_2026_mutations", "crc_msk_2026_cna")[0]
+assert tp53["homdel"] == cna_srv[(7157, -2)] and tp53["amp"] == cna_srv[(7157, 2)], (tp53, cna_srv)
+print(f"crc_msk_2026     TP53 deep deletions {tp53['homdel']}, amplifications {tp53['amp']} = portal")
+
 # A gene no sample was profiled for has no frequency.
 print(alteration_frequency([29123], "gbm_tcga_pub_mutations", "gbm_tcga_pub_cna_rae")[0])
 ```
@@ -494,11 +526,13 @@ msk_impact_2017  CXCR4       38 /  8136 = 0.47%   (÷ all 10945: 0.35%)
 msk_impact_2017  TP53      4538 / 10945 = 41.46%   (÷ all 10945: 41.46%)
 msk_impact_2017  ANKRD11    211 /  8136 = 2.59%   (÷ all 10945: 1.93%)
 luad_tcga        KRAS        75 /   230 = 32.61%   (÷ all 586: 12.80%)
+crc_msk_2026     TP53 deep deletions 33, amplifications 1 = portal
 {'entrezGeneId': 29123, 'mutated': 0, 'mut_profiled': 0, 'mut_freq': None, 'amp': 0, 'homdel': 0, 'cna_profiled': 203, 'cna_freq': 0.0, 'any_altered': 0, 'any_profiled': 0, 'any_freq': None}
 ```
 
 The same comparison — panel-aware profiled count and on-panel altered count against
-`/mutated-genes/fetch`, and CNA ±2 against `/cna-genes/fetch` — agreed exactly for seven genes in
+`/mutated-genes/fetch`, and CNA amplification and deep deletion (`-2` or `-1.5`) against
+`/cna-genes/fetch` — agreed exactly for seven genes in
 seven studies on 2026-11-15: both TCGA LUAD processings above plus `luad_tcga_gdc`,
 `msk_impact_2017`, `msk_impact_50k_2026` (four IMPACT panels, 54,331 samples), `ccle_broad_2019`
 (cell lines, 1,570 of 1,739 sequenced) and `gbm_tcga_pub` (Nature 2008, a 600-gene targeted panel, 91 of
@@ -572,9 +606,9 @@ for name, prof in [("cna.tsv", cna_p), ("mrna_z.tsv", z_p)]:
 
 for kind in ("SAMPLE", "PATIENT"):
     rows = api(f"/studies/{STUDY}/clinical-data", clinicalDataType=kind)
-    key = "sampleId" if kind == "SAMPLE" else "patientId"
-    n = write(f"clinical_{kind.lower()}.tsv", [key, "attribute", "value"],
-              [[r[key], r["clinicalAttributeId"], r["value"]] for r in rows])
+    keys = ["sampleId", "patientId"] if kind == "SAMPLE" else ["patientId"]
+    n = write(f"clinical_{kind.lower()}.tsv", keys + ["attribute", "value"],
+              [[r[k] for k in keys] + [r["clinicalAttributeId"], r["value"]] for r in rows])
     print(f"clinical_{kind.lower()}.tsv {n:6} rows (long form)")
 
 freq = alteration_frequency(E, mut_p, cna_p)
@@ -587,7 +621,8 @@ manifest = {"study": STUDY, "importDate": terms["importDate"], "terms": terms,
             "geneTableVersion": info["geneTableVersion"],
             "profiles": {"mutations": mut_p, "cna": cna_p, "mrna_z": z_p},
             "genes": {s: ids[s] for s in GENES}, "renamed_on_resolution": renamed,
-            "frequency_rule": "altered / samples profiled for the gene; CNA = +2 or -2 only"}
+            "frequency_rule": "altered / samples profiled for the gene; CNA = +2 amplification "
+                              "or deep deletion (-2 or -1.5); structural variants not counted"}
 json.dump(manifest, open(f"{OUT}/manifest.json", "w"), indent=2)
 
 print()
@@ -708,10 +743,11 @@ library only. Runs in an empty directory in about a minute and does not need `cb
 
 **Data** — the cBioPortal public instance's REST API (study metadata, gene panels, mutation,
 copy-number and gene-panel endpoints for `msk_impact_2017` under ODbL, `luad_tcga` under the TCGA
-GDAC licence, `gbm_tcga_pub` and `msk_met_2021`), plus the `msk_impact_2017` `LICENSE` and gene
-panel matrix from the datahub at commit `582e2862e963f6f13840625dfbdaa09e7dcca560`. No CC BY-NC-ND
-data is downloaded; `msk_met_2021` is read for its description and licence only. Last confirmed
-reachable 2026-11-15.
+GDAC licence, `gbm_tcga_pub`, `msk_met_2021`, and TP53 copy number in `crc_msk_2026`, which has no
+study notice and no datahub `LICENSE`, so the FAQ's ODbL default applies), plus the `msk_impact_2017`
+and `msk_met_2021` `LICENSE` files and the `msk_impact_2017` gene panel matrix from the datahub at
+commit `582e2862e963f6f13840625dfbdaa09e7dcca560`. No CC BY-NC-ND data is downloaded; `msk_met_2021`
+is read for its description and licence only. Last confirmed reachable 2026-11-15.
 
 ```python
 import hashlib, json, re, urllib.error, urllib.parse, urllib.request
@@ -795,7 +831,7 @@ print(f"gbm_tcga_pub         : {len(cn)} DISCRETE CNA profiles {cn}")
 # 7. INVARIANT. Licence: the description and the datahub LICENSE can disagree.
 desc = call("/studies/msk_met_2021")[1]["description"]
 assert re.search(r"BY-NC", desc), desc[-200:]
-lic = raw(f"https://raw.githubusercontent.com/cBioPortal/datahub/master/public/msk_met_2021/LICENSE").decode()
+lic = raw(f"{RAW}/public/msk_met_2021/LICENSE").decode()
 assert "ODbL" in lic and "NonCommercial" not in lic, lic[:120]
 lic17 = raw(f"{RAW}/public/{S}/LICENSE").decode()
 assert lic17.startswith("The data are available under the ODC Open Database License"), lic17[:80]
@@ -819,6 +855,16 @@ assert len(data) == size and hashlib.sha256(data).hexdigest() == oid
 n_rows = len([r for r in data.decode().splitlines()[1:] if r])
 assert n_rows == len(gpd), (n_rows, len(gpd))
 print(f"datahub {COMMIT[:8]}    : gene panel matrix {size:,} B, sha256 ok, {n_rows} samples = API")
+
+# 9. INVARIANT. Deep deletion is -2 OR -1.5 in /molecular-data/fetch; counting -2 alone
+#    undercounts, counting both equals the portal's own deep-deletion count.
+cv = call("/molecular-data/fetch", {"molecularProfileIds": ["crc_msk_2026_cna"], "entrezGeneIds": [7157]})[1]
+only2 = {c["sampleId"] for c in cv if c["value"] == -2}
+deep = {c["sampleId"] for c in cv if c["value"] in (-2, -1.5)}
+portal = next(g for g in call("/cna-genes/fetch", {"studyIds": ["crc_msk_2026"]})[1]
+              if g["entrezGeneId"] == 7157 and g["alteration"] == -2)
+assert len(only2) < len(deep) == portal["numberOfAlteredCasesOnPanel"], (len(only2), len(deep), portal)
+print(f"crc_msk_2026 TP53    : deep deletion {len(deep)} with -1.5 = portal; -2 alone says {len(only2)}")
 ```
 
 **Expect.** Invariants first — a failure in any of these means the skill is wrong, not that
@@ -834,10 +880,12 @@ upstream moved:
 - Every CNA row for a sample not profiled for CXCR4 has the value `0`, and there is at least one.
 - `luad_tcga` KRAS profiled count is smaller than its sample count.
 - `gbm_tcga_pub` has more than one discrete CNA profile.
-- `msk_met_2021`'s description says BY-NC while its datahub `LICENSE` says ODbL; the pinned
-  `msk_impact_2017` `LICENSE` is ODbL.
+- `msk_met_2021`'s description says BY-NC while its `LICENSE` at the pinned commit says ODbL; the
+  pinned `msk_impact_2017` `LICENSE` is ODbL.
 - The pinned gene panel matrix is an LFS pointer, the object matches its sha256 and size, and its
   sample count equals the API's gene-panel-data row count.
+- TP53 deep deletions in `crc_msk_2026` counted as `-2` or `-1.5` equal the portal's
+  `/cna-genes/fetch` count, and counting `-2` alone gives fewer.
 
 Observed values, read 2026-11-15 — a mismatch here is drift to investigate, not a bug:
 
@@ -851,6 +899,7 @@ luad_tcga KRAS       : 75/230 profiled = 32.6%; ÷ 586 would say 12.8%
 gbm_tcga_pub         : 2 DISCRETE CNA profiles ['gbm_tcga_pub_cna_consensus', 'gbm_tcga_pub_cna_rae']
 msk_met_2021 terms   : description CC BY-NC-ND, datahub LICENSE ODbL -- read both
 datahub 582e2862    : gene panel matrix 525,403 B, sha256 ok, 10945 samples = API
+crc_msk_2026 TP53    : deep deletion 33 with -1.5 = portal; -2 alone says 26
 ```
 
 If invariant 7 fails because the two now agree, the conflict was fixed upstream — rewrite the
