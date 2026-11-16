@@ -33,8 +33,9 @@ much of any count is electronic (`IEA`), and what obsolete and merged GO ids tur
 covers QuickGO, EMBL-EBI's GO annotation service, for single-protein lookups and filtered
 downloads, and its limits.
 
-Everything is keyed on **GO ids** (`GO:0006915`) and **UniProt accessions** (GAF column 2), never
-on a term name or a gene symbol.
+Everything is keyed on **GO ids** (`GO:0006915`) and the GAF's object id in column 2 (a
+**UniProt accession** in the `-uniprot` files, the organism database's id in the `-mod` files),
+never on a term name or a gene symbol.
 
 Neighbours: `uniprot` resolves secondary and deleted accessions before you look one up here;
 `interpro` owns the InterPro2GO domain-to-term mapping; `reactome` is the pathway view of the same
@@ -309,9 +310,10 @@ def annotations(**params):
     rows = first["results"]
     for page in range(2, first["pageInfo"]["total"] + 1):
         rows += quickgo("annotation/search", page=page, **params)["results"]
-    if len({r["id"] for r in rows}) != first["numberOfHits"]:
-        raise RuntimeError(f"{len(rows)} rows for {first['numberOfHits']} hits: the set moved mid-walk")
-    return rows
+    unique = list({r["id"]: r for r in rows}.values())  # a row can shift onto two pages
+    if len(unique) != first["numberOfHits"]:
+        raise RuntimeError(f"{len(unique)} rows for {first['numberOfHits']} hits: the set moved mid-walk")
+    return unique
 ```
 
 ## Terms: obsolete, replaced_by, consider and alt_id
@@ -408,7 +410,7 @@ travel with the row, not be collapsed into it:
 - `contributes_to` (1,617 human rows) — the protein is a subunit of a complex that has the
   activity; it may not have it alone.
 - `colocalizes_with` (1,364) — found *with* the component, not established as *in* it.
-- `acts_upstream_of…` (seven variants) — the protein affects the process without being shown to
+- `acts_upstream_of…` (six variants) — the protein affects the process without being shown to
   be part of it.
 - `part_of` as a qualifier means "subunit of this complex" and is unrelated to the `part_of`
   ontology edge of the same name.
@@ -710,12 +712,13 @@ with open(f"{OUT}/experimental_propagated.tsv", "w", newline="") as fh:
     w.writerow(["uniprot", "go_id", "go_name", "aspect", "polarity", "direct", "qualifiers", "evidence", "references"])
     for acc in sorted(ACCS):
         mine = [r for r in rows if r["acc"] == acc]
-        direct = {r["go_id"] for r in mine}
+        direct = {"positive": {r["go_id"] for r in mine if not r["negated"]},
+                  "NOT": {r["go_id"] for r in mine if r["negated"]}}
         pos, neg = g.propagate(onto, mine)
         for polarity, closure in (("positive", pos), ("NOT", neg)):
             for go_id, ev in sorted(closure.items()):
                 t = onto["terms"][go_id]
-                w.writerow([acc, go_id, t["name"], t["namespace"], polarity, go_id in direct,
+                w.writerow([acc, go_id, t["name"], t["namespace"], polarity, go_id in direct[polarity],
                             "|".join(sorted({q for q, _, _ in ev})), "|".join(sorted({e for _, e, _ in ev})),
                             "|".join(sorted({ref for _, _, ref in ev}))])
 print(json.dumps({k: v for k, v in manifest.items() if k != "files"}))
@@ -737,8 +740,11 @@ that were annotated rather than inherited, and the qualifiers, evidence codes an
 reached each term. The experimental set is the GO experimental and high-throughput codes; the
 phylogenetic (`IBA`), sequence-similarity (`ISS`…), author/curator (`TAS`, `NAS`, `IC`) and `IEA`
 codes are left out on purpose — widen `EXPERIMENTAL` if your question allows them, and say so.
-For other organisms, change `SPECIES` and the key: a `-mod` file is keyed on the organism
-database's id.
+The table step reads the human GAF only: a second entry in `SPECIES` is downloaded and
+recorded in the manifest but not tabled. For another organism, point `read_gaf` at that file and
+use its keys, since a `-mod` file is keyed on the organism database's id, not UniProt.
+`direct` is per polarity: a term annotated only as `NOT` and reached positively through
+inheritance is a `positive` row with `direct` false.
 
 **Today's annotations for a set of proteins** — QuickGO's download, with the limit stated so it
 cannot truncate, written as GAF. 500 accessions per request at most:
