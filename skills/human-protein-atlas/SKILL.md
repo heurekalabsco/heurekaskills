@@ -9,7 +9,7 @@ tags: [proteomics, transcriptomics, antibody, single-cell, public-data]
 covers: [human protein atlas, hpa, proteinatlas, immunohistochemistry, ihc, antibody staining, protein expression, tissue atlas, normal tissue, reliability score, enhanced validation, subcellular location, cell atlas, immunofluorescence, rna tissue consensus, ntpm, single cell type, ncpm, pathology atlas, cancer, tissue specificity, secretome, ensembl gene id, liver, kidney, brain, testis, skin, stomach, human]
 papers: [PMID:25613900, PMID:28495876, PMID:28818916, PMID:34321199, PMID:32139519]
 access: [open]
-datasets: [https://v25.proteinatlas.org/ENSG00000141510.json, https://v25.proteinatlas.org/ENSG00000141510.xml, 'https://v25.proteinatlas.org/api/search_download.php?search=gene_name:MLL2&format=json&columns=g,eg&compress=no', https://v25.proteinatlas.org/download/tsv/normal_ihc_data.tsv.zip, https://v25.proteinatlas.org/download/tsv/rna_tissue_consensus.tsv.zip, https://v25.proteinatlas.org/download/tsv/rna_single_cell_type.tsv.zip, https://v25.proteinatlas.org/download/tsv/subcellular_location.tsv.zip, https://v25.proteinatlas.org/download/tsv/cancer_data.tsv.zip, https://www.proteinatlas.org/about/licence]
+datasets: [https://v25.proteinatlas.org/ENSG00000141510.json, https://v25.proteinatlas.org/ENSG00000141510.xml, https://v25.proteinatlas.org/download/tsv/normal_ihc_data.tsv.zip, https://v25.proteinatlas.org/download/tsv/rna_tissue_consensus.tsv.zip, https://v25.proteinatlas.org/download/tsv/rna_single_cell_type.tsv.zip, https://v25.proteinatlas.org/download/tsv/subcellular_location.tsv.zip, https://v25.proteinatlas.org/download/tsv/cancer_data.tsv.zip]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-15
@@ -27,8 +27,9 @@ single-cell type) for the same ~20,000 protein-coding genes, all keyed on the En
 Three things decide whether work built on it is right, and each has its own section below:
 
 1. **A release is not "the HPA".** The live site moved from v25 to v26 on 2026-11-11, and on
-   that day 2,730 genes changed their tissue-staining reliability call and 2,035 genes lost
-   their IHC tissue data altogether. Pin a numbered archive, and record which one you used.
+   that day 2,730 genes changed their tissue-staining reliability call: 2,050 lost their IHC
+   tissue data altogether, 15 gained it, and 665 moved between two scores. Pin a numbered
+   archive, and record which one you used.
 2. **An IHC level is an antibody-staining call, not an abundance.** `High` means an annotator
    scored strong staining in that cell type with that antibody. How much to believe it is
    what the reliability score is for, and the gap between `Enhanced` and `Uncertain` is
@@ -147,9 +148,14 @@ What follows from that:
   (released 2026-05-25); 25.0 is not separately retrievable.
 - **The gene universe is Ensembl 109 in every release from v23 to v26.** Same 20,162 genes in
   the search API at v23, v24, v25 and v26; what moves between releases is the annotation.
-- **How much moves.** Between v25 and v26: 2,730 genes changed `Reliability (IH)`, and the
-  number of genes with no IHC tissue data rose from 4,850 to 6,885 — v26 dropped IHC tissue
-  calls for 2,035 genes (e.g. AAR2, `Uncertain` in v25, absent in v26). Not a bug; a release.
+- **How much moves.** Between v25 and v26, 2,730 genes changed `Reliability (IH)`. Of those,
+  2,065 moved to or from no data — 2,050 lost their IHC tissue calls (e.g. AAR2, `Uncertain`
+  in v25, absent in v26) and 15 gained them — and 665 moved between two scores. The number of
+  genes with no IHC tissue data rose from 4,850 to 6,885, a net change of 2,035. The v26
+  release notes give the same figures: a quality control comparing IHC with RNA and MS data
+  "resulted in the removal of antibody data for 2,050 genes and a change in reliability score
+  for 665 genes", and "Antibody-based protein data for 15 new genes was added"
+  (https://www.proteinatlas.org/about/releases, read 2026-11-15). Not a bug; a release.
 
 The release dates and Ensembl version are listed at https://www.proteinatlas.org/about/releases.
 
@@ -306,6 +312,11 @@ string returns all 20,162 genes (~2 MB of JSON, 15–40 s).
 | `columns` | comma-separated codes | **required** — omitting it gives a 400 HTML page; an **unknown code is silently dropped** |
 | `compress` | `yes`, `no` | **default is gzip**: leave it out and you get `application/gzip` |
 
+HPA serves GitHub Actions runners an HTML page for this endpoint where a laptop gets JSON (the
+per-gene and bulk-file URLs are unaffected), so the search API is documented here but not
+declared in this page's `datasets:` list. Code that runs it in CI must check the content type,
+as `search()` does.
+
 The count is in the `X-Total-Results` response header, and a `HEAD` request returns it without
 the body (its `Content-Type` reads `text/html` even when the `GET` would be JSON). TSV column order is fixed by the server, not by the order you asked for. Column codes
 for the fields most analyses need (the full table of ~100 codes, plus one per TCGA cancer for
@@ -393,13 +404,16 @@ script written against an old release:
 | cancer IHC (pathology) | `cancer_data.tsv.zip` | `pathology.tsv.zip` |
 
 v24 carries both IHC names; v25 and v26 only `normal_ihc_data`. The old `/download/X.tsv.zip`
-path is a `404` on v24 and later, and the new path is a `404` on v23. The full list for the
+path is a `404` on v24 and later, and the new path is a `403` on v23. The full list for the
 current release is on each resource's data page, e.g.
 https://www.proteinatlas.org/humanproteome/tissue/data. No checksums are published, so the
 block records a SHA-256 and the server's `Last-Modified` for each file.
 
 The server **drops the connection partway through the larger files** — a plain download of
 the 16 MB single-cell table failed at 12 MB on 2026-11-15. It honours `Range`, so this resumes.
+On Python 3.12 a dropped connection usually surfaces as a short read rather than an
+exception: the chunk loop simply ends early, and it is the size check against
+`Content-Length` that notices and asks for the rest.
 Throughput is low (the five v25 tables took 8.5 minutes); run it in the background:
 
 ```python
@@ -426,8 +440,8 @@ def file_url(what, version):
 
 
 def fetch(what, version, outdir, tries=8):
-    """Stream to disk, resuming with a Range request when the server drops the
-    connection -- it does, mid-file, on the larger tables."""
+    """Stream to disk, resuming with a Range request when the file comes up
+    short -- the server drops the connection mid-file on the larger tables."""
     url = file_url(what, version)
     out = pathlib.Path(outdir) / f"hpa_v{version}_{url.rsplit('/', 1)[1]}"
     part = out.with_suffix(".part")
@@ -443,6 +457,9 @@ def fetch(what, version, outdir, tries=8):
                     raise RuntimeError(f"{url}: HTML instead of a zip")
                 if have and r.status != 206:
                     raise RuntimeError(f"{url}: server ignored Range ({r.status})")
+                if have and not r.headers.get("Content-Range", "").startswith(f"bytes {have}-"):
+                    raise RuntimeError(f"{url}: resumed at the wrong offset "
+                                       f"({r.headers.get('Content-Range')!r}, hold {have})")
                 if total is None:
                     total = int(r.headers["Content-Length"]) + have
                     modified = r.headers.get("Last-Modified")
@@ -450,10 +467,13 @@ def fetch(what, version, outdir, tries=8):
                     while chunk := r.read(1 << 20):
                         fh.write(chunk)
         except (http.client.IncompleteRead, urllib.error.URLError, ConnectionError, TimeoutError) as e:
-            print(f"  {out.name}: dropped at {part.stat().st_size} bytes ({type(e).__name__}), resuming")
+            held = part.stat().st_size if part.exists() else 0   # may fail before the first byte
+            print(f"  {out.name}: {type(e).__name__} with {held} bytes held, retrying")
             continue
-        if part.stat().st_size == total:
+        held = part.stat().st_size if part.exists() else 0
+        if held == total:
             break
+        print(f"  {out.name}: short read, {held} of {total} bytes, resuming")
     else:
         raise IOError(f"{url}: incomplete after {tries} attempts")
     part.rename(out)
@@ -585,22 +605,35 @@ print("symbols on two ids:", {s: sorted(v) for s, v in by_symbol.items() if len(
 # What a 'High' call is worth: how often the tissue's RNA says the gene is barely there.
 rna = {(r["Gene"], r["Tissue"]): float(r["nTPM"])
        for r in rows(d / "hpa_v25_rna_tissue_consensus.tsv.zip")}
+rna_tissues = {t for _, t in rna}
+ihc_tissues = {r["Tissue"] for r in ihc}
+# Two different reasons a row fails to join -- keep them apart:
+no_name = sorted(t for t in ihc_tissues if t.lower() not in rna_tissues)   # tissue name absent
+no_row = collections.Counter()      # tissue present in RNA, this gene has no row there
 high = collections.Counter()
 low_rna = collections.Counter()
-unmatched = set()
+dropped = collections.Counter()
 for r in ihc:
     if r["Level"] != "High":
         continue
+    rel = r["Reliability"]
     n = rna.get((r["Gene"], r["Tissue"].lower()))   # same tissue, different case
     if n is None:
-        unmatched.add(r["Tissue"])
+        dropped[rel] += 1
+        if r["Tissue"] not in no_name:
+            no_row[r["Tissue"]] += 1
         continue
-    high[r["Reliability"]] += 1
-    low_rna[r["Reliability"]] += n < 1
+    high[rel] += 1
+    low_rna[rel] += n < 1
 for rel in ("Enhanced", "Supported", "Approved", "Uncertain"):
-    print(f"  {rel:9} 'High' cells in a tissue with nTPM < 1: "
-          f"{low_rna[rel]:5} of {high[rel]:6} ({low_rna[rel]/high[rel]:.1%})")
-print("IHC tissues with no RNA tissue of the same name:", len(unmatched), sorted(unmatched)[:6])
+    n_all = high[rel] + dropped[rel]
+    print(f"  {rel:9} 'High' rows with nTPM < 1: {low_rna[rel]:5} of {high[rel]:6} "
+          f"({low_rna[rel]/high[rel]:.1%}) | not joined {dropped[rel]:5} of {n_all:6} "
+          f"({dropped[rel]/n_all:.1%})")
+n_drop, n_all = sum(dropped.values()), sum(high.values()) + sum(dropped.values())
+print(f"'High' rows not joined: {n_drop} of {n_all} ({n_drop/n_all:.1%})")
+print(f"IHC tissue names with no RNA tissue: {len(no_name)} of {len(ihc_tissues)} {no_name}")
+print("tissue in RNA, gene row missing ('High' rows):", dict(no_row))
 ```
 
 ```
@@ -608,24 +641,43 @@ print("IHC tissues with no RNA tissue of the same name:", len(unmatched), sorted
 Level      : [('Not detected', 569065), ('Medium', 303452), ('Low', 184160), ('High', 140875), ('N/A', 1834), ('Ascending', 188), ('Descending', 90), ('Not representative', 11)]
 Reliability: [('Approved', 5555), ('Uncertain', 4157), ('Enhanced', 3937), ('Supported', 1663)]
 symbols on two ids: {'MATR3': ['ENSG00000015479', 'ENSG00000280987'], 'PRODH': ['ENSG00000100033', 'ENSG00000277196'], 'HERC3': ['ENSG00000138641', 'ENSG00000287542'], 'NPIPA9': ['ENSG00000183889', 'ENSG00000233024'], 'PINX1': ['ENSG00000254093', 'ENSG00000258724'], 'TBCE': ['ENSG00000284770', 'ENSG00000285053']}
-  Enhanced  'High' cells in a tissue with nTPM < 1:   431 of  29341 (1.5%)
-  Supported 'High' cells in a tissue with nTPM < 1:  1374 of  33663 (4.1%)
-  Approved  'High' cells in a tissue with nTPM < 1:  2594 of  48330 (5.4%)
-  Uncertain 'High' cells in a tissue with nTPM < 1:  1392 of  14797 (9.4%)
-IHC tissues with no RNA tissue of the same name: 17 ['Bronchus', 'Brown adipose tissue', 'Cartilage', 'Caudate', 'Cerebellum', 'Dorsal raphe']
+  Enhanced  'High' rows with nTPM < 1:   431 of  29341 (1.5%) | not joined  2857 of  32198 (8.9%)
+  Supported 'High' rows with nTPM < 1:  1374 of  33663 (4.1%) | not joined  3856 of  37519 (10.3%)
+  Approved  'High' rows with nTPM < 1:  2594 of  48330 (5.4%) | not joined  6272 of  54602 (11.5%)
+  Uncertain 'High' rows with nTPM < 1:  1392 of  14797 (9.4%) | not joined  1759 of  16556 (10.6%)
+'High' rows not joined: 14744 of 140875 (10.5%)
+IHC tissue names with no RNA tissue: 16 of 60 ['Bronchus', 'Brown adipose tissue', 'Cartilage', 'Caudate', 'Dorsal raphe', 'Efferent ducts', 'Eye', 'Hair', 'Hippocampus', 'Lactating breast', 'N/A', 'Nasopharynx', 'Oral mucosa', 'Soft tissue', 'Sole of foot', 'Substantia nigra']
+tissue in RNA, gene row missing ('High' rows): {'Cerebellum': 11, 'Vagina': 1}
 ```
 
 An `Uncertain` `High` sits in a tissue with essentially no transcript about six times as often
-as an `Enhanced` one (9.4% against 1.5% in v25; 9.3% against 1.4% in v26). Filter on reliability before treating a staining call as a finding, and say
-in the write-up which levels you kept.
+as an `Enhanced` one (9.4% against 1.5% in v25; 9.3% against 1.4% in v26). Filter on reliability
+before treating a staining call as a finding, and say in the write-up which levels you kept.
+
+Two things about what those percentages count:
+
+- **The unit is a row of the IHC table — one cell type in one tissue sample — not a gene–tissue
+  pair.** A gene scored `High` in four cell types of one tissue contributes four rows, and all
+  four meet the same nTPM. Genes with many annotated cell types weigh more. Collapse to
+  (`Gene`, `Tissue`) first if the question is about gene–tissue pairs.
+- **About a tenth of the `High` rows never reach the comparison.** In v25, 14,744 of 140,875
+  `High` rows (10.5%) find no RNA value: 8.9% of `Enhanced`, 10.3% of `Supported`, 11.5% of
+  `Approved`, 10.6% of `Uncertain`. The dropped share is similar across scores, so it does not
+  manufacture the gap, but the percentages are over the rows that joined, not over all calls.
 
 **The tissue join in that block is a label join, and it is the only one available.** The HPA
 files carry no tissue or cell-type ontology ids. IHC tissue names are capitalised and RNA ones
-are lower case; 17 of the 60 v25 IHC tissues have no RNA tissue of the same name (`Hippocampus` against
-`hippocampal formation`, `Bronchus`, `Soft tissue`, …, and `Cerebellum`, which v25's RNA
-consensus lacks and v26's has), and those rows simply drop out. Match
-exactly after lower-casing, report what did not match, and never fuzzy-match tissue names. The
-gene side of the join is on the Ensembl id.
+are lower case. A row fails to join for one of two reasons, and the block counts them apart:
+
+- **The tissue name is not in the RNA table** — 16 of the 60 tissue names in the v25 IHC table,
+  one of which is the placeholder `N/A`: `Hippocampus` against `hippocampal formation`,
+  `Bronchus`, `Soft tissue`, `Eye`, … These account for 14,732 of the dropped `High` rows.
+- **The tissue is there but this gene has no row in it** — v25's RNA consensus has `cerebellum`
+  for 19,965 of its 20,162 genes, so 11 `Cerebellum` rows drop, and 1 `Vagina` row. Counting
+  that as a missing tissue would wrongly report `Cerebellum` as absent from v25.
+
+Match exactly after lower-casing, report both kinds of miss, and never fuzzy-match tissue names.
+The gene side of the join is on the Ensembl id.
 
 ## What does not work
 
@@ -647,7 +699,8 @@ gene side of the join is on the Ensembl id.
 - **`OR` in a search, or a space- or comma-separated id list** → `200` with zero rows. Fetch the
   whole atlas and filter locally instead.
 - **Old download names on new hosts** — `normal_tissue.tsv.zip` and `pathology.tsv.zip` are
-  `404` on v25 and v26; `/download/<file>` without `tsv/` is `404` from v24 on.
+  `404` on v25 and v26; `/download/<file>` without `tsv/` is `404` from v24 on, and
+  `/download/tsv/<file>` is `403` on v23.
 - **A single unresumed download of the larger tables** — dropped mid-file; use `Range`.
 
 ## Try it
@@ -668,7 +721,7 @@ counter-examples that a symbol-keyed or status-only implementation gets wrong, a
 nobody puts the simplification back. Last confirmed reachable 2026-11-15.
 
 ```python
-import collections, csv, http.client, io, json, re, urllib.error, urllib.parse, urllib.request, zipfile
+import collections, csv, gzip, http.client, io, json, re, urllib.error, urllib.parse, urllib.request, zipfile
 
 V = 25                                   # pinned: a frozen archive, not www
 BASE = f"https://v{V}.proteinatlas.org"
@@ -698,7 +751,8 @@ def resolve(sym):
     qs = urllib.parse.urlencode({"search": f"gene_name:{sym}", "format": "json",
                                  "columns": "g,eg", "compress": "no"})
     code, ctype, body = get(f"{BASE}/api/search_download.php?{qs}")
-    assert code == 200 and "json" in ctype, (code, ctype)
+    body = gzip.decompress(body) if body[:2] == b"\x1f\x8b" else body   # gzip despite compress=no
+    assert code == 200 and ("json" in ctype or "gzip" in ctype), (code, ctype)
     return sorted((r["Gene"], r["Ensembl"]) for r in json.loads(body))
 
 tp53 = resolve("TP53")
