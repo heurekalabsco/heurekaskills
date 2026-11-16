@@ -60,8 +60,9 @@ the Hub; the Hub's model card itself carries no licence field, so the page shows
 licence chip.
 
 Two more things in that repository to avoid. There is a `model.safetensors` at the
-repository root with no licence file beside it and no row in upstream's table — never load
-it. And the Hub's `main` branch can move, so the code below pins revision
+repository root with no licence file beside it and no row in upstream's table. Its LFS SHA-256
+is byte-identical to `virtues-imc14/model.safetensors`, so it is the CC BY-NC `imc14` weights
+under another name. Never load it. And the Hub's `main` branch can move, so the code below pins revision
 `43fd00fce052c46f9e0cc1a87f42806620632319` and checks the file's SHA-256.
 
 The code is MIT (EPFL, Laboratory of Artificial Intelligence in Molecular Medicine), and so
@@ -76,6 +77,8 @@ Nothing to obtain: no API key, no account, no GPU. What you do need:
   environment, 108 MB for the clone, 174 MB for `virtues-sp31`. On Linux the default PyTorch
   wheel brings CUDA libraries and is several times larger. Computing your own marker
   embeddings (below) adds the 565 MB ESM-2 checkpoint.
+- **The AWS CLI**, only for the optional SPORA download block further down (`aws s3 ...
+  --no-sign-request`, anonymous). Nothing else on the page uses it.
 - **A source install.** VirTues is not on PyPI; you clone it. `spora-io` is not on PyPI
   either and installs from git. Both are pinned to a commit below.
 - **No `flash-attn`.** Upstream's `setup.sh` installs it, and every attention layer in the
@@ -317,7 +320,7 @@ than a per-channel average.
 - CPU and MPS reconstructions differ by at most 7e-6
 - forward pass 2.6 to 4.3 s on CPU and about 1.1 s on MPS for this crop, across runs; about
   1.7 GB peak memory on CPU
-- cold, the whole block took about 6 minutes, nearly all of it `git clone` and the PyTorch
+- cold, the whole block took 6 to 9 minutes across runs, nearly all of it `git clone` and the PyTorch
   install; the 174 MB weights download took under 30 s
 
 Every block below runs from the directory this one created, with its environment active
@@ -510,8 +513,9 @@ print(f"raw {raw.shape} {raw.dtype}  tissue fraction {tissue.mean():.3f}  marker
 
 # 1. Same transform, upstream's cohort statistics -> must equal what spora-io hands the model
 sd = f"{D}/imc/1_0mpp/standardization/quantile_clipping_log1p/uq_0.99_image"
-mean = pd.read_parquet(f"{sd}/global_level_means.parquet").iloc[0].to_numpy(float)[keep]
-std = pd.read_parquet(f"{sd}/global_level_stds.parquet").iloc[0].to_numpy(float)[keep]
+# Index the statistics by channel name, not by position, so column order cannot misalign them
+mean = pd.read_parquet(f"{sd}/global_level_means.parquet").iloc[0][panel.channel_name].to_numpy(float)[keep]
+std = pd.read_parquet(f"{sd}/global_level_stds.parquet").iloc[0][panel.channel_name].to_numpy(float)[keep]
 mine = standardize(raw, tissue, mean, std)
 from spora_io import MultiplexImagingDataset
 ref = MultiplexImagingDataset(name="cords2024cancer", path=D, modality="imc",
