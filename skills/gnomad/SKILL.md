@@ -84,7 +84,7 @@ file for 23 of 24 sampled genes, but TTN still returns v4.1 values. gnomAD's own
 pipeline source names v4.1.1 variant tables, the v4.1 joint table and v4.1.2 constraint. For a
 pinned analysis, use the files and record which ones.
 
-## The API: limits that fail loudly, and one that does not
+## The API: limits that fail loudly, and some that do not
 
 `POST https://gnomad.broadinstitute.org/api` with `{"query": ..., "variables": ...}`. Measured
 2026-11-15:
@@ -95,13 +95,21 @@ pinned analysis, use the files and record which ones.
 | query cost 25 | HTTP 400 `Query is too expensive (26). Maximum allowed cost is 25.` A variant lookup costs 1; a region coverage lookup costs 6 for one sequencing type and 11 for exome + genome. |
 | variants in a region | HTTP 500 `This region has too many variants to display`. Count-based: 75 kb of chr19 (28,413 variants) passed, 100 kb failed; 100 kb of chr5 (26,380) passed. A 2.6 Mb span failed with `Select a smaller region` regardless of count. |
 | variants in a gene | none seen: TTN returned 112,412 variants in one call (9 s). |
+| server load | **HTTP 200** with the GraphQL error `Service overloaded`, which carries no `path` either. Seen once on 2026-11-15, on a four-alias batch. A reader that maps aliases by position and treats every null as absent writes that as "not found". `check_batch()` raises `Overloaded`, and `variants()` retries the batch three times, 30 s apart. |
+| request body over about 10,240 bytes | **HTTP 200 with someone else's answer.** The body is answered from a cache (`X-Cached: HIT`) with one fixed 285,326-byte response: aliases `v0` to `v19` holding chr11 and chr12 variants (`v0` is `11-46320530-TG-T`), whatever was asked. A plain `GET /api` returns the same body. A one-alias query padded to 9,492 or 10,015 bytes came back `MISS` and correct; padded to 10,315 or 10,392 bytes it came back `HIT` with that body. In a separate audit, 10 of 10 bodies at or under 10,240 bytes were correct and 7 of 12 at or over 10,241 were wrong. The mechanism is not known. 25 variant lookups with this page's full field set make a body of about 10,450 bytes, so a full-cost batch can cross the line. |
 
-The silent one: **a lookup that fails returns HTTP 200** with `"data": {"variant": null}` and an
+The silent ones. **A lookup that fails, or an overloaded server, returns HTTP 200** with `"data": {"variant": null}` and an
 `errors` list. In a batch, the error messages carry no `path`, so they cannot be matched to the
-variant that failed. Match results by alias.
+variant that failed. Match results by alias. And **an oversized body returns HTTP 200 with
+another query's answer**, so a reader mapping aliases by position writes the wrong variant's
+frequencies as present and real variants as absent. The helper below guards it twice: `gql()`
+refuses to send a body over 9,500 bytes and `batches()` splits by measured size, and
+`check_batch()` raises unless every record's `variant_id` is the id asked for under that alias.
+The id check is the one that does not depend on knowing where the threshold sits.
 
-So the throughput is 25 variant lookups per request, 10 requests a minute: 250 variants a
-minute. Past a few thousand variants, slice the release files instead.
+So the throughput, with the full field set below, is about 22 SNV lookups per request (fewer
+for long indels; a smaller field set fits up to the cost cap of 25), 10 requests a minute:
+about 200 variants a minute. Past a few thousand variants, slice the release files instead.
 
 One call from the shell, to see the shape:
 
@@ -122,16 +130,30 @@ import json, re, time, urllib.error, urllib.request
 API = "https://gnomad.broadinstitute.org/api"
 MIN_GAP = 6.5        # the API allows 10 requests per IP per 60 s
 MAX_COST = 25        # one variant lookup costs 1; one region coverage lookup costs 11
+MAX_BODY = 9500      # bytes; bodies over ~10,240 B can get another client's cached answer
 _last = [0.0]
+LAST = {"x_cached": None}   # X-Cached header of the last response (HIT or MISS)
 
 
 class GnomadError(Exception):
-    """An HTTP-level failure: 400 query too expensive, 500 region too large, repeated 429."""
+    """An HTTP-level failure (400 too expensive, 500 region too large, repeated 429),
+    a body too large to send safely, or an answer that is not to the question asked."""
+
+
+class Overloaded(GnomadError):
+    """HTTP 200 with the GraphQL error "Service overloaded": retry later, never read as absent."""
+
+
+def encode(query, variables=None):
+    return json.dumps({"query": query, "variables": variables or {}}).encode()
 
 
 def gql(query, variables=None, tries=3):
-    """POST one query. Returns the parsed body, which may hold `errors` beside `data`."""
-    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+    """POST one query. Returns the parsed body, which may hold `errors` beside `data`.
+    Refuses to send a body over MAX_BODY bytes (see *What does not work*)."""
+    body = encode(query, variables)
+    if len(body) > MAX_BODY:
+        raise GnomadError(f"request body is {len(body)} B, over {MAX_BODY} B: split the query")
     for _ in range(tries):
         wait = MIN_GAP - (time.monotonic() - _last[0])
         if wait > 0:
@@ -141,6 +163,7 @@ def gql(query, variables=None, tries=3):
         try:
             with urllib.request.urlopen(req, timeout=180) as r:
                 _last[0] = time.monotonic()
+                LAST["x_cached"] = r.headers.get("X-Cached")
                 return json.load(r)
         except urllib.error.HTTPError as e:
             _last[0] = time.monotonic()
@@ -156,16 +179,20 @@ def gql(query, variables=None, tries=3):
     raise GnomadError("still rate-limited after retries")
 
 
-VARIANT_ID = re.compile(r"^(?:chr)?([0-9]{1,2}|X|Y|M)-([0-9]+)-([ACGT]+)-([ACGT]+)$", re.I)
+VARIANT_ID = re.compile(r"^(?:chr)?([1-9]|1[0-9]|2[0-2]|X|Y|MT?)-([1-9][0-9]*)-([ACGT]+)-([ACGT]+)$", re.I)
 
 
 def norm_id(vid):
-    """'chr19-44908684-t-c' -> '19-44908684-T-C'. Raises on anything else."""
+    """'chr19-44908684-t-c' -> '19-44908684-T-C'; 'MT-...' -> 'M-...'. Raises ValueError otherwise."""
     m = VARIANT_ID.match(vid.strip())
     if not m:
-        raise ValueError(f"not a chrom-pos-ref-alt id: {vid!r}")
+        raise ValueError(f"not a chrom-pos-ref-alt id (chromosome 1-22, X, Y or M/MT, "
+                         f"position from 1 with no leading zero, REF and ALT in ACGT): {vid!r}")
     c, p, ref, alt = m.groups()
-    return f"{c.upper()}-{int(p)}-{ref.upper()}-{alt.upper()}"
+    if ref.upper() == alt.upper():
+        raise ValueError(f"REF equals ALT, not a variant: {vid!r}")
+    c = "M" if c.upper() == "MT" else c.upper()
+    return f"{c}-{p}-{ref.upper()}-{alt.upper()}"
 
 
 SEQ = "ac an filters populations { id ac an homozygote_count }"
@@ -175,22 +202,73 @@ FIELDS = f"""variant_id rsids flags
   joint {{ {SEQ} faf95 {{ popmax popmax_population }} }}"""
 
 
-def variants(ids, dataset="gnomad_r4", fields=FIELDS):
-    """{normalised id: record or None}. 25 ids per request; None means the API said not found.
+def variant_query(chunk, dataset, fields):
+    return "query {" + " ".join(f'v{j}: variant(variantId: "{v}", dataset: {dataset}) {{ {fields} }}'
+                                for j, v in enumerate(chunk)) + "}"
 
-    A batch's `errors` list carries no path, so results are matched by alias, never by
-    the order of the error messages.
-    """
+
+def batches(ids, dataset="gnomad_r4", fields=FIELDS):
+    """Split ids into lists whose query costs at most MAX_COST and whose encoded body is
+    at most MAX_BODY bytes. The size is measured, not assumed from an id count."""
+    out = [[]]
+    for v in ids:
+        if out[-1] and (len(out[-1]) == MAX_COST or
+                        len(encode(variant_query(out[-1] + [v], dataset, fields))) > MAX_BODY):
+            out.append([])
+        out[-1].append(v)
+    return [c for c in out if c]
+
+
+def check_batch(chunk, res):
+    """Map one batch's response to {id: record or None}, or raise GnomadError.
+
+    Every alias must be present and no other; every record's variant_id must be the id
+    asked for under its alias; the only error accepted is "Variant not found", one per
+    null record. The errors carry no path, so nothing is matched by error order."""
+    data, errors = res.get("data"), res.get("errors") or []
+    where = f"(X-Cached: {LAST['x_cached']})"
+    if not isinstance(data, dict):
+        raise GnomadError(f"no data in response {where}: {errors[:3]}")
+    other = [e.get("message") for e in errors if e.get("message") != "Variant not found"]
+    if "Service overloaded" in other:
+        raise Overloaded(f"Service overloaded {where}")
+    if other:
+        raise GnomadError(f"unexpected errors {where}: {other[:3]}")
+    if set(data) != {f"v{j}" for j in range(len(chunk))}:
+        raise GnomadError(f"asked aliases v0..v{len(chunk) - 1}, response has {len(data)}: "
+                          f"{sorted(data)[:5]} {where}")
+    out = {}
+    for j, v in enumerate(chunk):
+        rec = data[f"v{j}"]
+        if rec is not None and rec.get("variant_id") != v:
+            raise GnomadError(f"asked {v} as v{j}, answer is for {rec.get('variant_id')} {where}")
+        out[v] = rec
+    if sum(r is None for r in out.values()) != len(errors):
+        raise GnomadError(f"{len(errors)} 'Variant not found' errors for "
+                          f"{sum(r is None for r in out.values())} null records {where}")
+    return out
+
+
+def variants(ids, dataset="gnomad_r4", fields=FIELDS):
+    """{normalised id: record, or None when the API said "Variant not found"}.
+
+    Sends as many batches as keep each body under MAX_BODY (about 22 SNVs with FIELDS)
+    and checks every answer with check_batch(), which raises GnomadError on a record
+    for the wrong variant, a missing or extra alias, or any other error. A batch
+    answered "Service overloaded" is retried up to three times, 30 s apart."""
+    if not re.search(r"\bvariant_id\b", fields):
+        fields = "variant_id " + fields          # needed to check each answer
     ids = list(dict.fromkeys(norm_id(v) for v in ids))
     out = {}
-    for i in range(0, len(ids), MAX_COST):
-        chunk = ids[i:i + MAX_COST]
-        q = "query {" + " ".join(
-            f'v{j}: variant(variantId: "{v}", dataset: {dataset}) {{ {fields} }}'
-            for j, v in enumerate(chunk)) + "}"
-        data = gql(q).get("data") or {}
-        for j, v in enumerate(chunk):
-            out[v] = data.get(f"v{j}")
+    for chunk in batches(ids, dataset, fields):
+        for attempt in range(4):
+            try:
+                out.update(check_batch(chunk, gql(variant_query(chunk, dataset, fields))))
+                break
+            except Overloaded:
+                if attempt == 3:
+                    raise
+                time.sleep(30)
     return out
 
 
@@ -565,7 +643,7 @@ were `AC0`, 806 `AC0;AS_VQSR`, 234 `AS_VQSR`, 1 `AS_VQSR;InbreedingCoeff` and 4,
 
 ### Annotate a variant list
 
-For up to a few thousand variants the API is simpler than any file (250 lookups a minute). This writes one TSV row
+For up to a few thousand variants the API is simpler than any file (about 200 lookups a minute). This writes one TSV row
 per input, with a `status` column saying *why* a variant has no frequency. Indels are
 normalised against GRCh38 (from Ensembl REST) before lookup, which also checks REF. Save it as
 `annotate.py` beside `gnomad_api.py`.
@@ -715,8 +793,8 @@ make one pass; for genomes the file is 11.19 GiB.
 **Data.** The live gnomAD GraphQL API (`gnomad_r4` and `gnomad_r2_1`), CC0, anonymous, no
 key. Six variants (APOE e4, CFTR F508del in two spellings, an absent allele, a wrong-REF id,
 G6PD A-), the GRCh37 and GRCh38 spellings of APOE e4, coverage at one base, PCSK9 constraint
-on both builds, and three limits that must fail loudly. Seven requests, paced under the rate
-limit; about 45 seconds. Python 3 standard library only. Confirmed reachable on 2026-11-15.
+on both builds, three limits that must fail loudly, and a request-size guard checked without
+sending anything. Seven requests, paced under the rate limit; about 45 seconds. Python 3 standard library only. Confirmed reachable on 2026-11-15.
 
 **Run.** In an empty directory:
 
@@ -724,12 +802,16 @@ limit; about 45 seconds. Python 3 standard library only. Confirmed reachable on 
 cat > gnomad_check.py <<'PY'
 import json, time, urllib.error, urllib.request
 
-API, last = "https://gnomad.broadinstitute.org/api", [0.0]
+API, last, sent = "https://gnomad.broadinstitute.org/api", [0.0], [0]
+MAX_BODY = 9500     # bodies over ~10,240 B can be answered with another client's cached query
 
 def gql(query, variables=None):
+    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+    if len(body) > MAX_BODY:
+        raise ValueError(f"body {len(body)} B > {MAX_BODY} B: not sent")
     time.sleep(max(0, 6.5 - (time.monotonic() - last[0])))      # 10 requests per IP per 60 s
-    req = urllib.request.Request(API, data=json.dumps({"query": query, "variables": variables or {}}).encode(),
-                                 headers={"Content-Type": "application/json"})
+    sent[0] += 1
+    req = urllib.request.Request(API, data=body, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=180) as r:
             return 200, json.load(r)
@@ -743,7 +825,13 @@ def batch(pairs, fields):
                        for i, (v, d) in enumerate(pairs)) + "}"
     code, body = gql(q)
     assert code == 200, (code, body)
-    return [body["data"][f"v{i}"] for i in range(len(pairs))], body.get("errors", [])
+    data, errs = body["data"], body.get("errors", [])
+    assert set(data) == {f"v{i}" for i in range(len(pairs))}, sorted(data)[:5]   # no missing or extra alias
+    for i, (v, _) in enumerate(pairs):                     # each answer is for the id asked
+        assert data[f"v{i}"] is None or data[f"v{i}"]["variant_id"] == v, (v, data[f"v{i}"]["variant_id"])
+    assert all(e["message"] == "Variant not found" for e in errs)
+    assert len(errs) == sum(data[f"v{i}"] is None for i in range(len(pairs)))
+    return [data[f"v{i}"] for i in range(len(pairs))], errs
 
 SEQ = "ac an filters populations { id ac an }"
 (e4, f508_shift, f508, absent, bad_ref, g6pd), errs = batch(
@@ -761,7 +849,7 @@ grp = {p["id"]: p for p in jo["populations"] if p["id"] and "_" not in p["id"] a
 assert sum(p["ac"] for p in grp.values()) == jo["ac"]
 # 3. Absent, wrong-REF and right-shifted indels all come back as the same null.
 assert absent is None and bad_ref is None and f508_shift is None and f508 is not None
-assert all(e["message"] == "Variant not found" for e in errs) and len(errs) == 3
+assert len(errs) == 3
 assert not any("path" in e for e in errs)          # so match results by alias, not by error order
 
 # 4. Build: a GRCh37 id is not found in v4, and a GRCh38 id is not found in v2.
@@ -793,6 +881,21 @@ assert code == 500 and "too many variants" in body
 code, body = gql('{ variant(rsid: "rs877973", dataset: gnomad_r4) { variant_id } }')
 assert body["data"]["variant"] is None and "Multiple variants" in body["errors"][0]["message"]
 
+# 8. 25 lookups with the full field set make a body over the size at which the API answers
+#    from a cache with another query's result; the guard refuses it before any request.
+S2 = "ac an filters populations { id ac an homozygote_count }"      # FIELDS from the request helper
+FULL = f"""variant_id rsids flags
+  exome {{ {S2} flags faf95 {{ popmax popmax_population }} }}
+  genome {{ {S2} flags faf95 {{ popmax popmax_population }} }}
+  joint {{ {S2} faf95 {{ popmax popmax_population }} }}"""
+big = "{" + " ".join(f'v{i}: variant(variantId: "X-{154536002 + i}-C-T", dataset: gnomad_r4) {{ {FULL} }}' for i in range(25)) + "}"
+before = sent[0]
+try:
+    gql(big)
+    raise AssertionError("an oversized body was sent")
+except ValueError as e:
+    assert len(json.dumps({"query": big, "variables": {}})) > 10240 and sent[0] == before, e
+
 af = lambda s: s["ac"] / s["an"]
 print(f"APOE e4  exome {af(ex):.4f} ({ex['ac']}/{ex['an']})  genome {af(ge):.4f}  joint {af(jo):.4f}  joint filters {jo['filters']}")
 print(f"         groups: {len(grp)} of {len(ids)} population rows; joint FAF95 max {jo['faf95']['popmax']:.4f} ({jo['faf95']['popmax_population']})")
@@ -800,11 +903,12 @@ print(f"G6PD A-  exome {af(g6pd['exome']):.4f}  genome {af(g6pd['genome']):.4f} 
 print(f"F508del  {f508['variant_id']} found; 7-117559591-TCTT-T (same deletion, right-shifted) not found")
 print(f"absent   19-44908684-T-A not found; depth>=20 in {at['exome']:.0%} of exomes, {at['genome']:.0%} of genomes")
 print(f"PCSK9    LOEUF v4 {v4c['oe_lof_upper']:.3f} (obs {v4c['obs_lof']}) vs v2.1.1 {v2c['oe_lof_upper']:.3f} (obs {v2c['obs_lof']})")
+print(f"guard    25 full lookups = {len(json.dumps({'query': big, 'variables': {}}))} B, refused unsent; {sent[0]} requests sent")
 PY
 python3 gnomad_check.py
 ```
 
-**Expect.** Run cold on 2026-11-15, in 44 seconds:
+**Expect.** Run cold on 2026-11-15, in 58 seconds:
 
 ```
 APOE e4  exome 0.1476 (208931/1415800)  genome 0.1574  joint 0.1485  joint filters ['discrepant_frequencies']
@@ -813,6 +917,7 @@ G6PD A-  exome 0.0037  genome 0.0335  joint filters ['discrepant_frequencies']
 F508del  7-117559590-ATCT-A found; 7-117559591-TCTT-T (same deletion, right-shifted) not found
 absent   19-44908684-T-A not found; depth>=20 in 96% of exomes, 98% of genomes
 PCSK9    LOEUF v4 1.144 (obs 57) vs v2.1.1 1.341 (obs 26)
+guard    25 full lookups = 10446 B, refused unsent; 7 requests sent
 ```
 
 *Invariants*, asserted, so a failure means the skill is wrong:
@@ -828,18 +933,24 @@ PCSK9    LOEUF v4 1.144 (obs 57) vs v2.1.1 1.341 (obs 26)
 - A versioned Ensembl id returns no gene; GRCh37 and GRCh38 give different constraint.
 - 26 aliases in one query return HTTP 400 naming the cost cap of 25; a 100 kb chr19 region
   returns HTTP 500; a two-allele rsid returns `Multiple variants found`.
+- Every batch answers exactly the aliases asked, each non-null record's `variant_id` is the
+  id asked for under its alias, and the only errors are one `Variant not found` per null.
+- 25 lookups with the full field set encode to more than 10,240 bytes, and the size guard
+  refuses that body without sending it.
 
 *Observed values, 2026-11-15* (they move with a new release, so a mismatch is drift to
 investigate): APOE e4 exome AF 0.1476 (208,931 / 1,415,800), genome 0.1574, joint 0.1485 with
 `discrepant_frequencies`; 10 ancestry groups among 35 joint population rows; joint FAF95 max
 0.2176 (afr); G6PD A- exome 0.0037 against genome 0.0335; 96% of exomes and 98% of genomes at
 depth 20 or more at 19:44908684; PCSK9 LOEUF 1.144 (57 observed pLoF) in v4 against 1.341
-(26) in v2.1.1.
+(26) in v2.1.1; 25 full-field lookups encode to 10,446 bytes.
 
 Beyond this block, the annotator was run on 13 inputs (APOE e4, F508del in two spellings plus
 a genuinely different 2 bp deletion beside it, G6PD A- on chrX, the GRCh37 APOE coordinate,
 an AC0 row, a genome-only intronic singleton, an absent allele, chrM, an rsid, a deletion
-sharing a position with an SNV, and a malformed id), constraint was compared against the
+sharing a position with an SNV, and a malformed id), the batch checker was run against a
+captured oversize-body response (it raised on the wrong `variant_id` where alias-position
+mapping returned `11-46320530-TG-T`'s record as APOE e4), constraint was compared against the
 v4.1, v4.1.1 and v4.1.2 files for 25 genes, and the VCF slicer was run on PCSK9 and APOE.
 
 ## Related skills
