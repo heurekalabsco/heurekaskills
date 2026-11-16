@@ -79,7 +79,8 @@ PORTAL = "https://www.encodeproject.org"
 
 
 def portal(path, **params):
-    """GET a portal path as JSON. A search matching nothing is HTTP 404 with a valid body."""
+    """GET a portal path as JSON. A search matching nothing is HTTP 404 with a valid search
+    body; any other 404 (a mistyped accession, a wrong path) is an error and raises."""
     params.setdefault("format", "json")
     url = PORTAL + path + ("&" if "?" in path else "?") + urllib.parse.urlencode(params, doseq=True)
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -89,12 +90,15 @@ def portal(path, **params):
     except urllib.error.HTTPError as e:
         body = e.read()
         if e.code == 404 and body.startswith(b"{"):
-            return json.loads(body)          # zero hits: total 0, @graph []
+            res = json.loads(body)
+            if "@graph" in res and "total" in res:
+                return res                   # zero hits: total 0, @graph []
         raise RuntimeError(f"HTTP {e.code} for {url}: {body[:120]!r}") from None
 
 
 def search(type_, fields=(), **filters):
-    """Every hit in one request. from= is refused, so a large limit is the only paging."""
+    """Every hit in one request. from= is refused, so limit=all is the only paging.
+    A list value is sent as a repeated key, which the portal reads as OR."""
     params = {"type": type_, "limit": "all", **filters}
     if fields:
         params["field"] = list(fields)
@@ -104,8 +108,9 @@ def search(type_, fields=(), **filters):
 ```
 
 Filter keys are dotted field paths (`target.genes.geneid`, `biosample_ontology.term_name`),
-which do not survive as Python keyword names — pass them with `**{...}`. Repeat a key for OR;
-append `!` for NOT (`audit.ERROR.category!=*` means "no ERROR audit of any kind"). `field=`
+which do not survive as Python keyword names — pass them with `**{...}`. For OR, pass a list
+(`assay_title=["TF ChIP-seq", "Histone ChIP-seq"]`): `urlencode(..., doseq=True)` sends it as
+the key repeated, which the portal reads as OR (5,002 + 3,832 = 8,834 released). Append `!` for NOT (`audit.ERROR.category!=*` means "no ERROR audit of any kind"). `field=`
 trims the response to what you name, which matters with `limit=all`: all 27,043 released
 experiments with two fields came back as 4 MB in 74 s.
 
@@ -123,15 +128,15 @@ hits = search("Experiment", fields=FIELDS,
                  "biosample_ontology.term_name": "K562",
                  "replicates.library.biosample.donor.organism.scientific_name": "Homo sapiens",
                  "audit.ERROR.category!": "*"})
-for h in hits:
+for h in sorted(hits, key=lambda h: h["accession"]):       # search order is not stable
     print(h["accession"], h["target"]["name"], h["biosample_summary"], h["assembly"])
 ```
 
 ```
 ENCSR000AKO CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
-ENCSR000DWE CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
-ENCSR000DMA CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
 ENCSR000BPJ CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
+ENCSR000DMA CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
+ENCSR000DWE CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
 ENCSR000EGM CTCF-human Homo sapiens K562 ['hg19', 'GRCh38']
 ```
 
@@ -153,7 +158,11 @@ The filters that matter, and why each one is there:
   the histone genes, so use the name, not a gene id.
 - **Organism lives on the donor.** `replicates.library.biosample.donor.organism.scientific_name`
   works; `organism.scientific_name` is not a field of Experiment and returns **zero hits,
-  silently** (HTTP 404 with `total: 0`, which `portal()` turns into an empty list).
+  silently** (HTTP 404 with `total: 0`, which `portal()` turns into an empty list). A 404
+for a single record is different: `/experiments/ENCSR000XXX/` answers 404 with
+`{"@type": ["HTTPNotFound", "Error"], "status": "error"}` and no `@graph`, and `portal()`
+raises on it — otherwise `audit_summary()` below would report "no audits" for an
+experiment that does not exist.
 - **`perturbed=false`** drops CRISPR, shRNA, drug and other treated samples. `K562` ATAC-seq
   is 64 released experiments, of which 60 are perturbed — mostly DMSO and drug time courses.
 - **Assay names are `assay_title`** as the portal prints them: `TF ChIP-seq`,
@@ -374,9 +383,13 @@ the V1 encyclopedia.
 import collections
 
 REGISTRY = "ENCSR800VNX"                     # Registry V4, GRCh38
+REGISTRY_FILE = "ENCFF420VPZ"
+REGISTRY_MD5 = "ea1820bd71581ba01c94fc600fbf794d"
 reg = portal(f"/annotations/{REGISTRY}/")
 print(reg["accession"], reg["status"], reg["encyclopedia_version"], reg["assembly"])
-bed = next(f for f in reg["files"] if f["file_format"] == "bed" and f["status"] == "released")
+assert reg["status"] == "released" and reg["encyclopedia_version"] == ["ENCODE v4"], reg["encyclopedia_version"]
+bed = next(f for f in reg["files"] if f["accession"] == REGISTRY_FILE)
+assert bed["status"] == "released" and bed["md5sum"] == REGISTRY_MD5, (bed["status"], bed["md5sum"])
 print(bed["accession"], bed["md5sum"], bed["file_size"])
 ccre_path = download(bed, "encode_files")
 
@@ -387,14 +400,16 @@ def load_registry(path):
         for line in fh:
             c = line.rstrip("\n").split("\t")
             by_chrom[c[0]].append((int(c[1]), int(c[2]), c[3], c[9]))
-    return by_chrom
+    return dict(by_chrom)
 
 
 registry = load_registry(ccre_path)
 
 
 def ccres_in(chrom, start, end):
-    """cCREs overlapping a 0-based half-open interval."""
+    """cCREs overlapping a 0-based half-open interval. Chromosomes are `chr`-prefixed."""
+    if chrom not in registry:
+        raise KeyError(f"{chrom!r} is not a chromosome in the registry (names look like 'chr17')")
     return [r for r in registry[chrom] if r[0] < end and r[1] > start]
 
 
@@ -498,7 +513,9 @@ Tried on 2026-11-15, so you do not have to:
 
 - **`from=` for paging** — every request carrying `from` (even `from=0`) is answered **403
   Forbidden** with an HTML body from the load balancer. Use `limit=all` with `field=` to keep
-  it small; `limit=10000` also works.
+  it small. A numeric limit is a silent cap, not an error: `limit=10000` returned 10,000 rows
+  of a `total` of 27,043 on 2026-11-15. If you use one, compare `len(@graph)` with `total`
+  (as `search()` does).
 - **`organism.scientific_name` on Experiment** — not a field there; zero hits, no error.
 - **SCREEN's GraphQL host**, `screen.api.wenglab.org/graphql` — **403**
   `{"error":"request not allowed"}` for anonymous GET and POST.
@@ -547,7 +564,10 @@ def get(path, **q):
             return r.status, json.loads(r.read())
     except urllib.error.HTTPError as e:
         body = e.read()
-        return e.code, (json.loads(body) if body.startswith(b"{") else body)
+        body = json.loads(body) if body.startswith(b"{") else body
+        if e.code == 404 and not (isinstance(body, dict) and "@graph" in body and "total" in body):
+            raise LookupError(f"404 for {url}: not a search result")
+        return e.code, body
 
 def fetch(url, md5, dest):
     h = hashlib.md5()
@@ -601,13 +621,19 @@ code, body = get("/search/", type="Experiment", **{"organism.scientific_name": "
 assert code == 404 and body["total"] == 0
 code, _ = get("/search/", type="Experiment", limit="5", **{"from": "5"})
 assert code == 403
-print("zero-hit search -> 404 with total 0; from= -> 403")
+try:
+    get("/experiments/ENCSR000XXX/")
+    raise AssertionError("a bogus accession must not read as an empty record")
+except LookupError:
+    pass
+print("zero-hit search -> 404 with total 0; from= -> 403; bogus accession -> raises")
 
 # 5. the registry: V3 is tagged current, V4 is the one to pin
 _, v3 = get("/annotations/ENCSR487PRC/")
 _, v4 = get("/annotations/ENCSR800VNX/")
 assert "current" in v3["encyclopedia_version"] and v4["encyclopedia_version"] == ["ENCODE v4"]
-bed = next(f for f in v4["files"] if f["file_format"] == "bed" and f["status"] == "released")
+bed = next(f for f in v4["files"] if f["accession"] == "ENCFF420VPZ")
+assert bed["status"] == "released" and bed["md5sum"] == "ea1820bd71581ba01c94fc600fbf794d"
 c = fetch(bed["cloud_metadata"]["url"], bed["md5sum"], "encode_files/" + bed["accession"] + ".bed.gz")
 reg = collections.defaultdict(list)
 for line in gzip.open(c, "rt"):
@@ -617,6 +643,8 @@ n = sum(map(len, reg.values()))
 classes = collections.Counter(r[3] for v in reg.values() for r in v)
 _, tp53 = get("/genes/7157/", frame="object")
 loc = next(l for l in tp53["locations"] if l["assembly"] == "GRCh38")
+reg = dict(reg)
+assert loc["chromosome"] in reg and "17" not in reg          # names are chr-prefixed
 hits = [r for r in reg[loc["chromosome"]] if r[0] < loc["end"] + 10_000 and r[1] > loc["start"] - 10_000]
 print(bed["accession"], n, "cCREs;", len(classes), "classes; TP53 +/-10 kb:", len(hits))
 assert set(classes) == {"PLS", "pELS", "dELS", "CA-H3K4me3", "CA-CTCF", "CA-TF", "CA", "TF"}
@@ -634,9 +662,12 @@ Invariants — a failure means the skill is wrong:
 - The downloaded file matches the record's md5, and every row is 10-column narrowPeak.
 - `ENCSR160FPV` has released files and none is preferred — there is no default to take.
 - `target.label=CTCF` returns more experiments than `target.genes.geneid=10664`.
-- A zero-hit search is HTTP 404 with `total: 0`; a request with `from=` is 403.
-- The V3 registry annotation is tagged `current`; V4 is not. V4 uses exactly the eight
-  classes listed, and every cCRE accession is `EH38E…`.
+- A zero-hit search is HTTP 404 with `total: 0`; a request with `from=` is 403; a bogus
+  accession is a 404 with no `@graph` and raises rather than reading as an empty record.
+- The V3 registry annotation is tagged `current`; V4 is not. The V4 annotation still carries
+  `ENCFF420VPZ`, released, with md5 `ea1820bd…` — if ENCODE replaces the file, this fails
+  rather than silently loading a different registry. V4 uses exactly the eight classes
+  listed, chromosome names are `chr`-prefixed, and every cCRE accession is `EH38E…`.
 
 Observed on 2026-11-15 — these move when ENCODE reprocesses, and a mismatch is drift to
 investigate:
@@ -647,7 +678,7 @@ in default analysis : [('ENCFF660GHM', 'IDR thresholded peaks')]
 ENCFF660GHM 58684 narrowPeak rows
 ENCSR160FPV: 808 released files, none preferred
 target.label=CTCF 502 | geneid 10664 457
-zero-hit search -> 404 with total 0; from= -> 403
+zero-hit search -> 404 with total 0; from= -> 403; bogus accession -> raises
 ENCFF420VPZ 2348854 cCREs; 8 classes; TP53 +/-10 kb: 31
 ```
 
