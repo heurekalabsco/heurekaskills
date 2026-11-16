@@ -71,12 +71,21 @@ curl -s -o /dev/null -w "v1 says %{http_code} for a study added after the freeze
 
 Prints `{"accession": "MGYS00010397"}` then `v1 says 404 ...`.
 
-**Copy paths from the OpenAPI spec exactly — trailing slashes are not interchangeable.** List
-endpoints end in `/` (`studies/`, `biomes/`), detail endpoints do not (`analyses/MGYA00592887`).
-`analyses/MGYA00592887/` and `assemblies/ERZ3898142/analyses/` both return an **HTML** 404 page,
-while `genomes/catalogues` without its slash is read as a genome accession and returns JSON
-`{"detail": "Not Found"}`. The body type tells you which mistake you made: HTML means a route
-that does not exist, JSON `detail` means a route that exists and a record that does not.
+**Copy paths from the OpenAPI spec exactly — a trailing slash is not optional in one
+direction.** The spec writes most list routes with a slash (`studies/`, `runs/{acc}/analyses/`,
+`runs/{acc}/assemblies/`) and detail routes without (`analyses/MGYA00592887`), but not
+consistently: `assemblies/{acc}/analyses` is a list route with no slash.
+
+- **A slash the spec does not have** gives an **HTML** 404 page: `analyses/MGYA00592887/`,
+  `assemblies/ERZ3898142/analyses/`.
+- **A slash the spec has, left off,** usually costs a 301 redirect that clients follow:
+  `studies?page_size=1` and `runs/ERR4029720/assemblies` both answer `200` JSON after one hop.
+- **Except where the slashless path is another route.** `genomes/catalogues` matches
+  `genomes/{accession}` and returns JSON `{"detail": "Not Found"}` — read as a genome called
+  "catalogues".
+
+The body type tells you which mistake you made: HTML means a route that does not exist, JSON
+`detail` means a route that exists and a record that does not.
 
 ### Paging
 
@@ -144,8 +153,8 @@ under `runs/` and one, `MGYA00592887`, under its assembly:
 ```python
 def analyses_for_run(run):
     found = list(pages(f"runs/{run}/analyses/"))
-    for asm in pages(f"runs/{run}/assemblies"):
-        found += list(pages(f"assemblies/{asm['accession']}/analyses"))   # no trailing slash
+    for asm in pages(f"runs/{run}/assemblies/"):
+        found += list(pages(f"assemblies/{asm['accession']}/analyses"))   # no slash, per the spec
     return found
 
 for run in ["SRR7760815", "ERR4029720"]:
@@ -187,8 +196,8 @@ print(studies[0]["accession"], studies[0]["ena_accessions"], studies[0]["title"]
 ```
 
 `has_analyses_from_pipeline` on `studies/` is **not a reliable filter**. On 2026-11-15, `V1`,
-`V2`, `V3`, `V4` and `V4.1` each returned all 5,749 studies, and `V6`, `V6.1` and `V6.2` each
-returned the same 173. Read `pipeline_version` on each analysis instead.
+`V2`, `V3`, `V4` and `V4.1` each returned all 5,749 studies, `V5` returned 59, and `V6`, `V6.1`
+and `V6.2` each returned the same 173. Read `pipeline_version` on each analysis instead.
 
 ## One analysis: what it is and what it holds
 
@@ -220,10 +229,14 @@ V6 dataset, look for its assembly analysis.
 
 ## Taxonomic profiles
 
-`analyses/{MGYA}/annotations/{type}` serves counts per taxon as JSON, where `type` is one of
+`analyses/{MGYA}/annotations/{type}` serves counts per taxon as JSON when `type` is one of
 `taxonomies__ssu`, `taxonomies__lsu`, `taxonomies__unite`, `taxonomies__its_one_db`,
-`taxonomies__pr2`, `taxonomies__dada2_silva`, `taxonomies__dada2_pr2`, `pfams`.
-`analyses/{MGYA}/annotations` (no type) returns every group in one response.
+`taxonomies__pr2`, `taxonomies__dada2_silva` or `taxonomies__dada2_pr2`. The one other value the
+spec allows, `pfams`, is functional: its rows are `description` and `count` with `organism: null`
+(next section). `analyses/{MGYA}/annotations` with no type is not a list — it returns the whole
+analysis record (`downloads` included), with an `annotations` dict nested inside holding
+`pfams`, `interpros` and `taxonomies` (`ssu`, `lsu`, `pr2`, `unite`, `its_one_db`, each a list
+or `null`).
 
 ```python
 def taxa(mgya, kind="ssu"):
@@ -254,7 +267,8 @@ assembly analysis `MGYA01030663`, `annotations/pfams` returns two rows that read
 "Reverse transcriptase (RNA-dependent DNA polymerase)", 266 and 254. Those are two different
 families — `PF00078` and `PF07727` — and only the summary file says so. Key any dict on the
 description and one family silently overwrites the other; merge across samples on it and you
-add two families together. The `interpros`, `go_terms` and `kegg_modules` groups came back
+add two families together. `interpros` has no route of its own (`annotations/interpros` is a
+`422`); it appears only inside the no-type `annotations` record. `pfams` and `interpros` came back
 empty for every V≤5 and V6 raw-read analysis checked, even where the files exist.
 
 So functional profiles come from the per-analysis summary files. Their formats differ by
@@ -422,22 +436,28 @@ soil v1.0). Take every URL from `downloads`.
 ## Get the files
 
 From a biome to files on disk, one pipeline version per directory, with a manifest that
-records which version every file came from. Set `LINEAGE`, `VERSION` and `WANT`; the defaults
+records which version every file came from. Set `LINEAGE`, `VERSION` and `WANT`. A kind in
+`WANT` that an analysis does not have is a warning naming the analysis, never a silent skip, and
+an analysis that matches nothing at all stops the run. The defaults
 take the summary tables (taxonomy and function) from the first three human-gut V5 assembly
 analyses found, which is a few MB.
 
 ```python
-import os, json, urllib.parse, urllib.request
+import os, json, urllib.parse, urllib.request, warnings
 
 LINEAGE = "root:Host-associated:Human:Digestive system"
 VERSION = "V5"            # exact pipeline_version; never mix two in one table
 EXPERIMENT = "Assembly"
 N_ANALYSES = 3
-WANT = (".summary.ips", ".summary.go", ".summary.go_slim", ".summary.pfam", ".summary.ko",
-        ".summary.kegg_pathways", "_SSU.fasta.mseq.tsv", "_LSU.fasta.mseq.tsv",
-        "_interpro_summary.tsv.gz", "_go_summary.tsv.gz", "_goslim_summary.tsv.gz",
-        "_pfam_summary.tsv.gz", "_ko_summary.tsv.gz", "_kegg_modules_summary.tsv.gz",
-        "_contigs_taxonomy.tsv.gz")
+WANT = {   # kind -> file-name endings, every spelling V1 to V6
+    "interpro":     (".summary.ips", "_interpro_summary.tsv.gz"),
+    "go":           (".summary.go", "_summary.go", "_go_summary.tsv.gz"),   # V5 . / V1-V4.1 _
+    "go_slim":      (".summary.go_slim", "_summary.go_slim", "_goslim_summary.tsv.gz"),
+    "pfam":         (".summary.pfam", "_pfam_summary.tsv.gz"),
+    "ko":           (".summary.ko", "_ko_summary.tsv.gz"),
+    "kegg_modules": (".summary.kegg_pathways", "_kegg_modules_summary.tsv.gz"),
+    "taxonomy":     ("_SSU.fasta.mseq.tsv", "_LSU.fasta.mseq.tsv", "_contigs_taxonomy.tsv.gz"),
+}
 OUT = os.path.join("Data", "mgnify", VERSION)
 os.makedirs(OUT, exist_ok=True)
 
@@ -455,10 +475,13 @@ for study, a in chosen:
     assert detail["pipeline_version"] == VERSION
     d = os.path.join(OUT, a["accession"])
     os.makedirs(d, exist_ok=True)
+    found = set()
     for f in detail["downloads"]:
         name = f["url"].rsplit("/", 1)[1]        # the alias is not the file name
-        if not name.endswith(WANT):
+        kind = next((k for k, ends in WANT.items() if name.endswith(ends)), None)
+        if kind is None:
             continue
+        found.add(kind)
         path = os.path.join(d, name)
         urllib.request.urlretrieve(f["url"], path)
         manifest.append({"study": study["accession"], "ena_study": study["ena_accessions"],
@@ -467,9 +490,14 @@ for study, a in chosen:
                          "run": (detail.get("run") or {}).get("accession"),
                          "assembly": (detail.get("assembly") or {}).get("accession"),
                          "sample": (detail.get("sample") or {}).get("accession"),
-                         "group": f["download_group"], "url": f["url"], "path": path,
+                         "kind": kind, "group": f["download_group"], "url": f["url"], "path": path,
                          "bytes": os.path.getsize(path)})
         print(f"{a['accession']}  {os.path.getsize(path):>9,}  {name}")
+    if not found:
+        raise RuntimeError(f"{a['accession']}: no download matched WANT — check the file names")
+    missing = sorted(set(WANT) - found)
+    if missing:                                  # e.g. V4.1 has no InterPro, Pfam or KO summary
+        warnings.warn(f"{a['accession']} ({VERSION}): no {', '.join(missing)} file")
 
 with open(os.path.join(OUT, "manifest.json"), "w") as fh:
     json.dump({"api": API, "biome": LINEAGE, "pipeline_version": VERSION,
@@ -507,12 +535,12 @@ for d in j["data"]: print(d["id"], d["attributes"]["count"], d["attributes"]["de
 | `samples/?biome_lineage=...` | misses most samples — their `biome` is `null` | filter studies, then walk their samples |
 | an unknown biome lineage | `200`, `count: 0` | validate against `biomes/` first |
 | `results_dir + alias` | `404` for V5 and earlier | use each download's `url` |
-| `annotations/pfams`, `interpros` as a profile | descriptions only, no accession; duplicates collide | per-analysis summary files |
+| `annotations/pfams`, or `interpros` in the `annotations` record, as a profile | descriptions only, no accession; duplicates collide | per-analysis summary files |
 | `annotations` functional groups for V5 / V6 raw reads | empty lists | summary files; for V6, the assembly analysis |
-| `runs/{run}/analyses/` for assembly results | empty | `runs/{run}/assemblies`, then `assemblies/{ERZ}/analyses` |
+| `runs/{run}/analyses/` for assembly results | empty | `runs/{run}/assemblies/`, then `assemblies/{ERZ}/analyses` |
 | a listed download `url` | occasionally dead — all 32 for the V4 assembly analysis `MGYA00139099` 404, in v1 too (directory and file names disagree) | check status per file; record the gap, do not substitute |
 | `annotations/taxonomies__ssu` on a V1 analysis | empty | the V1 QIIME `otu_table.biom` download |
-| `analyses/{MGYA}/`, `assemblies/{ERZ}/analyses/` (extra slash) | HTML 404 page | paths exactly as in `openapi.json` |
+| `analyses/{MGYA}/`, `assemblies/{ERZ}/analyses/` (a slash the spec lacks) | HTML 404 page | paths exactly as in `openapi.json` |
 | `genomes/catalogues` (missing slash) | JSON 404 — read as a genome accession | `genomes/catalogues/` |
 | `page_size` above 100 (v2) or 250 (v1) | silently clamped | page with `count` |
 | a v2 page past the end | `200`, empty `items` | stop on `count` |
@@ -566,10 +594,10 @@ print("human digestive studies:", len(studies))
 
 # 2. one run, two pipeline versions: never pooled
 runs = {a["pipeline_version"]: a["accession"] for a in pages("runs/SRR7760815/analyses/")}
-assert runs == {"V4.1": "MGYA00363409", "V5": "MGYA00779426"}, runs
+assert {"V4.1": "MGYA00363409", "V5": "MGYA00779426"}.items() <= runs.items(), runs
 ssu = {v: {r["organism"]: r["count"]
-           for r in pages(f"analyses/{a}/annotations/taxonomies__ssu")}
-       for v, a in runs.items()}
+           for r in pages(f"analyses/{runs[v]}/annotations/taxonomies__ssu")}
+       for v in ("V4.1", "V5")}
 assert all(k.endswith("|4.1") for k in ssu["V4.1"]) and all(k.endswith("|5.0") for k in ssu["V5"])
 assert not set(ssu["V4.1"]) & set(ssu["V5"])          # no label is shared verbatim
 assert "Chloroplast|4.1" in ssu["V4.1"] and "Chloroplast|5.0" not in ssu["V5"]
@@ -625,7 +653,7 @@ Invariants — these hold whatever MGnify adds or reruns, and a failure means th
 
 - Every study returned for a biome lies on or under that lineage; a near-miss lineage
   returns `count: 0` with status `200`.
-- The two analyses of `SRR7760815` carry different pipeline versions, their SSU labels end in
+- `SRR7760815` has a V4.1 and a V5 analysis (a later rerun may add more), their SSU labels end in
   `|4.1` and `|5.0`, no label is shared verbatim, and `Chloroplast` exists only under V4.1.
   `SRR4070111` has V4.1, V5 and V6 analyses and no SSU label is shared by any two.
 - The JSON Pfam rows have no accession; the summary file has a header, as many families as the
