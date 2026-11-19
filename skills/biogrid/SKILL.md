@@ -24,8 +24,15 @@ verified:
 BioGRID (TyersLab) curates interactions from the literature: **physical** ones (two proteins
 co-purify, bind in a two-hybrid assay, sit in a crystal structure) and **genetic** ones (two
 mutations together give a phenotype neither gives alone — synthetic lethality, suppression,
-rescue). Release 5.0.263 (November 2026) holds 2,964,629 evidence rows, split into 98
-per-organism files. BioGRID ORCS is its sister database of published CRISPR screens, scored per gene.
+rescue). The ALL file of release 5.0.263 (November 2026) holds 2,964,629 evidence rows; the
+ORGANISM bundle splits them into 98 per-organism files. BioGRID ORCS is its sister database of published CRISPR screens, scored per gene.
+
+BioGRID's own statistics page for this build (<https://wiki.thebiogrid.org/doku.php/build_5.0.263>)
+reports 3,050,286 raw interactions, 85,657 more than the ALL file. The download is not
+truncated. The genetic counts agree exactly (889,957), and so do the physical counts for
+yeast, mouse and SARS-CoV-2, counted as rows with that organism on either side. The whole gap
+is in human physical interactions: the page gives 1,505,957 (1,527,078 human in total), the
+file 1,420,300. Quote counts from the file you analysed, and say so.
 
 Four things to know before counting anything:
 
@@ -33,8 +40,8 @@ Four things to know before counting anything:
   physical, 889,957 genetic. A "number of interactions" that does not say which is a sum of
   two unlike things. Split on `Experimental System Type` every time.
 - **A row is one piece of evidence, not one interaction.** The same pair reported by five
-  papers, or by one paper with two methods, is five or two rows. The 2,964,629 rows are
-  2,306,541 distinct pairs. TP53 has 6,133 rows but 2,590 distinct partners.
+  papers, or by one paper with two methods, is five or two rows. The ALL file's 2,964,629 rows
+  are 2,306,541 distinct pairs. TP53 has 6,133 rows but 2,590 distinct partners.
 - **Join on ids, not symbols.** BioGRID prints the gene symbol current when the record was
   built, and some are old: 1,620 of 21,096 human genes in 5.0.263 carry a symbol NCBI no
   longer uses, and 26 of those symbols now belong to a *different* gene.
@@ -45,8 +52,8 @@ Four things to know before counting anything:
 
 **For the release files: nothing.** They are anonymous downloads, and they are the route this
 page verifies and recommends. **For the REST service: a free access key**, issued on
-registration at <https://webservice.thebiogrid.org>. Every REST call, including `/version`,
-is refused without it (see **REST**). The ORCS web service needs its own key in the same
+registration at <https://webservice.thebiogrid.org>. Every REST call is refused without it:
+`/interactions` answers `401`, and `/version` redirects to the HTML home page (see **REST**). The ORCS web service needs its own key in the same
 way; ORCS release files need none.
 
 The download host refuses Python's default `User-Agent` with `403 Forbidden`, and limits
@@ -126,8 +133,8 @@ With `REL=5.0.299` it printed `curl: (22) The requested URL returned error: 404`
 A cross-species row appears in **both** organisms' files: the 98 organism files of 5.0.263
 hold 3,081,533 rows against 2,964,629 in the ALL file, and the difference, 116,904, is exactly
 the number of cross-species rows. Never concatenate organism files to get "everything"; use
-ALL. The human file has 1,441,421 rows, 113,939 of them with a non-human partner (55,909 with
-SARS-CoV-2).
+ALL. The human file has 1,441,421 rows, 113,939 of them with a non-human partner (57,186 with a
+SARS-CoV-2 protein on one side).
 
 ### The helper
 
@@ -248,7 +255,7 @@ Read it this way:
   (`Affinity Capture-MS` alone is 1,008,699 rows, 49% of physical evidence).
 - **High-throughput dominates.** 2,471,143 rows are `High Throughput`, 479,920 `Low Throughput`
   and 13,566 carry both tags. Filter on `Throughput` when you want curated small-scale work.
-- **Self-interactions** (homodimers, 21,992 rows) put the gene in its own partner list;
+- **Self-interactions** (homodimers, 21,499 rows, counted on BioGRID ids) put the gene in its own partner list;
   `self_interaction` reports it.
 - **Choose the partner organism explicitly.** For a human gene, restricting partners to human
   removes few rows (137 of 6,133 for TP53). For a viral protein it removes nearly everything:
@@ -322,7 +329,7 @@ file. The 120 vanished ids are replaced records — NCBI reports 9220 (TIAF1) as
 key goes in every call as `accesskey=`. Without one:
 
 ```bash
-# Without a key every endpoint answers 401 with a JSON reason, including /version
+# Without a key /interactions answers 401 with a JSON reason (keyless /version redirects instead)
 for key in "" 00000000000000000000000000000000; do
   curl -sS -w '  -> HTTP %{http_code}\n' \
     "https://webservice.thebiogrid.org/interactions/?searchNames=true&geneList=TP53&taxId=9606&format=count&accesskey=$key"
@@ -350,8 +357,9 @@ verified here** for want of a key:
 | `taxId` | restricts which genes the **query** matches, not the partners. Add `interSpeciesExcluded=true` only if you mean to drop virus–host and other cross-species rows |
 | `evidenceList` | **excludes** the listed experimental systems unless `includeEvidence=true` |
 
-`includeInteractors` defaults to `true` (first-order partners are returned, not only edges
-within the list). `searchSynonyms` matches old and alias symbols, which is how a query for a
+BioGRID's parameter table gives `includeInteractors` a default of `true` (first-order partners
+come back, not only edges within the list) and `includeInteractorInteractions` a default of
+`false`. Set both explicitly rather than relying on a default. `searchSynonyms` matches old and alias symbols, which is how a query for a
 symbol picks up a different gene; prefer `searchIds=true` with Entrez ids. The service reports
 its own release at `/version`; check it matches the files you pin.
 
@@ -363,7 +371,8 @@ import json, os, urllib.parse, urllib.request
 KEY = os.environ["BIOGRID_ACCESS_KEY"]           # free, from https://webservice.thebiogrid.org
 BASE = "https://webservice.thebiogrid.org/interactions/"
 query = {"geneList": "7157", "searchIds": "true",  # Entrez id; geneList is ignored without a search* flag
-         "taxId": "9606", "interSpeciesExcluded": "true", "includeInteractors": "true"}
+         "taxId": "9606", "interSpeciesExcluded": "true",
+         "includeInteractors": "true", "includeInteractorInteractions": "false"}
 
 def get(**extra):
     url = BASE + "?" + urllib.parse.urlencode({**query, **extra, "accesskey": KEY})
@@ -420,12 +429,27 @@ m = index[partial[0]]
 print(f"  e.g. screen {partial[0]}: {m['SCORES_SIZE']} of {m['FULL_SIZE']} genes in the file, hit rule '{m['SIGNIFICANCE_CRITERIA']}'")
 print("  first score column means:", collections.Counter(m["SCORE.1_TYPE"] for m in index.values()).most_common(5))
 
+print("  identifier types:", dict(collections.Counter(r["IDENTIFIER_TYPE"] for rs in scores.values() for r in rs)))
+
+# One gene can sit on several rows of one screen, sometimes with different HIT calls.
+# Collect every row per (screen, gene) and report conflicts instead of keeping one silently.
+genes = collections.defaultdict(list)
+for sid, rs in scores.items():
+    for r in rs:
+        if r["IDENTIFIER_TYPE"] == "ENTREZ_GENE":      # UNKNOWN (controls) and AMBIGUOUS rows are not genes
+            genes[(sid, r["IDENTIFIER_ID"])].append(r["HIT"])
+repeated = {k: v for k, v in genes.items() if len(v) > 1}
+conflicting = {k: v for k, v in repeated.items() if len(set(v)) > 1}
+print(f"  a gene on several rows of one screen: {len(repeated)} cases in "
+      f"{len({k[0] for k in repeated})} screens, {len(conflicting)} with conflicting HIT calls")
+
 GENE = "22059"                                   # Trp53, by Entrez id
-seen = {s: r for s, rs in scores.items() for r in rs if r["IDENTIFIER_ID"] == GENE}
-hits = [s for s, r in seen.items() if r["HIT"] == "YES"]
-absent_partial = [s for s in partial if s not in seen]
-print(f"Trp53: scored in {len(seen)} screens, a hit in {len(hits)}, "
-      f"absent from {len(index) - len(seen)} ({len(absent_partial)} of them partial files, so not 'not a hit')")
+calls = {sid: set(v) for (sid, g), v in genes.items() if g == GENE}
+hits = [sid for sid, c in calls.items() if c == {"YES"}]
+mixed = [sid for sid, c in calls.items() if len(c) > 1]
+absent_partial = [s for s in partial if s not in calls]
+print(f"Trp53: scored in {len(calls)} screens, a hit in {len(hits)}, conflicting calls in {len(mixed)}, "
+      f"absent from {len(index) - len(calls)} ({len(absent_partial)} of them partial files, so not 'not a hit')")
 ```
 
 On 2026-11-19:
@@ -434,7 +458,9 @@ On 2026-11-19:
 ORCS 2.0.18 mouse: 205 screens; 32 publish only part of what was screened
   e.g. screen 599: 455 of 2368 genes in the file, hit rule 'Score.3 (FDR) < 0.1'
   first score column means: [('p-Value', 45), ('MaGeCK Score', 33), ('Log2FC', 26), ('Z-score', 22), ('Rank', 13)]
-Trp53: scored in 161 screens, a hit in 21, absent from 44 (30 of them partial files, so not 'not a hit')
+  identifier types: {'ENTREZ_GENE': 1886298, 'AMBIGUOUS': 446, 'UNKNOWN': 17807}
+  a gene on several rows of one screen: 1055 cases in 95 screens, 58 with conflicting HIT calls
+Trp53: scored in 161 screens, a hit in 21, conflicting calls in 0, absent from 44 (30 of them partial files, so not 'not a hit')
 ```
 
 - **A missing gene is not a non-hit.** 32 of 205 mouse screens publish only part of the
@@ -447,8 +473,13 @@ Trp53: scored in 161 screens, a hit in 21, absent from 44 (30 of them partial fi
 - **Direction is in the criteria text.** Negative-selection screens mark depletion (essential
   genes) with low scores; positive selection marks resistance with high ones; some screens
   use both. Read `SCREEN_TYPE` and `SIGNIFICANCE_CRITERIA` before calling a gene "essential".
-- Genes are identified by `IDENTIFIER_ID` with `IDENTIFIER_TYPE` (`ENTREZ_GENE` in these
-  files); join on that, not on `OFFICIAL_SYMBOL`.
+- **Not every row is a gene, and a gene can have several rows.** Mouse 2.0.18 has 1,886,298
+  `ENTREZ_GENE` rows, 17,807 `UNKNOWN` (control guides) and 446 `AMBIGUOUS`. Filter on
+  `IDENTIFIER_TYPE` = `ENTREZ_GENE` and join on `IDENTIFIER_ID`, never on `OFFICIAL_SYMBOL`.
+  Within one screen the same Entrez id appears on more than one row 1,055 times across 95
+  screens (1,139 times in 96 screens counting every identifier type), and 58 of those carry
+  conflicting `HIT` calls. A dict keyed on screen and gene keeps the last row without warning;
+  the block above collects every row and reports the conflicts.
 
 ## What does not work
 
