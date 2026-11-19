@@ -14,7 +14,7 @@ datasets: [https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resou
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-19
-  against: eQTL Catalogue release 7 (758 datasets, 42 studies, files dated 2023-04-06) and pre-release 8 beta (592 datasets, 16 studies, files dated 2026-09-09) read over https from the EMBL-EBI public FTP / dataset metadata tables at eQTL-Catalogue-resources master / pysam 0.24.1 (htslib 1.22) / pyarrow 26.0.1 / Python 3.13.9 / curl 8.14.1
+  against: eQTL Catalogue release 7 (758 datasets, 42 studies, files dated 2023-04-06) and pre-release 8 beta (592 datasets, 16 studies, files dated 2026-09-09) read over https from the EMBL-EBI public FTP / dataset metadata tables at eQTL-Catalogue-resources master / pysam 0.24.1 (htslib 1.24) / pyarrow 26.0.1 / Python 3.12.8 / curl 8.15.0
   executed: 12
   unverified: 0
 ---
@@ -77,9 +77,21 @@ served, and interchangeable in neither path nor parser.
 | datasets | 758 across 42 studies | 592 across 16 studies |
 
 There is no `.tbi` anywhere under `r8_beta`, so tabix cannot be pointed at it at all. And
-pre-release 8 is a *partial* reprocessing: it has fewer datasets than release 7 because only
-16 of the 42 studies have been re-run so far. Release 7 is still the one to use unless you
-specifically need a study it reprocessed.
+pre-release 8 is not a subset of release 7. Of its 16 studies, read from the two metadata
+tables:
+
+- **7 carry a release-7 `study_id`.** Six keep their label (`Cytoimmgen`, `Jerber_2021`,
+  `Nathan_2022`, `OneK1K`, `Perez_2022`, `Randolph_2021`); `QTS000015` changes from `GTEx`
+  (v8) to `GTEx_v10`, new data under the old id (Trap 1).
+- **9 have study ids that do not exist in release 7** (`QTS000044`–`QTS000054`, release 7
+  stops at `QTS000042`): four new datasets (`MAGE`, `IBDverse`, `INTERVAL_RNA`,
+  `INTERVAL_RNA_WGS`) and five `*_reannotated` versions of single-cell studies that are also
+  present in their original form.
+- **35 of release 7's 42 studies, BLUEPRINT among them, have no pre-release 8 counterpart.**
+
+So the choice is per study, not per release: release 7 is the only source for those 35 and
+for GTEx v8; pre-release 8 is the only source for GTEx v10, the four new datasets and the
+reannotated versions. Where a study is in both, say which release you used.
 
 ```python
 """Confirm the layout of both releases before trusting any path. Stdlib only."""
@@ -106,9 +118,10 @@ assert any(f.endswith(".all.parquet") for f in r8), "r8_beta should ship parquet
 assert not any(f.endswith(".tbi") for f in r8), "r8_beta has no tabix index -- confirmed"
 ```
 
-A directory listing is only safe to request this deep in the tree. `GET /sumstats/` is a
-listing of every study and the server resets the connection rather than render it; resolve
-study and dataset ids from the metadata table below instead of walking the tree.
+`GET /sumstats/` does return a listing — 42 `QTS…/` directories in release 7 — but the
+names are all it carries: nothing in the tree says which study a `QTS` id is or what a
+`QTD` id under it contains. Resolve study and dataset ids from the metadata table below
+instead of walking the tree.
 
 Each release-7 dataset directory also holds a `*.cc.tsv.gz` alongside the `*.all.tsv.gz`.
 It carries the same nineteen columns over a smaller variant set and the project's column
@@ -214,10 +227,15 @@ assert cols[-1] == "rsid", "strip \\r or the last column is named 'rsid\\r'"
 assert len(cols) == 19
 ```
 
-Nineteen bytes of HTTP range is the whole cost, and it makes the result a dict instead of a
-positional guess. Do this once per dataset; the column set is uniform within a release.
+One 64 KiB range request (`bytes=0-65535`, enough for the first bgzip block) is the whole
+cost, and it makes the result a dict instead of a positional guess. Do this once per dataset; the column set is uniform within a release.
 
 ## Trap 3 — region strings carry no `chr`, and `X` is per-dataset
+
+Coordinates are **GRCh38** in both releases (reads aligned to GRCh38, GENCODE v39
+annotation, per <https://www.ebi.ac.uk/eqtl/Methods/>). A GRCh37 position from an older GWAS
+lands on the wrong locus or on nothing, and an empty fetch looks exactly like "no eQTL here".
+Lift over first.
 
 The `chromosome` column — and therefore the tabix index — uses `1`…`22`, `X`. The `variant`
 column in the same row uses `chr20_46120612_T_C`. Pass the `variant`-style name to a region
@@ -477,9 +495,16 @@ want every dataset at once rather than one at a time.
 ## Get the files
 
 A complete retrieval, from a tissue name to a tab-separated file plus a manifest, using only
-the resource's own tables. The gene's cis window is derived from the permuted file rather
-than from an external gene-coordinate lookup, so the recipe has no dependency beyond the
-Catalogue itself.
+the resource's own tables. The Catalogue tests every variant within ±1 Mb of the gene's
+Ensembl start (<https://www.ebi.ac.uk/eqtl/Methods/>), and that start is not in any of these
+files. The lead variant from the permuted file lies inside the window, so the lead ±2 Mb
+always contains all of it; filtering on `molecular_trait_id` then leaves exactly the
+variants that were tested. The permuted row's `n_variants` says how many that is, so the
+recipe checks it — a window copied from somewhere else (±200 kb around the lead returns
+1,401 of TRIM66's 8,389 variants here) fails loudly instead of writing a partial file.
+
+The 4 Mb region is about 350,000 rows across every gene in it and takes a couple of
+minutes over HTTPS; only the rows for the one gene are kept.
 
 ```python
 """eQTL Catalogue release 7 -> cis associations for one gene in one dataset, + manifest."""
@@ -498,7 +523,9 @@ RES = ("https://raw.githubusercontent.com/eQTL-Catalogue/"
        "eQTL-Catalogue-resources/master/data_tables")
 STUDY, GROUP, QUANT = "BLUEPRINT", "monocyte", "ge"
 GENE = "ENSG00000166436"          # TRIM66
-WINDOW = 200_000                  # bp either side of the lead variant
+# The cis window is +/-1 Mb of the gene start, and the lead variant is inside it, so the
+# lead +/-2 Mb is a guaranteed superset. Do not shrink this: n_variants is asserted below.
+WINDOW = 2_000_000
 
 
 def read_text(url, timeout=300):
@@ -520,7 +547,7 @@ qts, qtd = ds["study_id"], ds["dataset_id"]
 print(f"{RELEASE} {qtd}: {ds['study_label']} / {ds['sample_group']} / "
       f"{ds['condition_label']} / n={ds['sample_size']} / {ds['tissue_id']}")
 
-# 2. Lead variant and cis window for the gene, from the permuted file (<1 MB).
+# 2. Lead variant and tested-variant count for the gene, from the permuted file (<1 MB).
 perm = gzip.decompress(
     read_text(f"{FTP}/sumstats/{qts}/{qtd}/{qtd}.permuted.tsv.gz")).decode().splitlines()
 pcols = perm[0].rstrip("\r").split("\t")
@@ -545,8 +572,8 @@ if chrom not in tb.contigs:
     raise SystemExit(f"contig {chrom} is not indexed in {qtd}: {tb.contigs}")
 start = max(0, pos - WINDOW - 1)
 rows = [dict(zip(cols, ln.rstrip("\r\n").split("\t")))
-        for ln in tb.fetch(chrom, start, pos + WINDOW)]
-rows = [r for r in rows if r["molecular_trait_id"] == GENE]
+        for ln in tb.fetch(chrom, start, pos + WINDOW)
+        if ln.startswith(GENE + "\t")]          # molecular_trait_id is column 1
 
 # 5. Collapse the rsid duplication (Trap 4): one row per variant, rsids gathered.
 by_variant = {}
@@ -556,6 +583,9 @@ for r in rows:
         cur["rsid"].append(r["rsid"])
 assoc = sorted(by_variant.values(), key=lambda r: float(r["pvalue"]))
 print(f"{len(rows)} rows -> {len(assoc)} distinct variants for {GENE}")
+assert len(assoc) == int(prow["n_variants"]), \
+    f"got {len(assoc)} variants, the permutation tested {prow['n_variants']}"
+span = sorted(int(r["position"]) for r in assoc)
 
 out = [c for c in cols if c != "rsid"] + ["rsids"]
 with open(f"{qtd}_{GENE}_cis.tsv", "w", newline="") as fh:
@@ -574,7 +604,9 @@ manifest = {
     "dataset": {k: ds[k] for k in ("study_label", "sample_group", "condition_label",
                                    "tissue_id", "quant_method", "sample_size", "pmid")},
     "gene_id": GENE,
-    "region": f"{chrom}:{start + 1}-{pos + WINDOW}",
+    "region_queried": f"{chrom}:{start + 1}-{pos + WINDOW}",
+    "variant_span": f"{chrom}:{span[0]}-{span[-1]}",
+    "n_variants_tested": int(prow["n_variants"]),
     "lead_variant": prow["variant"], "p_beta": prow["p_beta"],
     "source_files": [nominal, f"{FTP}/sumstats/{qts}/{qtd}/{qtd}.permuted.tsv.gz"],
     "variants": len(assoc), "rows_before_rsid_collapse": len(rows),
@@ -592,9 +624,12 @@ each, the right choice for "which genes have a QTL anywhere") or the merged Zeno
 sets. Download a `.all.tsv.gz` only when you need every variant in a locus for one dataset,
 and when you do, fetch the `.tbi` alongside it so later queries are local.
 
-CC-BY-4.0 requires attribution: cite Kerimov *et al.* 2021 (PMID:34493866) and 2023
-(PMID:37721944) plus the original study for every dataset you used — `pmid` is a column in
-the metadata table precisely so you can.
+The licence is CC-BY-4.0, which requires attribution of the source. Separately, the
+Catalogue's Studies page (Acknowledgements, <https://www.ebi.ac.uk/eqtl/Studies/>) asks you
+to cite the eQTL Catalogue paper — Kerimov *et al.* 2021 (PMID:34493866); 2023
+(PMID:37721944) describes the current release — plus the original publication behind every
+dataset you used, and to acknowledge their funding. `pmid` is a column in the metadata
+table, which makes the per-dataset citation mechanical.
 
 ## Pre-release 8: parquet, and the X chromosome
 
@@ -780,12 +815,14 @@ check("  its lead variant", lead["variant"], "chr11_8683418_C_T")
 check("  traits with p_beta < 0.01",
       sum(1 for r in prows if float(r["p_beta"]) < 0.01), 6648)
 check("rows in 11:8600000-8700000", len(rows), 6303)
+s7, s8 = ({r["study_id"] for r in t.values()} for t in (r7, r8))
+check("r8_beta study ids: carried from r7, new", (len(s8 & s7), len(s8 - s7)), (7, 9))
 
 print(f"\n{sum(ok)}/{len(ok)} checks passed")
 assert all(ok), "eQTL Catalogue self-check failed"
 ```
 
-**Expect.** All checks `PASS` and a final `27/27 checks passed`. Sections 1–6 are
+**Expect.** All checks `PASS` and a final `28/28 checks passed`. Sections 1–6 are
 invariants: a failure there means this page is wrong about the resource. Section 7 is
 observed on release 7 as of 2026-11-19 — those counts move only when the release is
 re-processed, so a mismatch there means a new release has landed and the dataset ids,
@@ -806,7 +843,8 @@ counts and file format all need re-checking, not that the skill is broken.
   the ranking transfer; the magnitude does not.
 - **Release 7 is a 2023 processing.** Its genotypes, Ensembl annotation and dbSNP build
   (v151 rsids) are those of 2023. Say which release you used and when you pulled it;
-  pre-release 8 reprocesses 16 of the 42 studies and will change numbers for those.
+  pre-release 8 carries 7 of the 42 forward (GTEx as v10 data under the same id) and
+  will change numbers for those.
 - **Credible sets are per-dataset, not consensus.** The same locus fine-mapped in two
   tissues gives two credible sets, and their overlap is evidence about sharing, not a
   single answer. Report `cs_size` and `cs_min_r2` alongside any top-`pip` variant.
@@ -827,5 +865,5 @@ counts and file format all need re-checking, not that the skill is broken.
 - Resource papers: Kerimov *et al.* 2021 (PMID:34493866) and 2023 (PMID:37721944).
   `p_beta` and the permutation scheme: Ongen *et al.* 2016 (PMID:26708335). The worked
   datasets are BLUEPRINT (PMID:27863251), Alasoo *et al.* 2018 (PMID:29379200) and GTEx
-  (PMID:32913098) — cite the originating study of every dataset you use, as CC-BY-4.0
-  requires.
+  (PMID:32913098) — the Catalogue's Studies page asks you to cite the originating study
+  of every dataset you use.
