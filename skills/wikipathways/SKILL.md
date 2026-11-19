@@ -9,7 +9,7 @@ tags: [public-data, entrez, metabolites, enrichment]
 covers: [wikipathways, pathway, pathways, gene set, gene sets, gmt, gpml, pathvisio, sparql, rdf, linked data, community curation, metabolite, metabolites, chebi, entrez, ncbi gene, ensembl, hgnc, wikidata, human, mouse, rat, yeast, zebrafish, arabidopsis, adverse outcome pathway, rare disease, lipids, signaling]
 papers: [PMID:37941138]
 access: [open]
-datasets: [https://zenodo.org/records/24247740/files/wikipathways-20261110-gmt-Homo_sapiens.gmt, https://data.wikipathways.org/current/gmt/, https://www.wikipathways.org/json/getCounts.json, "https://sparql.wikipathways.org/sparql?query=SELECT%20%2A%20WHERE%20%7B%3Fs%20%3Fp%20%3Fo%7D%20LIMIT%201"]
+datasets: [https://zenodo.org/records/24247740/files/wikipathways-20261110-gmt-Homo_sapiens.gmt, https://www.wikipathways.org/json/getCounts.json, "https://sparql.wikipathways.org/sparql?query=SELECT%20%2A%20WHERE%20%7B%3Fs%20%3Fp%20%3Fo%7D%20LIMIT%201"]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-19
@@ -48,7 +48,7 @@ This page is original text, CC-BY-4.0, by Heureka Labs.
 | route | what it is | state | use it for |
 |---|---|---|---|
 | **Monthly release files** — `data.wikipathways.org/<YYYYMMDD>/` | GMT gene sets (Entrez), GPML diagrams, RDF dumps, per species | frozen on the 10th of each month | anything you need to reproduce: gene sets for enrichment, bulk downloads |
-| **Zenodo** | the same files, one record per species per month, with a DOI and an md5 | frozen | citing a release; fetching one after it leaves the 12-month window on `data.wikipathways.org` |
+| **Zenodo** | the same files, with a DOI and an md5 (see **Releases** for how records are grouped) | frozen | citing a release; fetching one after it leaves the roughly 9-month window on `data.wikipathways.org` |
 | **SPARQL** — `sparql.wikipathways.org/sparql` | the RDF of one release, queryable | the most recent release (20261110 on 2026-11-19) | metabolites (ChEBI), node types, interactions, ontology tags, questions the GMT cannot answer |
 | **JSON API** — `www.wikipathways.org/json/*.json` | whole-database JSON files, regenerated with every edit | live (files dated 2026-11-16 on 2026-11-19) | what exists right now, pathway metadata, search across all species |
 
@@ -71,7 +71,7 @@ client libraries still point at these. Tested on 2026-11-19:
 | `www.wikipathways.org/instance/WP254_r117018` (the revision-pinned link form) | **404** |
 | `www.wikipathways.org/instance/WP254` and `index.php/Pathway:WP254` | **200**, but the body is a 1.6 kB HTML page with a JavaScript/meta-refresh redirect to `/pathways/WP254.html`; `curl -L` does not follow it |
 | `data.wikipathways.org/current/gmt/wikipathways-current-gmt-Homo_sapiens.gmt` (a guessed stable name) | **503**. Files under `current/` keep their dated names, so the current human GMT is `current/gmt/wikipathways-20261110-gmt-Homo_sapiens.gmt` until the next release |
-| any missing file on `data.wikipathways.org`, including a release older than the 12-month window (`/20250910/gmt/…` on 2026-11-19) | **503** from the cache, not 404. It reads like an outage; retrying will not help. Go to Zenodo |
+| any missing file on `data.wikipathways.org`, including a release that has left the window (`/20260210/gmt/…` on 2026-11-19) | usually **503** from the cache, sometimes 404 (`gpml/…-Ovis_aries.zip` gave 404, `…-Nicotiana_tabacum.zip` 503). A 503 here reads like an outage; retrying will not help. Go to Zenodo |
 | any `www.wikipathways.org` URL with Python's default `User-Agent` | **403**. `data.wikipathways.org` and `sparql.wikipathways.org` accepted it |
 
 What replaced them: the JSON files (one file per question, covering every pathway), the
@@ -84,13 +84,17 @@ per-pathway assets under
 - **Releases are dated, monthly, on the 10th.** The current one on 2026-11-19 is **20261110**.
   The release date is in every file name and in field 2 of every GMT name
   (`WikiPathways_20261110`). Record it with every result.
-- **`data.wikipathways.org` keeps about 12 months.** On 2026-11-19 it listed 20260310 through
-  20261110 plus one 2023 snapshot. For anything older, and for a citable copy, use Zenodo: each
-  species' GMT and GPML zip is its own record, a new version each month. The human GMT for
-  20261110 is <https://doi.org/10.5281/zenodo.24247740>, md5
-  `97e86976bc90c0e046ff0a2d1f303c00`, byte-identical to the `data.wikipathways.org` copy. Cite
-  the **version** DOI. The human GMT's concept DOI was different in October (`23394370`) and
-  November (`24247739`), so a concept DOI does not reliably mean "latest human GMT".
+- **`data.wikipathways.org` keeps about 9 months.** Its index says 12, but on 2026-11-19 it
+  listed 20260310 through 20261110 plus one 2023 snapshot, and 20260210 already answered 503.
+  For anything older, and for a citable copy, use Zenodo.
+- **Zenodo groups releases inconsistently, so pin a record id and look files up by name.** The
+  human GMT for 20261110 is record 24247740 (<https://doi.org/10.5281/zenodo.24247740>), md5
+  `97e86976bc90c0e046ff0a2d1f303c00`, byte-identical to the `data.wikipathways.org` copy. That
+  record holds one file and sits under its own concept (24247739); October 2026 is likewise its
+  own record and concept (23394371 under 23394370). The older human GMTs, 20250610 to 20260210,
+  share concept 7718765, and one record of it (18646540) holds eight monthly files. So a concept
+  DOI does not mean "latest human GMT", and a record can hold several months: cite the record
+  DOI and select the file by its dated name.
 - **A pathway id is `WP<n>`; a revision is `WP<n>_r<rev>`.** You will meet three revision
   notations: GPML `Version="WP254_r140926"` and SPARQL IRIs
   `https://identifiers.org/wikipathways/WP254_r140926` carry an integer for older edits but a
@@ -108,11 +112,15 @@ per-pathway assets under
 
 - **Only 18 species have a GMT file; 44 have pathways.** No GMT exists for *Escherichia coli*,
   *Mycobacterium tuberculosis*, *Oryza sativa*, *Bombyx mori* and two dozen others. For those, use
-  the GPML zip (41 species) and read identifiers from the diagrams.
+  the GPML zip (41 species) and read identifiers from the diagrams. Three species have neither:
+  *Ovis aries*, *Glycine max* and *Nicotiana tabacum* (one pathway each) are in the JSON listing
+  with no release file; fetch their diagrams from the per-pathway assets.
 - **The GMT is not every pathway even for human.** 991 of 1,131 human pathways have a GMT line.
-  138 of the 140 missing have no gene nodes (metabolite-only pathways such as WP3602
-  "Metabolism overview", with 118 ChEBI ids in SPARQL). The other two, WP2597 and WP5151, have
-  Entrez-mapped genes in SPARQL and are absent from the GMT with no reason given. A pathway
+  138 of the 140 missing have no Entrez-mapped gene node. 132 of those have no gene, protein or
+  RNA node at all (metabolite-only pathways such as WP3602 "Metabolism overview", with 118 ChEBI
+  ids in SPARQL); six (WP4195, WP4485, WP4486, WP4487, WP4580, WP5274) have gene or protein nodes
+  that cite only EC numbers, UniProt or Wikidata and never map to Entrez. The other two, WP2597
+  and WP5151, have Entrez-mapped genes in SPARQL and are absent from the GMT with no reason given. A pathway
   missing from your enrichment output may simply not be in the file.
 - **The GMT is species-filtered; the diagrams are not.** Mouse WP1 (statin pathway) contains a
   node for human CETP (Entrez 1071, a gene mice lack). The mouse GMT drops it (19 ids); SPARQL
@@ -127,11 +135,16 @@ MIR200B. Never derive gene membership from GPML `TextLabel` or the SVG.
 
 **Symbols cross species.** In the SPARQL graph, a gene node whose author used an HGNC symbol is
 the shared IRI `https://identifiers.org/hgnc.symbol/<SYMBOL>`, and its `wp:bdbEntrezGene` values
-are every species' Entrez id for that symbol. So for WP5434 "Cancer pathways" (human), SPARQL
-returns **1,607** Entrez ids where the human GMT has **509**; the GMT is a subset of the SPARQL
-set. Gene nodes are also shared across pathways, so a node's `rdfs:label` is pooled from every
+are the Entrez ids of every species whose gene carries that exact symbol. So for WP5434 "Cancer
+pathways" (human), SPARQL returns **1,607** Entrez ids where the human GMT has **509**; the GMT is
+a subset of the SPARQL set. The 1,098 extra ids, resolved in NCBI Gene: dog 404, platypus 327,
+pig 315, Atlantic cod 31, zebrafish 13, *Xenopus tropicalis* 4, chicken 2, and human 2. The two
+human ones are real genes the GMT leaves out: TERC (7012, through the `hgnc.symbol/TERC` node)
+and LOC105369213 (through the `PLCG2` node). Mouse and rat ids are absent because their symbols
+are spelled differently (`Plcg2`), which is the other half of the trap. Gene nodes are also shared across pathways, so a node's `rdfs:label` is pooled from every
 pathway that draws it (Entrez 2316, FLNA, carries the label `SH2B1` from one drawing). Take gene
-sets from the GMT; use SPARQL for what the GMT does not carry.
+sets from the GMT, knowing it can drop a non-coding human gene such as TERC; use SPARQL for what
+the GMT does not carry, filtering its Entrez ids to your species.
 
 **To join your data:** map your genes to Entrez first (the `ncbi-gene` skill covers symbol and
 Ensembl to Entrez), then intersect on Entrez ids within one species. Mouse symbols do not match
@@ -140,8 +153,8 @@ human sets, and a symbol match across species proves nothing.
 ## Get the files
 
 **Gene sets for one species and release, as a long table.** The block downloads the pinned
-human GMT from `data.wikipathways.org`, falls back to the Zenodo copy if the dated folder has aged
-out, checks the md5 against the Zenodo record, and writes one row per pathway and gene (duplicates
+human GMT from `data.wikipathways.org`, falls back to the Zenodo copy if the dated folder has left
+the window, checks the md5 against the Zenodo record, and writes one row per pathway and gene (duplicates
 removed) plus a provenance record. Change `SPECIES`, `RELEASE` and `ZENODO` together; the Zenodo
 record id differs per species and month.
 
@@ -166,7 +179,7 @@ def fetch(url):
 
 try:
     raw, source = fetch(f"https://data.wikipathways.org/{RELEASE}/gmt/{NAME}"), "data.wikipathways.org"
-except urllib.error.HTTPError as e:   # a missing or aged-out file answers 503, not 404
+except urllib.error.HTTPError as e:   # a missing or aged-out file answers 503, sometimes 404
     print(f"data.wikipathways.org: HTTP {e.code}; using Zenodo")
     raw, source = fetch(f"https://zenodo.org/records/{ZENODO}/files/{NAME}"), "zenodo"
 rec = json.loads(fetch(f"https://zenodo.org/api/records/{ZENODO}"))
@@ -308,8 +321,9 @@ endpoint serves: WikiPathways RDF 20261110
   WP5434: WP5434_r142317 -> 1607 Entrez ids via SPARQL
 ```
 
-WP254's 88 equals its GMT set. WP5434's 1,607 is 509 human ids plus other species' ids for the
-same symbols (see **Joining genes**). For gene sets, use the GMT.
+WP254's 88 equals its GMT set. WP5434's 1,607 is its 509 GMT ids plus 1,096 ids from other
+species that spell the same symbols identically and 2 human genes the GMT omits (see **Joining
+genes**). For gene sets, use the GMT.
 
 ## The JSON API: what exists now
 
@@ -392,7 +406,8 @@ def sparql(q):
 # 1. the pinned GMT matches its Zenodo checksum, and every line has the documented shape
 code, raw = get(f"https://zenodo.org/records/{ZENODO}/files/{NAME}")
 meta = json.loads(get(f"https://zenodo.org/api/records/{ZENODO}")[1])
-assert code == 200 and "md5:" + hashlib.md5(raw).hexdigest() == meta["files"][0]["checksum"]
+expected = next(f["checksum"] for f in meta["files"] if f["key"] == NAME)   # records can hold several months
+assert code == 200 and "md5:" + hashlib.md5(raw).hexdigest() == expected
 gmt = {}
 for line in raw.decode().splitlines():
     f = line.split("\t")
