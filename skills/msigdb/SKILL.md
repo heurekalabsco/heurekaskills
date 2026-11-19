@@ -9,7 +9,7 @@ tags: [public-data, gsea, enrichment, entrez, licensing]
 covers: [msigdb, molecular signatures database, gene sets, gmt, hallmark, gsea, ssgsea, gsva, c1, c2, c3, c5, c6, c7, c8, c9, canonical pathways, reactome, wikipathways, biocarta, kegg medicus, chemical and genetic perturbations, transcription factor targets, microrna targets, immunesigdb, cell type signatures, entrez, ensembl, human, mouse]
 papers: [PMID:16199517, PMID:21546393, PMID:26771021, PMID:37704782]
 access: [open, registered]
-datasets: [https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/h.all.v2026.2.Hs.entrez.gmt, https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/h.all.v2026.2.Hs.symbols.gmt, https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/c2.cp.v2026.2.Hs.entrez.gmt, https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/c2.cp.kegg_legacy.v2026.2.Hs.entrez.gmt]
+datasets: [https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/h.all.v2026.2.Hs.entrez.gmt, https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/h.all.v2026.2.Hs.symbols.gmt, https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/c2.cp.v2026.2.Hs.entrez.gmt, https://content.msigdb.org/downloads/msigdb/release/2026.2.Hs/c2.cp.v2026.2.Hs.json]
 allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-19
@@ -41,20 +41,25 @@ MSigDB's terms page, <https://www.gsea-msigdb.org/gsea/msigdb_license_terms.jsp>
 > the terms and conditions of the Creative Commons Attribution 4.0 International License. Some
 > MSigDB gene sets are distributed with further restrictions.
 
-The same page names three exceptions, each recognisable by set-name prefix:
+The same page names four exceptions, each recognisable by set-name prefix:
 
 | sets | prefix | terms | this skill |
 |---|---|---|---|
 | `C2:CP:KEGG_LEGACY` (186 sets) | `KEGG_` without `MEDICUS_` | "provided for use in the MSigDB collection under license to the Broad Institute … End users are directed to … kegg.jp … for information on the copyright holder's academic and commercial licensing policies" | **excluded** |
 | `C2:CP:KEGG_MEDICUS` (790) | `KEGG_MEDICUS_` | "subject to the terms and conditions of the Creative Commons Attribution-ShareAlike 4.0 International License" | kept |
 | `C2:CP:BIOCARTA` (292 human, 252 mouse) | `BIOCARTA_` | "conditioned upon acknowledgment and retention of the aforementioned copyright, and agreement to such disclaimer" | kept |
+| AAAS/STKE Database of Cell Signaling | `ST_` | "These gene sets have been removed in MSigDB version v7.0 and above." | absent: 0 `ST_` sets in 2026.2.Hs or 2026.2.Mm |
 
 Why KEGG_LEGACY goes. KEGG's own page, <https://www.kegg.jp/kegg/legal.html> (updated
 2024-10-01), says "Non-academic use of KEGG requires a commercial license." Academic users may
 take the sets; a commercial reader needs a licence from Pathway Solutions. The rest of MSigDB is
-open to both, so this skill drops the 186 sets everywhere they appear, including inside `c2.all`,
-`c2.cp` and the all-in-one `msigdb.v…gmt`. If you are academic and want them, fetch
-`c2.cp.kegg_legacy` yourself under KEGG's terms; the code below never does.
+open to both, so this skill drops the 186 sets everywhere they appear. They ship inside the
+combined `c2.all`, `c2.cp` and all-in-one `msigdb.v…gmt` files as well as in `c2.cp.kegg_legacy`,
+so the helper's `fetch` filters every file before writing it and refuses the `kegg_legacy` file
+outright; no block on this page writes a KEGG_LEGACY set to disk. The filter is the prefix rule
+`KEGG_` without `MEDICUS_`, which selects exactly the 186 sets whose `collection` is
+`C2:CP:KEGG_LEGACY` in the release JSON (the Try it checks this). If you are academic and want
+them, fetch them yourself under KEGG's terms.
 
 What the other two mean in practice. KEGG MEDICUS is share-alike: analysing with it is
 unrestricted, but if you **redistribute** those sets or a modified version (in a supplement, a
@@ -153,9 +158,10 @@ def _get(url):
             return r.read()
     except urllib.error.HTTPError as e:
         if e.code in (403, 404):
-            # content.msigdb.org is an S3 bucket: a missing key answers 403 AccessDenied
-            raise FileNotFoundError(f"{e.code} for {url} -- no such file in this release; "
-                                    "check the name against catalog()") from None
+            # content.msigdb.org is an S3 bucket: a missing key answers 403 AccessDenied,
+            # so a 403 is a missing file OR a real refusal; the bucket does not say which
+            raise FileNotFoundError(f"{e.code} for {url} -- 403 AccessDenied means a missing file "
+                                    "or a refusal; check the name against catalog()") from None
         raise
 
 
@@ -180,20 +186,32 @@ def gmt_url(collection, release=RELEASE, ids="entrez"):
     return f"{BASE}/{release}/{collection}.v{release}.{ids}.gmt"
 
 
+def is_kegg_legacy(name):
+    """KEGG_LEGACY sets carry KEGG's own licence; KEGG_MEDICUS_ sets are CC BY-SA 4.0."""
+    return name.startswith("KEGG_") and not name.startswith("KEGG_MEDICUS_")
+
+
 def fetch(collection, dest=".", release=RELEASE, ids="entrez"):
-    """Download one GMT into dest, check its shape, return the path."""
+    """Download one GMT, check its shape, drop KEGG_LEGACY sets, write the rest.
+    Returns (path, number of KEGG_LEGACY sets removed)."""
+    if "kegg_legacy" in collection or collection.endswith("cp.kegg"):
+        raise ValueError(f"{collection!r} is the KEGG-licensed sub-collection; not fetched")
     url = gmt_url(collection, release, ids)
-    data = _get(url).decode("utf-8")
-    for n, line in enumerate(data.splitlines(), 1):
+    keep, removed = [], 0
+    for n, line in enumerate(_get(url).decode("utf-8").splitlines(), 1):
         f = line.split("\t")
         if len(f) < 3 or SET_HOST not in f[1]:
             raise ValueError(f"{url} line {n} is not GMT")
         if ids == "entrez" and not all(g.isdigit() for g in f[2:]):
             raise ValueError(f"{url} line {n} carries a non-numeric Entrez id")
+        if is_kegg_legacy(f[0]):
+            removed += 1
+        else:
+            keep.append(line + "\n")
     path = os.path.join(dest, url.rsplit("/", 1)[-1])
     with open(path, "w") as fh:
-        fh.write(data)
-    return path
+        fh.writelines(keep)
+    return path, removed
 
 
 def read_gmt(path):
@@ -206,16 +224,6 @@ def read_gmt(path):
                 raise ValueError(f"duplicate set name {f[0]} in {path}")
             sets[f[0]] = f[2:]
     return sets
-
-
-def is_kegg_legacy(name):
-    """KEGG_LEGACY sets carry KEGG's own licence; KEGG_MEDICUS_ sets are CC BY-SA 4.0."""
-    return name.startswith("KEGG_") and not name.startswith("KEGG_MEDICUS_")
-
-
-def drop_kegg_legacy(sets):
-    kept = {k: v for k, v in sets.items() if not is_kegg_legacy(k)}
-    return kept, sorted(set(sets) - set(kept))
 
 
 def symbol_to_entrez(symbols_path, entrez_path):
@@ -237,8 +245,9 @@ EOF
 
 ## Get the files
 
-Every collection in the pinned release, both id flavours, `KEGG_LEGACY` removed from every file,
-and a `MANIFEST.tsv` with set counts and SHA-256 per file. Save as `get_msigdb.py` beside
+Every collection in the pinned release plus the all-in-one `msigdb` file (the catalogue does
+not list it), both id flavours, `KEGG_LEGACY` removed by `fetch` before anything is written, and
+a `MANIFEST.tsv` with set counts and SHA-256 per file. Save as `get_msigdb.py` beside
 `msigdb_tools.py` and run `python3 get_msigdb.py`.
 
 ```python
@@ -250,19 +259,12 @@ REL = m.RELEASE                       # "2026.2.Mm" for the mouse collections
 out = os.path.join("msigdb", REL)
 os.makedirs(out, exist_ok=True)
 rows = []
-for stem in m.catalog(REL):
-    if stem.endswith("kegg_legacy"):  # KEGG's own licence; see "Licence, collection by collection"
-        continue
+stems = [s for s in m.catalog(REL) if "kegg_legacy" not in s] + ["msigdb"]
+for stem in stems:                     # kegg_legacy: KEGG's own licence, fetch() refuses it
     for ids in ("entrez", "symbols"):
-        path = m.fetch(stem, out, REL, ids)
-        with open(path) as fh:
-            lines = fh.readlines()
-        keep = [l for l in lines if not m.is_kegg_legacy(l.split("\t", 1)[0])]
-        if len(keep) != len(lines):   # c2.all and c2.cp bundle the legacy sets in
-            with open(path, "w") as fh:
-                fh.writelines(keep)
+        path, removed = m.fetch(stem, out, REL, ids)
         body = open(path, "rb").read()
-        rows.append((os.path.basename(path), len(keep), len(lines) - len(keep),
+        rows.append((os.path.basename(path), body.count(b"\n"), removed,
                      len(body), hashlib.sha256(body).hexdigest()))
 with open(os.path.join(out, "MANIFEST.tsv"), "w") as fh:
     fh.write("file\tsets\tkegg_legacy_removed\tbytes\tsha256\n")
@@ -273,14 +275,15 @@ print(f"{len(rows)} files in {out}; KEGG_LEGACY sets removed:",
 ```
 
 ```
-66 files in msigdb/2026.2.Hs; KEGG_LEGACY sets removed: 744 | total MB 135.6
+68 files in msigdb/2026.2.Hs; KEGG_LEGACY sets removed: 1116 | total MB 192.4
 ```
 
-About 100 seconds. 744 is 186 sets times four files (`c2.all` and `c2.cp`, each in two id
-flavours); the manifest shows `c2.cp` at 4,091 sets after removing them. Change `REL` to
-`"2026.2.Mm"` for the 21 mouse collections, where nothing is removed.
+About 90 seconds. 1,116 is 186 sets times six files (`c2.all`, `c2.cp` and `msigdb`, each in
+two id flavours); the manifest shows `c2.cp` at 4,091 sets and `msigdb` at 34,906 after removing
+them. Change `REL` to `"2026.2.Mm"` for the 21 mouse collections plus `msigdb`, where nothing is
+removed.
 
-For one collection: `m.fetch("h.all", ".", "2026.2.Hs", "entrez")`.
+For one collection: `path, removed = m.fetch("h.all", ".", "2026.2.Hs", "entrez")`.
 
 ## Join on Entrez ids, not symbols
 
@@ -296,8 +299,9 @@ import os
 import urllib.request
 import msigdb_tools as m
 
-REL = m.RELEASE
-chip = f"Human_Ensembl_Gene_ID_MSigDB.v{REL}.chip"
+REL = m.RELEASE                          # the ids below are human; under .Mm use ENSMUSG ids
+species = {"Hs": ("Human", "h.all"), "Mm": ("Mouse", "mh.all")}[REL.rsplit(".", 1)[-1]]
+chip = f"{species[0]}_Ensembl_Gene_ID_MSigDB.v{REL}.chip"
 if not os.path.exists(chip):
     urllib.request.urlretrieve(f"{m.BASE}/{REL}/annotations/{chip}", chip)
 ens2sym = {}
@@ -307,7 +311,7 @@ with open(chip) as fh:
         ens, sym = line.split("\t")[:2]
         ens2sym[ens] = sym
 
-pe, ps = m.fetch("h.all", ".", REL, "entrez"), m.fetch("h.all", ".", REL, "symbols")
+(pe, _), (ps, _) = m.fetch(species[1], ".", REL, "entrez"), m.fetch(species[1], ".", REL, "symbols")
 sym2id = m.symbol_to_entrez(ps, pe)              # same release on both sides
 
 mine = ["ENSG00000141510.18", "ENSG00000115053", "ENSG00000189043", "ENSG00000000000"]
@@ -334,8 +338,8 @@ ENSG00000000000      -> not in chip  -> Entrez -
 Strip the version suffix first; the chip has none. The many-to-one is mostly alternate-haplotype
 and patch-region copies of one gene (`ZNF486` has three ids): several rows of an RNA-seq table can
 land on one gene, so collapse them (sum counts, or keep the highest-expressed) before ranking.
-`symbol_to_entrez` built from `h.all` only knows Hallmark genes; build it from `c2.all` or the
-`msigdb` pair for genome-wide coverage.
+`symbol_to_entrez` built from `h.all` only knows Hallmark genes; build it from the `msigdb` pair
+(fetched through `fetch`, so already without KEGG_LEGACY) for genome-wide coverage.
 
 ## Human and mouse
 
@@ -361,8 +365,9 @@ pairing fails before any download.
 - **`https://www.gsea-msigdb.org/gsea/downloads.jsp`** redirects to `login.jsp`; it is not a file
   URL. Use the release tree.
 - **A file that does not exist answers `403 AccessDenied`** (XML) on `content.msigdb.org`, not
-  404; the Broad mirror answers 404. The helper reports both as `FileNotFoundError`. Measured
-  with `c2.cp.kegg.v2026.2.Hs.entrez.gmt`, a name that existed until 2023.1.
+  404; the Broad mirror answers 404. Measured with curl on `c2.cp.nope.v2026.2.Hs.gmt`. A 403
+  from the bucket cannot be told apart from a real refusal, so the helper's `FileNotFoundError`
+  says "missing file or a refusal" rather than asserting the file is absent.
 - **`h.all.v2026.2.Mm…`** does not exist; mouse Hallmark is `mh.all`.
 - **Older names differ.** v7.x files carry no species suffix (`h.all.v7.5.1.entrez.gmt`) and the
   helper refuses those releases; up to 2023.1 the legacy KEGG file was `c2.cp.kegg`, and
@@ -370,29 +375,30 @@ pairing fails before any download.
   legacy sets in 2023.1 too.
 - **The second GMT column was `http://` before 2023.2** and `https://` since; the helper checks
   the host, not the scheme. Most GMT readers ignore this column, which is right.
-- **`c2.all`, `c2.cp` and `msigdb.v…` include `KEGG_LEGACY`.** Downloading a combined file and
-  stopping there brings the licensed sets back.
+- **`c2.all`, `c2.cp` and `msigdb.v…` include `KEGG_LEGACY`.** Downloading a combined file
+  with plain curl brings the licensed sets back; `fetch` filters them on the way in.
 
 ## Try it
 
-**Data.** MSigDB 2026.2.Hs Hallmark (both id flavours), the combined canonical-pathways file
-`c2.cp`, and its `kegg_legacy` sub-collection, from `content.msigdb.org`. CC BY 4.0 apart from the
-exceptions above; no account needed to fetch. Last confirmed reachable 2026-11-19.
+**Data.** MSigDB 2026.2.Hs Hallmark (both id flavours), plus the combined canonical-pathways
+file `c2.cp` and its JSON metadata, from `content.msigdb.org`. The `c2.cp` pair is read straight
+from the network and only the filtered GMT is written, so no KEGG_LEGACY set reaches disk.
+CC BY 4.0 apart from the exceptions above; no account needed to fetch. Last confirmed reachable 2026-11-19.
 
-**Run.** Routed through both traps: the licence filter has to remove exactly the KEGG_LEGACY
-sub-collection from the combined file, and four genes annotated with 2025.1-era symbols have to
-be found in their Hallmark sets.
+**Run.** Routed through both traps: the licence filter has to remove exactly the sets the
+release's own JSON labels `C2:CP:KEGG_LEGACY` from the combined file, and four genes annotated
+with 2025.1-era symbols have to be found in their Hallmark sets.
 
 ```bash
 COLD=$(mktemp -d) && cd "$COLD"
 R=2026.2.Hs
 B=https://content.msigdb.org/downloads/msigdb/release/$R
-for f in h.all.v$R.entrez.gmt h.all.v$R.symbols.gmt c2.cp.v$R.entrez.gmt c2.cp.kegg_legacy.v$R.entrez.gmt; do
+for f in h.all.v$R.entrez.gmt h.all.v$R.symbols.gmt; do
   curl -sSfO "$B/$f" || { echo "FAILED $f"; exit 1; }
 done
-python3 - "$R" <<'EOF'
-import sys
-R = sys.argv[1]
+python3 - "$R" "$B" <<'EOF'
+import json, os, sys, urllib.request
+R, B = sys.argv[1], sys.argv[2]
 def gmt(path):
     return {f[0]: f[2:] for f in (l.rstrip("\n").split("\t") for l in open(path))}
 
@@ -406,12 +412,24 @@ for k in hs:
 id2sym = {g: s for s, g in sym2id.items()}
 assert len(id2sym) == len(sym2id), "pairing is one-to-one"
 
-# Licence filter: KEGG_ without MEDICUS_ is exactly the KEGG_LEGACY sub-collection
-cp, legacy = gmt(f"c2.cp.v{R}.entrez.gmt"), gmt(f"c2.cp.kegg_legacy.v{R}.entrez.gmt")
-flagged = {k for k in cp if k.startswith("KEGG_") and not k.startswith("KEGG_MEDICUS_")}
-assert flagged == set(legacy), "prefix rule matches the sub-collection file"
-kept = {k: v for k, v in cp.items() if k not in flagged}
-assert not any(k in kept for k in legacy)
+# Licence filter, checked against the release's own collection labels; read in memory,
+# only the filtered GMT is written
+def get(name):
+    with urllib.request.urlopen(f"{B}/{name}", timeout=120) as r:
+        return r.read().decode("utf-8")
+label = {k: v["collection"] for k, v in json.loads(get(f"c2.cp.v{R}.json")).items()}
+lines = get(f"c2.cp.v{R}.entrez.gmt").splitlines(keepends=True)
+legacy = {k for k, c in label.items() if c == "C2:CP:KEGG_LEGACY"}
+flagged = {l.split("\t", 1)[0] for l in lines}
+flagged = {k for k in flagged if k.startswith("KEGG_") and not k.startswith("KEGG_MEDICUS_")}
+assert flagged == legacy and legacy, "prefix rule selects exactly C2:CP:KEGG_LEGACY"
+with open(f"c2.cp.v{R}.entrez.gmt", "w") as fh:
+    fh.writelines(l for l in lines if l.split("\t", 1)[0] not in flagged)
+kept = gmt(f"c2.cp.v{R}.entrez.gmt")
+assert len(kept) == len(lines) - len(legacy) and not legacy & kept.keys()
+assert all(label[k] != "C2:CP:KEGG_LEGACY" for k in kept)
+assert not [f for f in os.listdir(".") if "kegg_legacy" in f]
+cp = lines
 
 # The label trap: hits annotated with 2025.1-era symbols, joined against this release
 hits = {"NCL": "4691", "NDUFA4": "4697", "CENPJ": "55835", "IL1RL1": "9173"}
@@ -434,8 +452,8 @@ Invariants (a failure means the skill is wrong):
 
 - 50 Hallmark sets; the symbols and entrez files list the same sets with the same lengths, and
   the positional pairing is one-to-one.
-- The `KEGG_` without `MEDICUS_` rule selects exactly the sets in `c2.cp.kegg_legacy`, and none
-  survive the filter.
+- The `KEGG_` without `MEDICUS_` rule selects exactly the sets the release JSON labels
+  `C2:CP:KEGG_LEGACY`; none is in the written file, and no `kegg_legacy` file is on disk.
 - All four hits are found when joined on Entrez ids.
 
 Observed on 2026.2.Hs, 2026-11-19 (drift to investigate, not a bug, if they move):
