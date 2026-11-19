@@ -169,10 +169,15 @@ const isRefusal = (status) => [401, 403, 407, 451].includes(status);
 // that has used its hourly allowance with 403 and `x-ratelimit-remaining: 0` (its secondary
 // limit adds `retry-after`). CI runners share egress IPs, so that allowance is often gone
 // before our first request. On 2026-11-15 that filed `human-gem`'s tags URL as dead (#474)
-// while the same URL answered 200 from a laptop. Only these explicit headers excuse a 403:
-// a refusal without them is still a finding.
-const isRateLimited = (res) =>
-  res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after'));
+// while the same URL answered 200 from a laptop.
+//
+// Scoped to that one host, and the scope is the control. Zenodo sends `retry-after` and a
+// nonzero `x-ratelimit-remaining` on EVERY response, including the 403 for a restricted
+// record (api/records/8278310/files, 2026-11-19), so a header-only rule excused a real
+// refusal on 24 declared URLs. A 403 from any other host is still a finding.
+const isRateLimited = (u, res) =>
+  u.host === 'api.github.com' && res.status === 403 &&
+  (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after'));
 
 // Where the chain actually ended, when that is not where it started. A refusal several hops
 // downstream is otherwise indistinguishable from the declared host refusing, and they call for
@@ -268,7 +273,7 @@ async function probeOnce(startUrl) {
     // otherwise six identical 403s — so the gate stayed silent and certified six false
     // positives as real findings. One misclassified entry disarmed the check.
     if (isTransient(res.status)) return { state: 'transient', status: res.status, reason: `HTTP ${res.status}`, ...where };
-    if (isRateLimited(res)) return { state: 'transient', status: res.status, reason: `HTTP ${res.status} rate limit`, ...where };
+    if (isRateLimited(u, res)) return { state: 'transient', status: res.status, reason: `HTTP ${res.status} GitHub API rate limit`, ...where };
 
     // A refusal that arrives at a host we were REDIRECTED to is not evidence about upstream.
     // The declared host answered and handed us on; the hop that refused is one our own egress
