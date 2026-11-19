@@ -14,7 +14,7 @@ allowed-tools: Read, Write, Edit, Bash
 verified:
   date: 2026-11-19
   against: NCBI Datasets API v2 (x-datasets-version 18.41.1) / genomes FTP tree dated 2026-11-18 / Python 3.12.8 stdlib only / curl 8.15.0
-  executed: 8
+  executed: 9
   unverified: 1
   unverified_reason: the datasets/dataformat CLI block was not executed because the binary could not be run in the build environment — running it with the CLI installed would unblock it; every REST call it wraps is executed above
 ---
@@ -35,8 +35,9 @@ Access is not the hard part. Four silent failures are:
 - **An empty answer is HTTP 200 `{}`.** An unknown accession, an unknown taxon name, an
   old assembly version and a `GCF_`/`GCA_` prefix swap all look the same: no error, no
   `reports` key.
-- **Listings truncate.** A taxon listing returns 20 records unless you page it, and a
-  `page_size` over 1000 is clamped to 1000 without a word.
+- **Taxon listings truncate.** `genome/taxon/{taxon}/dataset_report` returns 20 records
+  unless you page it, and a `page_size` over 1000 is clamped to 1000 without a word. Other
+  endpoints page differently (below), so page every one the same way.
 - **RefSeq `GCF_` and GenBank `GCA_` are two records, not two spellings.** Their version
   numbers differ, their sequences are named differently, and they need not hold the same
   sequences.
@@ -107,16 +108,18 @@ def get(path, params=None, body=None, raw=False, timeout=120):
 def paged(path, params=None, key="reports", page_size=1000):
     """Every record behind a paged endpoint. Refuses to return a short list.
 
-    page_size above 1000 is clamped to 1000 without an error, and an unpaged
-    call returns 20 records, so a caller that ignores next_page_token keeps
-    a fraction of the answer and sees nothing wrong.
+    On taxon listings page_size above 1000 is clamped to 1000 without an error
+    and an unpaged call returns 20 records, so a caller that ignores
+    next_page_token keeps a fraction of the answer and sees nothing wrong.
     """
     params = dict(params or {}, page_size=page_size)
     out, total = [], None
     while True:
         r = get(path, params)
         if total is None:
-            total = r.get("total_count", 0)     # an empty answer is {} with HTTP 200
+            if r and "total_count" not in r:    # {} with HTTP 200 is the empty answer
+                raise IOError(f"{path}: records but no total_count; cannot check completeness")
+            total = r.get("total_count", 0)
         out.extend(r.get(key, []))
         tok = r.get("next_page_token")
         if not tok:
@@ -134,10 +137,19 @@ def assembly(accession, all_versions=True):
     return reps[0] if reps else None
 ```
 
-`paged` raises only when it gets **fewer** records than `total_count`. That is deliberate:
-on `sequence_reports`, `total_count` counts only the primary assembly plus organelles (191
-for GRCh38.p14) while the endpoint returns every sequence including alt loci and patches
-(705). An equality check fires on a correct answer there.
+`paged` raises when it gets **fewer** records than `total_count`, and when an answer has
+records but no `total_count` at all. Two limits on that guard:
+
+- **On `sequence_reports` it cannot fire.** There `total_count` counts only the primary
+  assembly plus organelles (191 for GRCh38.p14) while the endpoint returns every sequence
+  including alt loci and patches (705), so the count is a floor, not a total. Check a
+  sequence report against `assembly_stats` or the FTP `_assembly_report.txt` instead. (An
+  equality check would fire on that correct answer, which is why the guard is `<`.)
+- **Paging differs by endpoint.** Taxon listings return 20 unpaged and clamp `page_size` to
+  1000. `sequence_reports` returned everything unpaged (705 for GRCh38.p14, 3,134 for
+  `GCA_000002125.2`) and did not clamp `page_size=5000`. `annotation_report` for *E. coli*
+  returned all 4,651 genes unpaged or at `page_size=5000`, and paged at 1000. Sending
+  `page_size=1000` and following `next_page_token`, as `paged` does, works on all three.
 
 ## Pin the assembly, with its version
 
@@ -222,9 +234,11 @@ NC_000001.11 NC_012920.1
   `sequence_reports` (fields `refseq_accession`, `genbank_accession`, `ucsc_style_name`,
   `chr_name`), keyed on the accession.
 - **A pair need not hold the same sequences.** GRCh38's GCF drops four GenBank scaffolds
-  (two judged contamination, two redundant); `assembly_info.paired_assembly.differences`
-  says so in prose. Joining by `chr_name` alone would also be wrong for these: they have no
-  RefSeq accession at all.
+  (two judged contamination, two redundant); `assembly_info.paired_assembly.manual_diff`
+  says so in prose and names their RefSeq copies (`KI270752.1/NT_187507.1`, for one). Those
+  `NT_` records exist, but they are not part of `GCF_000001405.40`: they are missing from its
+  sequence report, and the GCA report leaves their `refseq_accession` empty. So a join
+  through the GCF sequence report finds nothing for them, which is the correct answer.
 - **Protein ids differ too.** In *E. coli* K-12 MG1655 the GCF package's `protein.faa`
   starts `NP_414542.1` and the GCA package's starts `AAC73112.1`, for the same 4,300
   proteins over a byte-identical 4,641,652 bp chromosome (`NC_000913.3` vs `U00096.3`).
@@ -337,6 +351,37 @@ genomes: by name 9 | plant genus 9 | gannet genus 7
   `taxonomy/taxon/{ids}/download` gives a zip with `taxonomy_report.jsonl` (lineage and
   classification). The JSONL in every package is **camelCase** (`taxId`, `assemblyInfo`)
   where the REST JSON is snake_case.
+
+## The annotation as a table
+
+`/genome/accession/{acc}/annotation_report` lists the annotated genes of one assembly, with
+GeneID, locus tag, coordinates and protein accessions; `search_text` narrows it. It is the
+assembly-side view; per-gene detail (transcripts, orthologs) belongs to `ncbi-gene`, keyed on
+the `gene_id` this returns.
+
+```python
+import collections
+from ncbi_datasets import get, paged
+
+print(get("genome/accession/GCF_000005845.2/annotation_summary")["gene_types"])
+genes = paged("genome/accession/GCF_000005845.2/annotation_report")
+print(len(genes), collections.Counter(g["annotation"]["gene_type"] for g in genes).most_common(3))
+hit = get("genome/accession/GCF_000005845.2/annotation_report", {"search_text": "lacZ"})["reports"]
+a = hit[0]["annotation"]
+print(a["symbol"], a["gene_id"], a["locus_tag"], a["genomic_regions"][0]["gene_range"]["range"][0],
+      [p["accession_version"] for p in a.get("proteins", [])])
+```
+
+Observed 2026-11-19:
+
+```
+['ncRNA', 'other', 'protein-coding', 'pseudogene', 'rRNA', 'tRNA']
+4651 [('protein-coding', 4290), ('pseudogene', 145), ('ncRNA', 107)]
+lacZ 945006 b0344 {'begin': '363231', 'end': '366305', 'orientation': 'minus'} ['NP_414878.1']
+```
+
+Coordinates here are 1-based and inclusive, on the RefSeq sequence (`NC_000913.3`): a
+GenBank-named file needs the sequence map above before these line up.
 
 ## Get the files
 
@@ -456,7 +501,7 @@ Content-Length: 972898531
 GCF_000001405.40_GRCh38.p14_genomic.gtf.gz OK
 ```
 
-The block fetches the GTF as the worked case; set `F` to `${NAME}_genomic.fna.gz`,
+The block fetches the GTF (57 MB, and slow on a busy day) as the worked case; set `F` to `${NAME}_genomic.fna.gz`,
 `_genomic.gff.gz` or `_protein.faa.gz` for the others. The directory also holds
 `_assembly_report.txt`, the flat-file form of the sequence-name map above. Old versions
 keep their own directories (`GCF_000001405.39_GRCh38.p13/` sits beside `.40`).
@@ -475,23 +520,25 @@ datasets download genome accession GCF_000005845.2 --include genome,gff3,protein
 datasets download genome accession GCF_000001405.40 --include genome --dehydrated --filename grch38.zip
 unzip -q grch38.zip -d grch38 && datasets rehydrate --directory grch38
 datasets summary genome taxon 9606 --as-json-lines |
-  dataformat tsv genome --fields accession,assminfo-name,assminfo-status,assminfo-paired-assmaccession
+  dataformat tsv genome --fields accession,assminfo-name,assminfo-status,assminfo-paired-assm-accession
 ```
 
-The CLI calls the same API, so treat the rules on this page as applying to it too: the
-`GCF_`/`GCA_` split, the API-key rate limit, and the
-current-versions-only default of the reports. That carry-over was not tested here.
+The CLI calls the same API, so the `GCF_`/`GCA_` split and the rate limit apply to it too.
+Its version default is not the REST one: per NCBI's `datasets summary genome` reference,
+`--assembly-version current` (the default) returns "current assembly versions, plus previous
+versions only if paired with a current version", and `--assembly-version all` adds every
+previous version. None of this was tested here.
 
 ## What does not work (2026-11-19)
 
-- **`/genome/accession/{acc}/annotation_report` and `/annotation_summary` returned HTTP 500**
-  for every assembly tried (*E. coli* GCF_000005845.2, GRCh38.p14, GRCm39), with and without
-  `page_size`. Use the GFF3 from the package, or `ncbi-gene` for per-gene records, until it
-  answers again.
+- **`annotation_report` and `annotation_summary` can fail transiently.** Both returned HTTP
+  500 for every assembly tried during one session on 2026-11-19 and answered normally later
+  the same day. The helper retries `500` three times; if it still fails, use the GFF3 from
+  the package.
 - **No error for anything that does not exist.** Unknown accession, unknown taxon name,
   prefix-swapped accession and old version without `all_assemblies` are all HTTP 200 `{}`.
   Check for the `reports` key, and compare what came back with what you sent.
-- **`page_size` > 1000 is not an error**; it is 1000. Unpaged is 20.
+- **`page_size` > 1000 is not an error** on taxon listings; it is 1000. Unpaged is 20 there.
 - **Requesting annotation for an unannotated assembly is not an error**; the file is just
   absent from the zip.
 
@@ -580,7 +627,8 @@ Invariants. These hold whatever NCBI rebuilds, so a failure means the skill is w
   with it. An unversioned accession resolves to a current, versioned one. An unknown
   accession is `None`, not an exception.
 - The GRCh38 RefSeq/GenBank pair has different version numbers; chr1 is `NC_` on one side
-  and `CM` on the other; every GenBank-only sequence lacks a RefSeq accession.
+  and `CM` on the other; every GenBank-only sequence has an empty `refseq_accession` in the
+  GCA sequence report.
 - An unpaged taxon listing returns 20 records; `page_size=5000` returns 1000; `paged` returns
   exactly `total_count` distinct accessions; excluding pairs gives fewer.
 - `Morus` resolves to two taxids, and a genome query by the name returns one genus's count.
