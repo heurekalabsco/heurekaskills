@@ -5,22 +5,16 @@ category: models
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.5.0
+version: 1.6.0
 tags: [single-cell, batch-correction, generative-models, scvi, multimodal]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-16
-  against: scvi-tools 1.5.1 / torch 2.14.0 / scanpy 1.12.4 / anndata 0.13.3.post0 / Python 3.12.3
+  date: 2026-11-21
+  against: scvi-tools 1.5.1 / torch 2.15.0 / scanpy 1.12.6 / anndata 0.13.4 / leidenalg 0.12.0 / Python 3.12.3. Try it re-run cold in a fresh directory and reproduced its five recorded lines unchanged, max proba_de 0.2926 included, with torch moving 2.14.0 to 2.15.0 underneath — the second framework upgrade those figures have survived. The Typical Workflow block, which earlier runs left unverified, was corrected and then executed end to end on CPU — the heart cell atlas subsample at 18,641 cells and 26,469 genes after filtering, subset to 1,200 highly variable genes, 400 training epochs at the default, then latent and normalized extraction, neighbors, umap and leiden, with no exception.
   executed: 4
   unverified: 1
-  unverified_reason: >-
-    The Typical Workflow block calls scvi.data.heart_cell_atlas_subsampled(), which
-    downloads from exampledata.scverse.org, and the validating environment had no
-    outbound route to that host — the block was not run rather than found broken.
-    Re-run it from a host that can reach exampledata.scverse.org. The optional GPU
-    line of the install block ("scvi-tools[cuda]") also went unrun for want of a CUDA
-    host; the extra itself is present in the 1.5.1 metadata.
+  unverified_reason: The only line not run is the optional GPU extra in the install block, scvi-tools[cuda], which needs a CUDA host; the extra itself is present in the 1.5.1 metadata. Every block in SKILL.md that can run standalone was executed this run, including the Typical Workflow block that earlier runs recorded as unverified for want of a route to the dataset host.
 ---
 # scvi-tools
 
@@ -99,13 +93,26 @@ import scanpy as sc
 
 adata = scvi.data.heart_cell_atlas_subsampled()
 sc.pp.filter_genes(adata, min_counts=3)
-sc.pp.highly_variable_genes(adata, n_top_genes=1200)
+
+# Name the counts before anything overwrites adata.X -- step 2 reads them back
+# by that name, and this dataset ships no "counts" layer of its own.
+adata.layers["counts"] = adata.X.copy()
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+adata.raw = adata
+
+# flavor="seurat_v3" selects on the count layer. The default flavor expects
+# log-scaled input, and on raw counts its expm1 step overflows to infinity.
+sc.pp.highly_variable_genes(
+    adata, n_top_genes=1200, subset=True,
+    layer="counts", flavor="seurat_v3", batch_key="cell_source",
+)
 
 # 2. Register data with model (specify layers, covariates)
 scvi.model.SCVI.setup_anndata(
     adata,
-    layer="counts",  # Use raw counts, not log-normalized
-    batch_key="batch",
+    layer="counts",            # Use raw counts, not log-normalized
+    batch_key="cell_source",   # this dataset's batch column -- it has no "batch"
     categorical_covariate_keys=["donor"],
     continuous_covariate_keys=["percent_mito"]
 )
@@ -127,6 +134,25 @@ sc.pp.neighbors(adata, use_rep="X_scVI")
 sc.tl.umap(adata)
 sc.tl.leiden(adata)
 ```
+
+**Three of those lines are specific to this dataset, and each is a way the block fails if the
+generic form is carried over to it.** All three were found by running it:
+
+- **The `counts` layer has to be created.** `heart_cell_atlas_subsampled()` keeps its raw
+  counts in `adata.X` and ships no `counts` layer, so `setup_anndata(layer="counts")` raises
+  `ValueError: counts is not a valid key in adata.layers` — and the copy has to happen
+  *before* `normalize_total` and `log1p` overwrite `adata.X`.
+- **Selecting on counts needs `flavor="seurat_v3"`.** The default flavor expects log-scaled
+  input; handed raw counts its `expm1` step overflows to infinity, and pandas then reports
+  "cannot specify integer bins when input data contains infinity" several frames away from
+  the actual cause.
+- **The batch column is `cell_source`, not `batch`.** This object has no `batch` column, so
+  `batch_key="batch"` raises `KeyError: 'batch not found in adata.obs.'`. The four values are
+  `Harvard-Nuclei`, `Sanger-CD45`, `Sanger-Cells` and `Sanger-Nuclei`.
+
+The generic forms under `references/` are written against an AnnData you have already
+prepared, where `counts` and `batch` do exist. The difference here is that this block names a
+real dataset, so its keys have to be that dataset's.
 
 **Key Design Principles:**
 - **Raw counts required**: Models expect unnormalized count data for optimal performance
