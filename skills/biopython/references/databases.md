@@ -45,7 +45,11 @@ The module handles ordinary request pacing automatically and retries transient H
 
 ### EInfo - Database Information
 
-Get information about available databases and their statistics:
+Get information about available databases and their statistics.
+
+`Entrez.read()` wraps `DbInfo` in a **list holding one record**, so index it before
+reading fields. Treating it as a mapping — `result["DbInfo"]["Description"]` — raises
+`TypeError: list indices must be integers or slices, not str`:
 
 ```python
 # List all databases
@@ -56,8 +60,10 @@ print(result["DbList"])
 # Get information about a specific database
 handle = Entrez.einfo(db="pubmed")
 result = Entrez.read(handle)
-print(result["DbInfo"]["Description"])
-print(result["DbInfo"]["Count"])  # Number of records
+info = result["DbInfo"][0]          # a list of one, not a mapping
+print(info["Description"])
+print(info["Count"])                # Number of records
+print(info["LastUpdate"])
 ```
 
 ### ESearch - Search Databases
@@ -331,35 +337,95 @@ print(article['ArticleTitle'])
 
 ### Handling Large Result Sets
 
+**Paging an ESearch with `retstart` stops at 9998.** The hit count keeps rising past that
+and the parameter keeps accepting values, but the server refuses the request:
+`RuntimeError: Search Backend failed: Exception: 'retstart' cannot be larger than 9998.
+For PubMed, ESearch can only retrieve the first 9,999 records matching the query.` A loop
+over a broad query therefore dies partway through rather than at the start, which is the
+worst place to find out.
+
+**The history server is not a way around it.** Storing the search with `usehistory="y"`
+and paging it with `efetch` hits the same wall, and reports it less helpfully — a bare
+`HTTPError: HTTP Error 400: Bad Request` at the same offset, with nothing to say why.
+
+So a result set larger than the window has to be **partitioned** until each piece fits.
+Dates are the usual axis. Halve the range, ask for each half's count, and keep halving
+until every slice is inside the window:
+
 ```python
-# Batch processing for large searches
-search_term = "cancer[Title]"
-handle = Entrez.esearch(db="pubmed", term=search_term, retmax=0)
-result = Entrez.read(handle)
-handle.close()
+from datetime import date, timedelta
 
-total_count = int(result["Count"])
-batch_size = 500
+WINDOW = 9999  # PubMed serves no record past this offset, by either route
 
-for start in range(0, total_count, batch_size):
-    # Fetch batch
-    handle = Entrez.esearch(
-        db="pubmed",
-        term=search_term,
-        retstart=start,
-        retmax=batch_size
-    )
+
+def hit_count(term):
+    handle = Entrez.esearch(db="pubmed", term=term, retmax=0)
     result = Entrez.read(handle)
     handle.close()
+    return int(result["Count"])
 
-    # Process IDs
-    id_list = result["IdList"]
-    print(f"Processing IDs {start} to {start + len(id_list)}")
+
+def fitting_slices(term, start, end):
+    """Halve the date range until each slice fits. Flags any day that cannot."""
+    span = f"{term} AND {start:%Y/%m/%d}:{end:%Y/%m/%d}[PDAT]"
+    total = hit_count(span)
+    if total <= WINDOW:
+        yield span, total, True
+    elif start == end:
+        yield span, total, False      # one day, still too big: date cannot split it
+    else:
+        mid = start + (end - start) // 2
+        yield from fitting_slices(term, start, mid)
+        yield from fitting_slices(term, mid + timedelta(days=1), end)
+
+
+def page_slice(span, batch_size=500):
+    """Page one slice that is known to fit."""
+    ids = []
+    for start in range(0, min(hit_count(span), WINDOW), batch_size):
+        handle = Entrez.esearch(db="pubmed", term=span, retstart=start, retmax=batch_size)
+        result = Entrez.read(handle)
+        handle.close()
+        ids.extend(result["IdList"])
+    return ids
+
+
+search_term = "cancer[Title]"
+print(f"whole query: {hit_count(search_term)} hits, of which {WINDOW} are reachable")
+
+reachable, unreachable = 0, []
+for span, total, fits in fitting_slices(search_term, date(2024, 1, 1), date(2024, 1, 7)):
+    window = span.split("AND ")[1]
+    if fits:
+        reachable += total
+        print(f"  {total:>5} hits  {window}")
+    else:
+        unreachable.append((window, total))
+        print(f"  {total:>5} hits  {window}  NOT RETRIEVABLE — needs a second facet")
+
+print(f"reachable in this range: {reachable}")
+for window, total in unreachable:
+    print(f"still capped: {window} holds {total}, so {total - WINDOW} are out of reach")
+
+ids = page_slice(f"{search_term} AND 2024/01/02:2024/01/02[PDAT]")
+print(f"paged {len(ids)} ids from one fitting slice, first {ids[0]}")
 ```
+
+**A single day can exceed the window, and then dates have run out.** PubMed assigns
+1 January to records whose issue carries only a year, so that date accumulates a pile
+orders of magnitude larger than its neighbours — the block above prints both, and the gap
+is not subtle. The partitioner reports such a slice instead of paging it, because the
+alternative is returning the first 9,999 and calling that the answer. Splitting it needs a
+second facet — a journal, a subject heading, an article type — not a narrower date.
 
 ## Advanced Patterns
 
 ### Search History with WebEnv
+
+History keeps a result set on the server so later calls refer to it instead of resending
+the query. It does **not** widen the retrieval window: the loop below is correct only while
+`count` stays under 9999, which holds for this example's query and not for a broad one. Past
+that, partition the search as *Handling Large Result Sets* above does.
 
 ```python
 # Perform search and store on server
@@ -408,7 +474,9 @@ handle.close()
 2. **Set Entrez.tool** for reusable software and register the tool/email pair with NCBI
 3. **Use `NCBI_API_KEY` from the environment** for higher rate limits (10 req/s vs 3 req/s); never hardcode keys
 4. **Close handles** after reading to free resources
-5. **Batch large requests** - Use retstart and retmax for pagination
+5. **Batch large requests** - Use retstart and retmax for pagination, remembering that
+   PubMed serves nothing past a retstart of 9998 by any route; past that, partition the
+   query by date instead
 6. **Use WebEnv for large downloads** - Store results on server
 7. **Cache locally** - Download once and save to avoid repeated requests
 8. **Handle errors gracefully** - Network issues and API limits can occur
