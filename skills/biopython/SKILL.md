@@ -5,21 +5,16 @@ category: utility
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.4.0
+version: 1.5.0
 tags: [sequences, fasta, genbank, entrez, blast]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-27
-  against: biopython 1.88 / Python 3.11.15 / NumPy 2.4.6
-  executed: 55
-  unverified: 34
-  unverified_reason: >-
-    26 blocks call NCBI over the network (Entrez and web BLAST), 6 shell out to a local
-    binary the validating environment does not install (blastn, makeblastdb, muscle,
-    clustalo), and 2 need the optional ReportLab dependency for Bio.Graphics. Re-run from a
-    host with outbound NCBI access and a BLAST+ / MUSCLE / Clustal Omega install to close
-    the first two groups; pip install reportlab closes the third.
+  date: 2026-11-25
+  against: biopython 1.88 / Python 3.11.18 / NumPy 2.4.6 / ReportLab 5.1.1 / Matplotlib 3.11.2
+  executed: 83
+  unverified: 16
+  unverified_reason: 10 blocks call NCBI web BLAST, which this run's network path refused at its own proxy rather than at NCBI, and 6 shell out to blastn, makeblastdb, muscle or clustalo, which the validating environment does not install. Re-run from a host permitted to reach NCBI web BLAST to close the first group, and one with BLAST+ and either MUSCLE or Clustal Omega installed to close the second.
 ---
 # Biopython: Computational Molecular Biology in Python
 
