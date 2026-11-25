@@ -4,13 +4,13 @@ description: Score LLM and agent answers with Karenina — typed answer template
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.0.0
+version: 1.0.1
 tags: [evaluation, benchmarking, rubrics, llm, pydantic]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-12
-  against: karenina 0.1.0 (git 140584a, 2026-08-27) / Python 3.11.15 / pydantic 2.13
+  date: 2026-11-24
+  against: karenina 0.1.0 (git 6834a96, 2026-10-16) / Python 3.11.18 / pydantic 2.14.4
   executed: 9
   unverified: 0
 ---
