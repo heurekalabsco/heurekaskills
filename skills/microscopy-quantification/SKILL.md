@@ -4,13 +4,13 @@ description: Quantify fluorescence microscopy images — open acquisition format
 category: analysis
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.2.0
+version: 1.2.1
 tags: [microscopy, image-analysis, segmentation, cell-counting, scikit-image]
 datasets: [https://gitlab.com/scikit-image/data/-/raw/45e2cec9a2ebd24354beccf293e81dabc6220bbe/cells3d-with-metadata.tif]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-14
-  against: scikit-image 0.26.0 / numpy 2.4.6 / scipy 1.17.1 / tifffile 2026.3.3 / pandas 3.0.5 / matplotlib 3.11.2 / bioio 3.5.0 / cellpose 4.2.1.1 / Python 3.11.15
+  date: 2026-11-26
+  against: scikit-image 0.26.0 / numpy 2.4.6 / scipy 1.17.1 / tifffile 2026.3.3 / pandas 3.1.1 / matplotlib 3.11.2 / bioio 3.7.1 / Python 3.11.18 on Linux x86_64 / every figure in the Try it transcript reproduced exactly - 11 objects, 2 dropped at 26.8 and 26.2 um2, median area 118.1 um2, median diameter 12.26 um, area range 88.6 to 166.6 um2, minimum solidity 0.96 - as did the 3D variant at 12 nuclei and median volume 747 um3 / third independent run to agree, now spanning three pandas and bioio versions / cellpose was not installed this run, so its block stays unverified for the reason below
   executed: 13
   unverified: 1
   unverified_reason: >-
