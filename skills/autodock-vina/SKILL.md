@@ -4,15 +4,16 @@ description: Molecular docking with AutoDock Vina — receptor and ligand prepar
 category: models
 license: CC-BY-4.0
 author: Heureka Labs
-version: 1.3.0
+version: 1.3.1
 tags: [molecular-docking, autodock, vina, structure-based, virtual-screening]
 datasets: [https://raw.githubusercontent.com/ccsb-scripps/AutoDock-Vina/v1.2.7/example/basic_docking/solution/1iep_receptor.pdbqt, https://raw.githubusercontent.com/ccsb-scripps/AutoDock-Vina/v1.2.7/example/basic_docking/data/1iep_ligand.sdf]
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-08-31
-  against: AutoDock Vina 1.2.7 (release binary and PyPI wheel) / Meeko 0.8.0 / RDKit 2026.3.5 / pdb2pqr 3.7.1 / NumPy 2.4.6 / SciPy 1.17.1 / gemmi 0.7.5 / Python 3.11.15 on Linux x86_64
+  date: 2026-11-27
+  against: AutoDock Vina 1.2.7 PyPI wheel / Meeko 0.8.0 / RDKit 2026.9.2 / pdb2pqr 3.8.0 / NumPy 2.4.6 / SciPy 1.17.1 / gemmi 0.7.5 / Python 3.11.18 on Linux x86_64 / the Try it transcript reproduced exactly on newer RDKit and pdb2pqr than the previous run - top affinity -13.25 kcal/mol, 9 poses, redock RMSD 0.27 A, 6 of 9 energies rows, 10 A cube +38.60 and nothing raised / the whole preparation chain re-run from the 1IEP crystal structure, giving -13.06 and 0.21 A from a locally protonated receptor, both inside the prep drift the page already documents / the flexible-side-chain misspelling still raises the documented ValueError verbatim / the three-compound efficiency ranking still reverses the raw-score one at 37, 13 and 14 heavy atoms / second independent run to agree, three months apart
   executed: 25
-  unverified: 0
+  unverified: 5
+  unverified_reason: Five blocks invoke the AutoDock Vina release binary - the install check, the single-ligand dock, the flexible-side-chain dock, the five-seed reproducibility loop, and the batch half of the screening block. This validating environment declines to execute a downloaded third-party executable, so those five were not run here. The previous run held them outside its runnable total rather than declaring them; counting them is why the declared total moves from 25 to 30 while no block was lost. The Python bindings cover the same docking path and were executed, and the page own claim that the wheel ships no executable was confirmed this run.
 ---
 
 # AutoDock Vina — molecular docking
