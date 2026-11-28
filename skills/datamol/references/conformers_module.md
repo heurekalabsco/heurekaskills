@@ -42,10 +42,10 @@ Group conformers by RMS distance.
 
 **Behaviour changed in 0.13.0.** Pruning now uses symmetry-aware optimal alignment, so the
 returned set genuinely satisfies `rms_cutoff`. Measured on 20 seeded ibuprofen conformers at
-`rms_cutoff=1.0`, holding RDKit at 2026.03.6: 0.12.5 kept 10 conformers whose closest pair was
-0.560 Å apart — inside the cutoff it was asked to enforce — while 0.13.0 keeps 2, closest pair
-1.122 Å. Setting `already_aligned=True` on unaligned input reproduces the old result (10 kept,
-closest pair 0.134 Å). On 0.12.5 the flag changed nothing either way. **If a conformer count
+`rms_cutoff=1.0`, holding RDKit at 2026.9.2: 0.12.5 kept 8 conformers whose closest pair was
+0.572 Å apart — inside the cutoff it was asked to enforce — while 0.13.0 keeps 2, closest pair
+1.292 Å. Setting `already_aligned=True` on unaligned input reproduces the old result (8 kept,
+closest pair 0.086 Å). On 0.12.5 the flag changed nothing either way. **If a conformer count
 dropped after upgrading, this is why, and the new count is the correct one.**
 
 ### `dm.conformers.return_centroids(mol, conf_clusters, centroids=True)`

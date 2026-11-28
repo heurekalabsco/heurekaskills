@@ -5,14 +5,14 @@ category: analysis
 license: MIT
 author: K-Dense Inc. (adapted by Heureka Labs)
 attribution: https://github.com/K-Dense-AI/scientific-agent-skills
-version: 1.4.0
+version: 1.5.0
 tags: [cheminformatics, rdkit, smiles, descriptors, fingerprints]
 datasets: []
 allowed-tools: Read, Write, Edit, Bash
 verified:
-  date: 2026-09-19
-  against: datamol 0.13.0 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.6 / NumPy 2.4.6 / scikit-learn 1.9.1 / Python 3.11.15. Conformer and descriptor differences additionally measured against datamol 0.12.5 on the same RDKit build
-  executed: 8
+  date: 2026-11-28
+  against: datamol 0.13.0 / RDKit 2026.9.2 / joblib 1.6.0 / pandas 3.1.1 / NumPy 2.4.6 / scikit-learn 1.9.1 / Python 3.11.18. The 0.12.5-versus-0.13.0 conformer comparison was re-measured on this one RDKit build for both datamol versions, so the table stays controlled. RDKit 2026.09 changes the seeded embedding — the kept count on the two old-behaviour paths moved from 10 to 8 and the closest-pair figures with it, while 0.13.0 default still prunes to 2 and still honours the cutoff, so the invariant the page asserts is intact and only dated observed values moved. Four standalone-runnable blocks executed; the other six fences are illustrative fragments carrying undefined names or placeholder URIs, countable by nobody.
+  executed: 4
   unverified: 0
 ---
 # Datamol Cheminformatics Skill
@@ -41,7 +41,7 @@ on this release, not carried over:
 
 ### Upgrading from 0.12.5: two changes that alter results without raising
 
-Both were measured here on **the same RDKit build (2026.03.6)**, so what follows is datamol's
+Both were measured here on **the same RDKit build (2026.9.2)**, so what follows is datamol's
 doing and not a dependency moving underneath it. Neither raises, which is what makes them
 worth stating.
 
@@ -51,12 +51,12 @@ conformers of ibuprofen at `rms_cutoff=1.0`:
 
 | | conformers kept | closest pair in the kept set | honours the 1.0 Å cutoff |
 | --- | --- | --- | --- |
-| 0.12.5 | 10 | 0.560 Å | no |
-| 0.13.0 (default) | **2** | 1.122 Å | **yes** |
-| 0.13.0, `already_aligned=True` | 10 | 0.134 Å | no |
+| 0.12.5 | 8 | 0.572 Å | no |
+| 0.13.0 (default) | **2** | 1.292 Å | **yes** |
+| 0.13.0, `already_aligned=True` | 8 | 0.086 Å | no |
 
 A pipeline that pinned a conformer count, or that budgeted downstream work on one, changes by
-5× on this input. `already_aligned=True` skips the alignment step and compares conformers where
+4× on this input. `already_aligned=True` skips the alignment step and compares conformers where
 they sit, which is cheaper and is only correct if you really did align them first — on 0.12.5
 the flag changed nothing either way, so code that sets it was getting the wrong answer
 regardless of what it asked for.
@@ -519,8 +519,8 @@ Version-dependent observations — a mismatch is **drift to investigate**, not a
   on RDKit's embedding as well as datamol's pruning, so treat the number as observed; the
   cutoff invariant above is the part that must hold.
 
-Observed 2026-09-19 on datamol 0.13.0 / RDKit 2026.03.6 / joblib 1.6.0 / pandas 3.0.6 /
-NumPy 2.4.6, Python 3.11.15. The character counts in the `to_image` line are the loosest thing
+Observed 2026-11-28 on datamol 0.13.0 / RDKit 2026.9.2 / joblib 1.6.0 / pandas 3.1.1 /
+NumPy 2.4.6, Python 3.11.18. The character counts in the `to_image` line are the loosest thing
 here; only their ordering is asserted:
 
 ```
@@ -536,7 +536,7 @@ apply_reaction : list of list -> CCOC(C)=O | no match -> []
 to_image       : str | 40 mols default vs max_mols=40: 42857 vs 53513 chars
 fuzzy_scaffolds: ['Nc1ncnc2ccc([*:1])cc12', 'Nc1ncnc2ccccc12']
 heterocycle keys: ['n_aliphatic_heterocycles', 'n_aromatic_heterocycles', 'n_saturated_heterocycles']
-conformers     : 20 seeded -> 2 pruned (closest 1.122 A) | already_aligned=True -> 10 (closest 0.134 A)
+conformers     : 20 seeded -> 2 pruned (closest 1.292 A) | already_aligned=True -> 8 (closest 0.086 A)
 invariants OK
 ```
 
